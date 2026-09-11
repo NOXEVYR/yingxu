@@ -1,6 +1,6 @@
 # 映序 API v1
 
-本文保留历次契约，新增的 0.4.5 SKILL 来源接口处于开发状态，尚未发布；当前下载版本见 [README](README.md)。
+本文保留历次契约，0.4.5 新增 SKILL 来源接口；Windows 0.4.5 与 macOS 0.4.5-mac.1 已发布，下载与各平台边界见 [README](README.md)。
 
 Base http://127.0.0.1:8791。JSON；错误 {error:"中文信息"} 配相应状态码。GET /api/bootstrap 返回 {app:"yingxu",version,token,project_root,data_root,categories:[{key,label}],statuses:[...],capabilities:{...}}。写请求头 X-YingXu-Token=token，Content-Type:application/json。
 
@@ -162,7 +162,7 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 - `POST /api/maintenance/cleanup {token}` 只处理本次预览绑定的候选，执行前复验身份；原稿、数据库和数据库备份不进入候选，每篇至少保留最新历史。扫描超出 2 万入口或 3 秒时拒绝清理；返回 removed_files/removed_bytes/skipped_files/warnings。前端改变选项或离开弹窗时不得复用旧确认。
 - 画板 iframe 挂载到固定宿主，标签切换隐藏而不重载；关闭标签销毁。只在场景内容版本变化后合并序列化，保存/关闭同步读取最终内容。字体仅使用本地来源。Markdown 编辑器首次打开需要时才载入本地 bundle。
 
-## 0.4.5 SKILL 来源与扫描位置（开发中，未发布）
+## 0.4.5 SKILL 来源与扫描位置
 
 读接口沿用本地来源校验；写接口沿用同源、会话令牌与 JSON 请求体要求。目录登记不赋予外部技能编辑权限。
 

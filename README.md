@@ -12,17 +12,17 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包与校验](https://github.com/turnsolesama/yingxu/releases)**
+**[下载 Windows x64 完整包 · v0.4.5](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.5/YingXu-v0.4.5-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.5)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[macOS M 系列试用包与校验](https://github.com/turnsolesama/yingxu/releases)适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.5-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.5-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.5 已发布：Windows 正式包与 macOS 0.4.5-mac.1 试用包。** SKILL 库新增来源分组、扫描目录筛选和自定义目录登记，可按需关闭外部扫描位置。外部技能保持只读，关闭或移除登记保留源文件与项目绑定记录；扫描有上限并复用缓存，不新增运行依赖或模型。各平台可下载版本以[发布页](https://github.com/turnsolesama/yingxu/releases)及其验证附件为准，新功能说明见[功能指南](docs/功能指南.md)。
 
 0.4.4 修复画板切换后的撤销和离线字体加载，减少缩放时的重复处理。文档内支持 `Ctrl+F` 查找，Word 预览分段显示并可跨页定位；在项目 Markdown 中拖入文件可建立可点击链接。右键菜单按打开、编辑整理、删除分组，多选时明确操作数量。设置中可预览缓存和历史占用，确认后清理选定范围；默认不清理文稿历史。
 
-**本份源码和功能说明对应 0.4.5。** SKILL 库新增来源分组、扫描目录筛选和自定义目录登记，可按需关闭外部扫描位置。外部技能保持只读，关闭或移除登记保留源文件与项目绑定记录；扫描有上限并复用缓存，不新增运行依赖或模型。各平台可下载版本以[发布页](https://github.com/turnsolesama/yingxu/releases)及其验证附件为准，新功能说明见[功能指南](docs/功能指南.md)。
-
-[功能指南](docs/功能指南.md) · [安装与运行](docs/安装与运行.md) · [开发说明](docs/开发说明.md) · [版本与校验](https://github.com/turnsolesama/portfolio/blob/d3b47d7fc4320f627e6b5fc8f653fcbd35007670/yingxu/releases/README.md)
+[功能指南](docs/功能指南.md) · [安装与运行](docs/安装与运行.md) · [开发说明](docs/开发说明.md) · [版本与校验](https://github.com/turnsolesama/yingxu/releases) · [旧版校验记录](https://github.com/turnsolesama/portfolio/blob/d3b47d7fc4320f627e6b5fc8f653fcbd35007670/yingxu/releases/README.md)
 
 ## 适合怎样的工作
 
@@ -128,7 +128,7 @@ Windows 10 22H2 / Windows 11 x64。完整包自带运行环境，使用系统自
 - 在“扫描位置”中登记本地目录、关闭或重新启用外部位置；自定义位置可移除登记。上述操作保留原文件及已有项目绑定，暂不可用的来源重新启用并扫描后可恢复使用。
 - 外部来源只读，需要修改时复制为“我的 SKILL”。只读取约定位置中的技能说明，不执行技能、安装插件或读取账号配置。
 - 初始化、手动刷新和登记变更时进行有界扫描；筛选读取索引，未变化文件复用元数据缓存。读取失败或扫描未完成会提示，并保留相应旧索引，避免把暂时失败误当成技能删除。没有新增运行依赖、模型或后台轮询。
-- 已用临时合成目录完成后端与浏览器来源管理验证；尚待最终发行包验证及 macOS 原生验收。本节记录开发状态，不提供未完成的发布链接。
+- 已使用隔离合成数据完成来源管理回归与两平台最终发行包验证；macOS 包另经过原生与真实 WKWebView 自动化检查。验证范围与校验值见各平台 Release 附件；人工中文输入法、不同 DPI 和长期使用仍未完成验收。
 
 ## 0.4.4：文档查找、文件链接与画板性能修复
 
