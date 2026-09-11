@@ -11,6 +11,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import traceback
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -32,6 +33,10 @@ class Application:
         resume_token=os.environ.pop('YINGXU_RESUME_SESSION_TOKEN','')
         self.token=resume_token if re.fullmatch(r'[A-Za-z0-9_-]{40,128}',resume_token) else secrets.token_urlsafe(32)
         self.picker_lock=threading.Lock()
+        self.native_picker=None
+        self.desktop_message=None
+        self._close_lock=threading.Lock()
+        self._closed=False
         self.demo_lock=threading.Lock()
         from yingxu.skills import SkillLibrary
         from yingxu.context import ContextExporter
@@ -58,11 +63,24 @@ class Application:
         from yingxu.maintenance import Maintenance
         self.maintenance=Maintenance(self.store)
 
+    def close(self):
+        """Drain accepted writes before stopping the context export worker."""
+        with self._close_lock:
+            if self._closed:return
+            self._closed=True
+            try:
+                self.jobs.pool.shutdown(wait=True,cancel_futures=False)
+            finally:
+                try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                finally:
+                    if not self.context.close():
+                        raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
+
     def bootstrap(self):
         return {'app':'yingxu','version':__version__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'native_picker':os.name=='nt','skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'global_search':True,'resource_groups':True}}
+          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'global_search':True,'resource_groups':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -89,6 +107,11 @@ class Application:
         return {'entries':entries,'total':total,'limit':limit,'offset':offset,'truncated':offset+len(entries)<total}
 
     def pick(self,kind):
+        if sys.platform=='darwin' and self.native_picker is not None:
+            if kind not in ('folder','files'):raise UserError('选择器类型不正确。')
+            if not self.picker_lock.acquire(False):raise UserError('已有一个文件选择窗口打开。',409)
+            try:return {'paths':list(self.native_picker(kind) or [])}
+            finally:self.picker_lock.release()
         if os.name!='nt':raise UserError('当前环境不支持原生选择器，请粘贴本机绝对路径。')
         if not self.picker_lock.acquire(False):raise UserError('已有一个文件选择窗口打开，请先完成选择。',409)
         try:
@@ -114,6 +137,11 @@ class Application:
     def open_file(self,data):
         item=self.store.get_item(data.get('id'));path=self.store.resolve_item_path(item)
         action=data.get('action','open')
+        if sys.platform=='darwin':
+            if action not in ('reveal','open'):raise UserError('不支持的打开方式。')
+            from yingxu.macos import open_path
+            open_path(path,reveal=action=='reveal')
+            return {'ok':True,'focus_folder':str(path.parent) if action=='reveal' else None}
         if os.name!='nt':raise UserError('此操作需要 Windows 桌面环境。')
         if action=='reveal':subprocess.Popen(['explorer.exe','/select,',str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
         elif action=='open':os.startfile(str(path))
@@ -126,7 +154,7 @@ class Application:
         skill_target='skill_id' in data
         if skill_target and (set(data)!={'skill_id'} or not isinstance(data['skill_id'],str) or not re.fullmatch('[a-f0-9]{32}',data['skill_id'])):
             raise UserError('SKILL 位置请求仅接受一个有效的 skill_id。')
-        if os.name!='nt':raise UserError('此操作需要 Windows 桌面环境。')
+        if os.name!='nt' and sys.platform!='darwin':raise UserError('此操作需要桌面环境。')
         with self.skills.lock,self.store.lock:
             if skill_target:
                 path=self.skills.directory(data['skill_id'])
@@ -144,8 +172,12 @@ class Application:
                 if not path.is_relative_to(root):raise UserError('文件夹不存在或路径已改变。',404)
             path=clean_path(path)
             if not path.is_dir():raise UserError('文件夹不存在或路径已改变。',404)
-            explorer=Path(os.environ.get('WINDIR','C:/Windows'))/'explorer.exe'
-            subprocess.Popen([str(explorer),str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
+            if sys.platform=='darwin':
+                from yingxu.macos import open_path
+                open_path(path)
+            else:
+                explorer=Path(os.environ.get('WINDIR','C:/Windows'))/'explorer.exe'
+                subprocess.Popen([str(explorer),str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
         return {'ok':True,'focus_folder':str(path)}
 
     def paste_clipboard(self,data):
@@ -469,6 +501,9 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/clipboard/paste':return self.json(self.app.paste_clipboard(data),201)
                 if path=='/api/import':return self.json(self.app.jobs.submit(data.get('project_id'),data.get('category','references'),data.get('paths',[]),data.get('folder_id','')),202)
                 if path=='/api/rescan':return self.json(self.app.jobs.submit(data.get('project_id')),202)
+                if path=='/api/macos/desktop':
+                    if self.app.desktop_message is None:raise UserError('当前环境没有 macOS 桌面窗口。',404)
+                    return self.json({'ok':bool(self.app.desktop_message(data,self.headers.get('X-YingXu-Token','')))})
                 if path=='/api/pick':return self.json(self.app.pick(data.get('kind')))
                 if path=='/api/open':return self.json(self.app.open_file(data))
                 if path=='/api/open-folder':return self.json(self.app.open_folder(data))
@@ -571,11 +606,13 @@ def main():
     args=parser.parse_args()
     if not 1024<=args.port<=65535:raise SystemExit('端口范围应为1024至65535。')
     app=Application(args.data,args.projects_root)
-    server=Server(('127.0.0.1',args.port),app)
+    try:server=Server(('127.0.0.1',args.port),app)
+    except BaseException:
+        app.close();raise
     print(f'映序 {__version__} · http://127.0.0.1:{args.port}',flush=True)
     try:server.serve_forever(poll_interval=.3)
     finally:
-        server.server_close();app.context.close()
+        server.server_close();app.close()
 
 
 if __name__=='__main__':main()

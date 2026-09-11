@@ -1,6 +1,6 @@
 # 映序公开版开发约定
 
-- 中文本地视频创作项目工作台；独立目录 `yingxu/`。公开版不包含任何个人素材、数据库、缓存、日志或帐号配置。
+- 中文本地视频创作项目工作台；独立仓库根目录。公开版不包含任何个人素材、数据库、缓存、日志或帐号配置。
 - Python 3.11+ 标准库 HTTP + SQLite，原生 HTML/CSS/JS；源码运行可使用 Pillow 与 PATH 中的 FFmpeg；公开完整包必须自带锁定来源的运行环境。无 CDN、遥测或启动时自动下载。开发构建可以显式下载锁定的上游档案。
 - 默认应用数据 `%LOCALAPPDATA%\YingXu`，项目在 Windows“文档”目录的 `YingXu\Projects`。`YINGXU_DATA_DIR` 和 `YINGXU_PROJECTS_DIR` 只接受绝对路径；测试必须覆盖到临时目录，禁止在真实用户数据上测试。
 - 桌面仅监听 127.0.0.1:8791，开发后台可用 `--port`。写接口要求同源和会话令牌；保留版本备份、原子替换、冲突检查和有界后台工作队列。
@@ -28,3 +28,7 @@
 - 0.4.0 Word 编辑只挂载最多 40 段，跨页草稿必须保留；不要重引入全量 textarea 与逐项布局读写。检查 `node tests/frontend_docx_editor.cjs`。
 - 0.4.4 Word 预览同样按 40 段挂载；文内查找须覆盖当前草稿和跨页定位。画板 iframe 必须固定宿主保留撤销，隐藏时停用，关闭时销毁；本地字体构建不得放宽 CSP。画板构建在 `tools/canvas-editor` 执行 `pnpm install --frozen-lockfile --ignore-scripts` 后 `node build.mjs`，开发依赖不打入运行环境。容量清理只允许预览 token 中的受控缓存/旧版本，选项变更必须使确认失效。
 - SVG/HTML 是独立只读类型，无缩略图任务。SVG 只能净化后作为图片提供，所有媒体直链必须经过同一净化器；HTML 静态片段必须在无 allow-* 的 sandbox iframe 与限制性 CSP 中，原始媒体响应为文本附件。检查 `python -B -m unittest discover -s tests -p test_static_formats_http.py -v` 和 `node tests/frontend_static_formats.cjs`。
+
+- macOS 14+ Apple Silicon 试用版由 `macos_app.py` 使用系统 WebKit。平台分支保留 Finder、废纸篓、安全排他重命名和退出草稿保护；共同界面仍提供文内搜索、版本与容量管理。不得把 Windows 截图、托盘和打开方式注册宣称为 Mac 已实现。
+- macOS 在独立 Python 3.13 环境执行 `python -B macos/prepare_dependencies.py`，只下载 `macos/dependencies-lock.json` 中的已锁定档案并校验大小/SHA-256；开发依赖和安装清单不等于模型。Node 仅测试和构建 Markdown，不随应用运行。
+- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.4-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。

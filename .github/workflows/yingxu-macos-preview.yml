@@ -1,0 +1,56 @@
+name: YingXu macOS preview
+on:
+  push:
+    branches: [main]
+    paths: [macos/**, macos_app.py, macos_smoke.py, macos_ui_smoke.py, .github/workflows/yingxu-macos-preview.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: yingxu-macos-preview
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 35
+    env:
+      YINGXU_TEST_BROWSER: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked build dependencies
+        run: |
+          python -m venv .release-work/build-env
+          echo "$PWD/.release-work/build-env/bin" >> "$GITHUB_PATH"
+          .release-work/build-env/bin/python -B macos/prepare_dependencies.py
+      - name: Prepare locked Markdown test dependencies
+        working-directory: tools/markdown-editor
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+      - name: Backend and frontend regressions
+        run: |
+          python -B -m unittest discover -s tests -v
+          node --check frontend/app.js
+          test -x "$YINGXU_TEST_BROWSER"
+          for test in tests/frontend_*.cjs; do node "$test"; done
+      - name: Native macOS synthetic checks
+        run: python -B macos_app.py --smoke-test
+      - name: Build isolated application ZIP
+        run: python -B macos/build.py
+      - name: Verify extracted delivery and real WebKit
+        run: python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.4-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.4-mac.1-verification.json
+      - name: Publish preview after full download verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -B macos/publish.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YingXu-0.4.4-mac.1-arm64
+          path: releases/macos-preview/*
+          if-no-files-found: error
