@@ -52,7 +52,9 @@ def main():
     shutil.copytree(app, staging / 'YingXu.app', symlinks=True)
     shutil.copy2(ROOT / 'macos/README.md', staging / 'README-macOS.md')
     shutil.copy2(ROOT / 'LICENSE', staging / 'LICENSE')
-    freeze = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True)
+    # Locked local wheels produce file:// references in pip freeze. The public
+    # inventory records installed names/versions; upstream hashes remain in lock.
+    freeze = subprocess.check_output([sys.executable, '-m', 'pip', 'list', '--format=freeze', '--disable-pip-version-check'], text=True)
     if any('file:' in line or ' @ ' in line for line in freeze.splitlines()):
         raise RuntimeError('Local dependency paths are not allowed in public metadata')
     (staging / 'BUILD-DEPENDENCIES.txt').write_text(freeze, encoding='utf-8')
