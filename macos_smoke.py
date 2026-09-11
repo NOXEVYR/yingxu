@@ -26,17 +26,20 @@ def run():
         app=Application(root/'data',root/'projects')
         service=Server(('127.0.0.1',0),app)
         thread=threading.Thread(target=service.serve_forever,daemon=True);thread.start()
-        def request(method,path,data=None):
+        def request(method,path,data=None,raw_response=False):
             c=http.client.HTTPConnection('127.0.0.1',service.server_port,timeout=10)
             body=json.dumps(data).encode() if data is not None else None
             headers={'Content-Type':'application/json','X-YingXu-Token':app.token}
             try:
                 c.request(method,path,body,headers);r=c.getresponse();raw=r.read()
                 assert r.status==200 or r.status==201,(r.status,path,raw[:300])
-                return json.loads(raw)
+                return raw if raw_response else json.loads(raw)
             finally:c.close()
         try:
             assert request('GET','/api/health')['version']==__version__=='0.4.4'
+            assert b'<html' in request('GET','/?desktop=macos',raw_response=True)
+            assert b'yingxuMac' in request('GET','/macos.js',raw_response=True)
+            checks.append('Frozen bundle serves its resolved frontend root through HTTP')
             project=request('POST','/api/projects',{'name':'Mac 合成项目'})
             item=request('POST','/api/items',{'project_id':project['id'],'category':'scripts','name':'测试文稿','content':'# 中文\n正文'})
             original=Path(item['path']).read_bytes()
