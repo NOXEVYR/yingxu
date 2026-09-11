@@ -2,7 +2,7 @@ name: YingXu macOS preview
 on:
   push:
     branches: [main]
-    paths: [macos/**, macos_app.py, macos_smoke.py, macos_ui_smoke.py, .github/workflows/yingxu-macos-preview.yml]
+    paths: [macos/**, macos_app.py, macos_smoke.py, macos_ui_smoke.py, tests/test_macos.py, tests/test_portable.py, .github/workflows/yingxu-macos-preview.yml]
   workflow_dispatch:
 permissions:
   contents: write
