@@ -10,7 +10,7 @@
 - Markdown 编辑器构建：在 `tools/markdown-editor` 执行 `npm ci --ignore-scripts --no-audit --no-fund`，然后 `npm run build`；每步成功后再运行前端测试。版本与完整性由 `package-lock.json` 锁定，输出本地 bundle、依赖清单和许可证，禁止从 CDN 加载。Node.js/npm 只在开发构建与测试时使用，完整包运行不需要 Node.js。
 - Markdown 文本是唯一保存模型，不将排版后的 HTML 回写文稿。超过 500000 字符或混合换行降级源码；中文 composition 期间禁止重建/关闭编辑器，保存草稿需与当前文本一致，并保留原文件 BOM 和换行方式。
 - Windows 桌面离线构建：`python desktop/build.py --sdk-package <已下载官方SDK.nupkg> --output YingXu.exe --test`。构建脚本校验固定 SDK 摘要，不下载依赖。
-- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.4-Windows-x64.zip` 使用隔离临时目录验证。
+- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.5-Windows-x64.zip` 使用隔离临时目录验证。
 - 不提交构建日志、本机配置、个人目录、素材和数据库；打包文件不能包含个人绝对路径。
 
 - 完整包先运行 `python tools/prepare_runtime.py --cache <构建缓存> --download`；运行时清单逐项校验，只能来自 `tools/runtime-lock.json`，禁止复制本机安装环境。大体积 ZIP 放 GitHub Release，不提交 Git 历史。
@@ -31,4 +31,10 @@
 
 - macOS 14+ Apple Silicon 试用版由 `macos_app.py` 使用系统 WebKit。平台分支保留 Finder、废纸篓、安全排他重命名和退出草稿保护；共同界面仍提供文内搜索、版本与容量管理。不得把 Windows 截图、托盘和打开方式注册宣称为 Mac 已实现。
 - macOS 在独立 Python 3.13 环境执行 `python -B macos/prepare_dependencies.py`，只下载 `macos/dependencies-lock.json` 中的已锁定档案并校验大小/SHA-256；开发依赖和安装清单不等于模型。Node 仅测试和构建 Markdown，不随应用运行。
-- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.4-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
+- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.5-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
+
+- README 下载链接必须按实际已发布资产更新，不因源码合并提前切换版本，保留 0.4.4 和更早更新记录。
+- 来源登记仅管理扫描配置；外部 SKILL 始终只读，关闭/移除位置保留源文件与项目绑定。映序本地不可关闭，内置位置不可移除；自定义最多 16 个具体本地目录，拒绝网络共享、链接、磁盘根和整个用户目录。同物理文件多来源去重，身份复用必须重新检查当前路径，禁止凭历史 inode 猜测。
+- SKILL 扫描仅初始化、显式刷新或登记变更触发，查询只读索引。保持单文件 1 MiB、2000 技能、20000 条目、3 层深度和协作式 3 秒预算；无常驻扫描、无新增依赖或模型。只在某位置扫描完整时替换该位置旧成员，读取失败与预算中断保留旧成员并向界面报告；列表组装需持有来源锁。缓存按 mtime/size 复用，不宣称硬性延迟上限。
+- WorkBuddy 只使用受校验安装清单中的技能目录，ZCode 只识别约定缓存层级，不将缓存存在推断为插件当前启用。不得为自动发现读取真实账号、凭据或任意历史日志。默认目录以 `yingxu/skill_sources.py` 为准，自定义补充未知布局。
+- 来源回归：`python -B -m unittest discover -s tests -p test_skill_sources.py -v`、`python -B -m unittest discover -s tests -p test_skill_sources_http.py -v`、`node tests/frontend_skill_sources.cjs`；关联检查覆盖原技能、回收、搜索、交接和定位文件。测试使用临时合成目录，浏览器验证不得充当 macOS 原生验收。

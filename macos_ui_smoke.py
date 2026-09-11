@@ -16,6 +16,12 @@ def run():
     with tempfile.TemporaryDirectory(prefix='yingxu-webkit-') as temporary:
         root=Path(temporary).resolve()
         os.environ.update(HOME=str(root/'user'),USERPROFILE=str(root/'user'))
+        skill_files=[]
+        for folder,name in [('.dsh/skills/demo','DSH 合成规范'),('.workbuddy/skills/demo','WorkBuddy 合成规范')]:
+            skill=root/'user'/folder/'SKILL.md'
+            skill.parent.mkdir(parents=True)
+            skill.write_text('---\nname: '+name+'\n---\n外部原稿保持只读。',encoding='utf-8')
+            skill_files.append((skill,skill.read_bytes()))
         app=Application(root/'data',root/'projects')
         service=Server(('127.0.0.1',0),app)
         threading.Thread(target=service.serve_forever,daemon=True).start()
@@ -50,10 +56,10 @@ def run():
                 window.run_js("settingsDialog(); true")
                 wait(lambda:window.run_js("document.querySelector('#dialogTitle').textContent === '设置'"))
                 assert window.run_js("!document.querySelector('[name=capture_enabled]') && !document.querySelector('[name=close_to_tray]')")
-                assert window.run_js("Boolean(document.querySelector('#previewMaintenance')) && document.querySelector('#appDialog').textContent.includes('0.4.4')")
+                assert window.run_js("Boolean(document.querySelector('#previewMaintenance')) && document.querySelector('#appDialog').textContent.includes('0.4.5')")
                 window.run_js("document.querySelector('#maintenanceCache').checked=false;document.querySelector('#maintenanceVersions').checked=false;document.querySelector('#previewMaintenance').click();true")
                 wait(lambda:window.run_js("Boolean(document.querySelector('.maintenance-table'))"))
-                result['checks'].append('Shared 0.4.4 version and maintenance preview remain available without Windows-only settings')
+                result['checks'].append('Shared 0.4.5 version and maintenance preview remain available without Windows-only settings')
                 window.run_js("document.querySelector('#closeDialog').click(); true")
                 window.run_js("state.tabs[0].draft += '\\n未保存草稿'; state.tabs[0].dirty = true; true")
                 assert host.closing() is False
@@ -75,7 +81,17 @@ def run():
                 window.run_js("document.querySelectorAll('[data-tab]')[1].click();true")
                 wait(lambda:window.run_js('window.__macCanvasFrame.hidden === false'))
                 assert window.run_js("window.__macCanvasFrame === document.querySelector('iframe[title=\"Excalidraw 画板\"]') && window.__macCanvasDocument === window.__macCanvasFrame.contentDocument")
-                result['checks'].append('0.4.4 canvas uses the same iframe document across Markdown tab switches')
+                result['checks'].append('0.4.5 canvas uses the same iframe document across Markdown tab switches')
+                window.run_js("selectSection('skills');true")
+                wait(lambda:window.run_js("Boolean(document.querySelector('[data-source-group=dsh]'))"))
+                window.run_js("document.querySelector('[data-source-group=dsh]').click();true")
+                wait(lambda:window.run_js("state.skills.length === 1 && state.skills[0].name === 'DSH 合成规范'"))
+                assert window.run_js("state.skills[0].editable === false && document.querySelector('#skillSourceDirectory').options.length === 2")
+                window.run_js("document.querySelector('[data-action=manage-skill-sources]').click();true")
+                wait(lambda:window.run_js("Boolean(document.querySelector('#skillSourceManager')) && Boolean(document.querySelector('#skillSourceList')?.textContent.includes('.workbuddy'))"))
+                assert window.run_js("document.querySelector('#skillSourceList').textContent.includes('.workbuddy')")
+                assert all(path.read_bytes()==before for path,before in skill_files)
+                result['checks'].append('SKILL software and location filters show isolated DSH and WorkBuddy sources in WKWebView without modifying originals')
                 result['ok']=True
             except Exception:
                 result['error']=traceback.format_exc()

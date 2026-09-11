@@ -61,9 +61,9 @@ def wait_health(port, process=None):
     raise RuntimeError('Isolated service health timeout')
 
 
-def check_server(port, data, projects):
+def check_server(port, data, projects, restart=None):
     health = wait_health(port)
-    assert health['version'] == '0.4.4'
+    assert health['version'] == '0.4.5'
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')
@@ -72,6 +72,52 @@ def check_server(port, data, projects):
     assert request(port, 'GET', '/api/projects')['projects'] == []
     assert request(port, 'GET', '/api/skills')['skills'] == []
     token = bootstrap['token']
+    # Only create a synthetic source beneath this verifier's temporary root.
+    # The server's HOME/USERPROFILE is also redirected by the caller.
+    sources = request(port, 'GET', '/api/skill-sources')
+    assert sources['all_total'] == 0 and not sources['errors'] and not sources['truncated']
+    assert {'yingxu','codex','claude','dsh','workbuddy','workbuddy_plugins','zcode','agents'} <= {s['id'] for s in sources['sources']}
+    assert all(s['count'] == 0 for s in sources['sources'])
+    skill_root = data.parent / (data.name + ' 合成技能来源')
+    skill_path = skill_root / 'readonly-fixture' / 'SKILL.md'
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_bytes(b'\xef\xbb\xbf---\r\nname: release-source-probe\r\n---\r\nOriginal synthetic skill.\r\n')
+    skill_sha = hashlib.sha256(skill_path.read_bytes()).hexdigest()
+    added = request(port, 'POST', '/api/skill-sources', {'path': str(skill_root), 'label': '隔离只读技能'}, token)
+    source = next(s for s in added['sources'] if s['custom'])
+    assert source['path'] == str(skill_root) and source['enabled'] and source['readonly'] and source['count'] == 1
+    source_id = source['id']
+    query = '/api/skills?' + urlencode({'source': 'custom', 'source_id': source_id, 'q': 'release-source-probe'})
+    listed = request(port, 'GET', query)
+    assert listed['total'] == 1 and listed['all_total'] == 1
+    skill = listed['skills'][0]
+    assert source_id in skill['source_ids'] and skill['source_group'] == 'custom' and not skill['editable']
+    detail = request(port, 'GET', '/api/skills/' + skill['id'])
+    assert not detail['editable'] and 'Original synthetic skill.' in detail['content']
+    try:
+        request(port, 'PUT', '/api/skills/' + skill['id'], {'etag': detail['etag'], 'content': 'Must not overwrite'}, token)
+    except RuntimeError as error:
+        assert str(error).endswith('returned 403'), str(error)
+    else:
+        raise AssertionError('External skill source unexpectedly writable')
+    assert hashlib.sha256(skill_path.read_bytes()).hexdigest() == skill_sha
+    disabled = request(port, 'PATCH', '/api/skill-sources/' + source_id, {'enabled': False}, token)
+    assert disabled['total'] == 0 and request(port, 'GET', query)['total'] == 0
+    if restart is not None:
+        restart()
+        assert wait_health(port)['instance_id'] == expected
+        token = request(port, 'GET', '/api/bootstrap')['token']
+        persisted = request(port, 'GET', '/api/skill-sources')
+        location = next(s for s in persisted['sources'] if s['id'] == source_id)
+        assert location['status'] == 'disabled' and not location['enabled']
+        assert request(port, 'GET', query)['total'] == 0
+        assert hashlib.sha256(skill_path.read_bytes()).hexdigest() == skill_sha
+    enabled = request(port, 'PATCH', '/api/skill-sources/' + source_id, {'enabled': True}, token)
+    assert enabled['total'] == 1 and request(port, 'GET', query)['skills'][0]['id'] == skill['id']
+    removed_source = request(port, 'DELETE', '/api/skill-sources/' + source_id, {}, token)
+    assert removed_source['total'] == 0 and not any(s['id'] == source_id for s in removed_source['sources'])
+    assert request(port, 'GET', '/api/skills')['skills'] == []
+    assert hashlib.sha256(skill_path.read_bytes()).hexdigest() == skill_sha
     settings = request(port, 'GET', '/api/settings')
     assert settings['capture_enabled'] is True and settings['capture_hotkey'] == 'Ctrl+Alt+Shift+S'
     assert settings['capture_mode'] == 'annotate'
@@ -185,6 +231,9 @@ def check_server(port, data, projects):
     with socket.socket() as connection:
         connection.connect(('127.0.0.1', port))
     return ['health version and data identity', 'configured data/projects roots', 'empty projects and SKILL library',
+            'SKILL source registry lists bounded local locations and empty counts',
+            'custom source registration and source_id/query filters expose read-only synthetic skill',
+            'custom source disable/re-enable/remove preserves skill ID and original file SHA-256',
             'Chinese project/folder/document creation', 'capture settings default to enabled, Ctrl+Alt+Shift+S and annotate; quick/annotate modes persist',
             'cross-category group create/list/atomic transfer/remove/dissolve preserves file paths, bytes and categories',
             'batch tags append without replacing individual tags and batch status preserves original file bytes',
@@ -335,7 +384,7 @@ def main():
         assert (root / 'frontend/live-markdown.css').is_file()
         assert (root / 'frontend/global-search.js').is_file() and (root / 'frontend/global-search.css').is_file()
         for relative in ('frontend/capture.js', 'frontend/resource-groups.js', 'frontend/resource-groups.css',
-                         'yingxu/markdown_assets.py', 'yingxu/resource_groups.py',
+                         'yingxu/markdown_assets.py', 'yingxu/resource_groups.py', 'yingxu/skill_sources.py',
                          'frontend/docx-editor.js', 'frontend/docx-editor.css',
                          'frontend/html-preview.js', 'frontend/html-preview.css', 'frontend/svg-preview.css',
                          'yingxu/svg_preview.py', 'yingxu/svg_content.py',
@@ -360,7 +409,7 @@ def main():
         assert (canvas_root / 'local-assets.js').is_file()
         checked.append('all local canvas assets and fonts match SHA-256 manifest with no obsolete chunks')
         environment = os.environ.copy()
-        environment.update(USERPROFILE=str(base / '空白用户'), LOCALAPPDATA=str(base / 'Local'),
+        environment.update(USERPROFILE=str(base / '空白用户'), HOME=str(base / '空白用户'), LOCALAPPDATA=str(base / 'Local'),
                            APPDATA=str(base / 'Roaming'), YINGXU_DATA_DIR=str(base / '数据 覆盖'),
                            YINGXU_PROJECTS_DIR=str(base / '项目 覆盖'), PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1')
         environment.pop('YINGXU_RESUME_SESSION_TOKEN', None)
@@ -412,7 +461,15 @@ def main():
                                        cwd=root, env=environment, stdout=log, stderr=log, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             try:
                 wait_health(port, process)
-                check_server(port, data, projects)
+                def restart_cli():
+                    nonlocal process
+                    process.terminate()
+                    process.wait(timeout=10)
+                    process = subprocess.Popen([interpreter, '-S', '-B', str(root / 'server.py'), '--port', str(port), '--data', str(data), '--projects-root', str(projects)],
+                                               cwd=root, env=environment, stdout=log, stderr=log, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                    wait_health(port, process)
+                check_server(port, data, projects, restart=restart_cli)
+                checked.append('custom SKILL source disabled configuration and skill ID survive real isolated server restart without changing original SHA-256')
                 checked.append('CLI path overrides with isolated bundled interpreter')
             finally:
                 process.terminate()

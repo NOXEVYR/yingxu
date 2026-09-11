@@ -36,7 +36,7 @@ def run():
                 return raw if raw_response else json.loads(raw)
             finally:c.close()
         try:
-            assert request('GET','/api/health')['version']==__version__=='0.4.4'
+            assert request('GET','/api/health')['version']==__version__=='0.4.5'
             assert b'<html' in request('GET','/?desktop=macos',raw_response=True)
             assert b'yingxuMac' in request('GET','/macos.js',raw_response=True)
             checks.append('Frozen bundle serves its resolved frontend root through HTTP')
@@ -87,18 +87,18 @@ def run():
                 assert file.is_file() and file.stat().st_size==entry['bytes']
                 assert hashlib.sha256(file.read_bytes()).hexdigest()==entry['sha256']
             assert {p.relative_to(canvas_root).as_posix() for p in canvas_root.rglob('*') if p.is_file()}=={x['path'] for x in canvas_manifest['files']}|{'manifest.json'}
-            checks.append('Every offline canvas asset and font matches the 0.4.4 manifest')
+            checks.append('Every offline canvas asset and font matches the 0.4.5 manifest')
             companion=request('POST','/api/items',{'project_id':project['id'],'category':'scripts','name':'附件文稿','content':'文件链接验收'})
             link=request('GET','/api/markdown-assets/file-link?'+urlencode({'note':item['id'],'item':companion['id']}))
             resolved=request('GET','/api/markdown-assets/resolve-file?'+urlencode({'note':item['id'],'path':link['relative_path']+'#yx-item='+companion['id']}))
             assert resolved['id']==companion['id']
             assert Path(changed['path']).read_bytes()==original
-            checks.append('0.4.4 Markdown file links resolve without rewriting the source note')
+            checks.append('0.4.5 Markdown file links resolve without rewriting the source note')
             preview=request('POST','/api/maintenance/preview',{'include_cache':False,'include_versions':False})
             assert not preview['truncated'] and preview['reclaimable_files']==0
             cleaned=request('POST','/api/maintenance/cleanup',{'token':preview['token']})
             assert cleaned['removed_files']==0 and Path(changed['path']).read_bytes()==original
-            checks.append('0.4.4 maintenance preview and empty cleanup retain original documents')
+            checks.append('0.4.5 maintenance preview and empty cleanup retain original documents')
         finally:stop_server(service,app)
     print(json.dumps({'ok':True,'version':PREVIEW,'checks':checks,'real_user_data_used':False},ensure_ascii=False))
 

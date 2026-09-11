@@ -38,7 +38,7 @@ def verify(archive):
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     assert manifest['sha256']==digest and manifest['bytes']==archive.stat().st_size
-    assert manifest['version']=='0.4.4-mac.1' and manifest['source_version']=='0.4.4'
+    assert manifest['version']=='0.4.5-mac.1' and manifest['source_version']=='0.4.5'
     assert manifest['contains_user_data'] is False
     assert archive.with_name(archive.stem+'-SHA256.txt').read_text().split()==[digest,archive.name]
     checks=[]
@@ -66,7 +66,7 @@ def verify(archive):
             assert entry.resolve().is_relative_to(delivery)
         app=delivery/'YingXu.app';executable=app/'Contents/MacOS/YingXu'
         info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
-        assert info['CFBundleShortVersionString']=='0.4.4' and info['CFBundleVersion']=='40401'
+        assert info['CFBundleShortVersionString']=='0.4.5' and info['CFBundleVersion']=='40501'
         assert info['LSMinimumSystemVersion']=='14.0'
         assert subprocess.check_output(['lipo','-archs',str(executable)],text=True).strip()=='arm64'
         subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)

@@ -8,15 +8,27 @@ import os
 from pathlib import Path
 import re
 import threading
+import time
+from functools import wraps
 
 from .store import UserError, clean_path, has_link, now, safe_name, uid
+from .skill_sources import LABELS, catalogue, scan_roots, custom_location, MAX_CUSTOM_SOURCES, DiscoveryBudget
 
 MAX_SKILL_BYTES = 1024 * 1024
 MAX_SKILLS = 2000
 MAX_DEPTH = 3
 MAX_SCAN_ENTRIES = 20_000
+MAX_SCAN_SECONDS = 3.0
 SKIP_DIRS = {"cache", "caches", "__pycache__", "node_modules", "venv", "env"}
 SOURCE_LABELS = {"yingxu": "映序本地", "codex": "Codex 技能", "claude": "Claude 技能"}
+
+
+def _synchronized(method):
+    @wraps(method)
+    def locked(self,*args,**kwargs):
+        with self.lock:
+            return method(self,*args,**kwargs)
+    return locked
 
 
 def _key(path):
@@ -107,11 +119,9 @@ class SkillLibrary:
         self.root = _check_no_links(Path(store.data_root) / "skills")
         self.root.mkdir(parents=True, exist_ok=True)
         self.versions_root = Path(store.data_root) / "skill_versions"
-        self.sources = {
-            "yingxu": self.root,
-            "codex": Path.home() / ".codex" / "skills",
-            "claude": Path.home() / ".claude" / "skills",
-        }
+        self.home = Path.home()
+        self.locations = {}
+        self.sources = {}
         with store.lock, store.connection() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS yx_skills(
@@ -125,8 +135,16 @@ class SkillLibrary:
               project_id TEXT NOT NULL REFERENCES projects(id),
               skill_id TEXT NOT NULL REFERENCES yx_skills(id),created TEXT NOT NULL,
               PRIMARY KEY(project_id,skill_id));
+            CREATE TABLE IF NOT EXISTS yx_skill_source_settings(
+              id TEXT PRIMARY KEY,label TEXT NOT NULL DEFAULT '',path TEXT NOT NULL DEFAULT '',
+              enabled INTEGER NOT NULL DEFAULT 1,custom INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS yx_skill_locations(
+              skill_id TEXT NOT NULL REFERENCES yx_skills(id),source_id TEXT NOT NULL,
+              PRIMARY KEY(skill_id,source_id));
             """)
             columns = {row[1] for row in db.execute('PRAGMA table_info(yx_skills)')}
+            if 'file_identity' not in columns:
+                db.execute("ALTER TABLE yx_skills ADD COLUMN file_identity TEXT NOT NULL DEFAULT ''")
             if 'removed' not in columns:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN removed INTEGER NOT NULL DEFAULT 0')
             if 'removed_at' not in columns:
@@ -137,14 +155,17 @@ class SkillLibrary:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN recycle_started INTEGER NOT NULL DEFAULT 0')
         self.refresh()
 
-    @staticmethod
-    def _item(row, bound=False):
+    def _item(self, row, bound=False):
         result = dict(row)
         result.pop("path_key", None)
+        result.pop('file_identity',None)
         result["editable"] = bool(result["editable"])
         result["available"] = bool(result["available"])
         result["bound"] = bool(bound)
-        result["source_label"] = SOURCE_LABELS.get(result["source"], result["source"])
+        location = self.locations.get(result['source'], {})
+        result['source_id'] = result['source']
+        result['source_group'] = location.get('source', result['source'])
+        result["source_label"] = location.get('label') or SOURCE_LABELS.get(result['source'], result['source'])
         return result
 
     def _row(self, skill_id):
@@ -156,7 +177,7 @@ class SkillLibrary:
 
     def _trusted_path(self, row, write=False):
         source = self.sources.get(row["source"])
-        if source is None:
+        if source is None or not self.locations.get(row['source'],{}).get('enabled'):
             raise UserError("技能来源无效。")
         path = _check_no_links(row["path"])
         root = _check_no_links(source)
@@ -183,114 +204,216 @@ class SkillLibrary:
             "path": str(path), "path_key": _key(path), **metadata,
             "source": source, "editable": int(source == "yingxu" and info.st_nlink == 1),
             "mtime": info.st_mtime_ns, "size": info.st_size, "etag": etag,
+            "file_identity": f'{info.st_dev}:{info.st_ino}' if info.st_ino else '',
             "available": 1, "created": previous["created"] if previous else now(), "updated": now(),
         }
 
     def _upsert(self, db, record):
+        # A surviving hard-link alias keeps the original catalogue/binding ID.
+        # This path switch is performed only for a verified matching identity.
+        db.execute('UPDATE yx_skills SET path=?,path_key=? WHERE id=? AND path_key!=?',
+                   (record['path'],record['path_key'],record['id'],record['path_key']))
         db.execute("""
-          INSERT INTO yx_skills(id,path,path_key,name,description,source,editable,mtime,size,etag,available,created,updated)
-          VALUES(:id,:path,:path_key,:name,:description,:source,:editable,:mtime,:size,:etag,:available,:created,:updated)
+          INSERT INTO yx_skills(id,path,path_key,name,description,source,editable,mtime,size,etag,available,created,updated,file_identity)
+          VALUES(:id,:path,:path_key,:name,:description,:source,:editable,:mtime,:size,:etag,:available,:created,:updated,:file_identity)
           ON CONFLICT(path_key) DO UPDATE SET path=excluded.path,name=excluded.name,
             description=excluded.description,source=excluded.source,editable=excluded.editable,
-            mtime=excluded.mtime,size=excluded.size,etag=excluded.etag,available=1,updated=excluded.updated
+            mtime=excluded.mtime,size=excluded.size,etag=excluded.etag,available=1,updated=excluded.updated,file_identity=excluded.file_identity
         """, record)
 
-    def refresh(self):
-        """Bounded refresh; unchanged files use metadata cache and keep bindings."""
+    def _catalogue(self):
+        with self.store.connection() as db:
+            settings = {row['id']: dict(row) for row in db.execute('SELECT * FROM yx_skill_source_settings')}
+        self.locations = catalogue(self.home, self.root, settings)
+        self.sources = {key: Path(value['path']) for key,value in self.locations.items()}
+
+    @_synchronized
+    def source_list(self):
+        with self.lock, self.store.connection() as db:
+            rows = db.execute('SELECT id,source FROM yx_skills WHERE available=1 AND removed=0').fetchall()
+            links = db.execute('SELECT skill_id,source_id FROM yx_skill_locations').fetchall()
+        visible = {row['id'] for row in rows}
+        counts = {key:set() for key in self.locations}
+        for row in links:
+            if row['skill_id'] in visible and row['source_id'] in counts and self.locations[row['source_id']]['enabled']:
+                counts[row['source_id']].add(row['skill_id'])
+        # Newly created local skills are visible before the next refresh.
+        for row in rows:
+            if row['source'] in counts and self.locations[row['source']]['enabled']:
+                counts[row['source']].add(row['id'])
+        groups = {key:set() for key in LABELS}
+        sources = []
+        for key,value in self.locations.items():
+            item = {name:field for name,field in value.items() if name!='mode'}
+            item['count'] = len(counts[key])
+            groups[item['source']].update(counts[key])
+            sources.append(item)
+        return {'sources':sources,'groups':[{'id':key,'label':label,'count':len(groups[key])} for key,label in LABELS.items()],
+                'all_total':len(visible),'errors':[],'truncated':any(s['status']=='truncated' for s in sources)}
+
+    def add_source(self, data):
         with self.lock:
+            value = custom_location(data,self.home,_check_no_links)
+            if any(_key(value['path'])==_key(source['path']) for source in self.locations.values()):
+                raise UserError('这个扫描位置已经登记。',409)
+            with self.store.lock,self.store.connection() as db:
+                if db.execute('SELECT count(*) FROM yx_skill_source_settings WHERE custom=1').fetchone()[0]>=MAX_CUSTOM_SOURCES:
+                    raise UserError('最多登记 16 个自定义扫描位置。')
+                db.execute('INSERT INTO yx_skill_source_settings(id,path,label,enabled,custom) VALUES(:id,:path,:label,:enabled,:custom)',value)
+            return self.refresh()
+
+    def update_source(self, source_id, data, remove=False):
+        with self.lock:
+            source = self.locations.get(source_id)
+            if source is None:
+                raise UserError('扫描位置不存在。',404)
+            if source_id=='yingxu' or (remove and not source['custom']):
+                raise UserError('映序本地保持启用；其他内置位置可关闭但不能移除。',403)
+            if not isinstance(data,dict) or set(data)-{'enabled','label'} or (not remove and not data):
+                raise UserError('扫描位置参数无效。')
+            enabled = data.get('enabled',source['enabled'])
+            label = data.get('label',source['label'])
+            if not isinstance(enabled,bool) or not isinstance(label,str) or not label.strip() or len(label.strip())>80 or any(ord(c)<32 for c in label):
+                raise UserError('请输入有效的位置名称与启用状态。')
+            with self.store.lock,self.store.connection() as db:
+                if remove:
+                    db.execute('DELETE FROM yx_skill_source_settings WHERE id=?',(source_id,))
+                else:
+                    db.execute('INSERT INTO yx_skill_source_settings(id,label,path,enabled,custom) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,enabled=excluded.enabled',
+                               (source_id,label.strip(),source['path'],int(enabled),int(source['custom'])))
+            return self.refresh()
+
+    def refresh(self):
+        """Bounded per-location updates; interrupted locations retain their index."""
+        with self.lock:
+            self._catalogue()
             with self.store.connection() as db:
-                previous = {row["path_key"]: dict(row) for row in db.execute("SELECT * FROM yx_skills")}
-            records = []
-            seen_paths = set()
-            seen_files = set()
-            seen_roots = set()
-            errors = []
-            skipped = 0
-            visits = 0
+                previous = {row['path_key']:dict(row) for row in db.execute('SELECT * FROM yx_skills')}
+            previous_identities = {row['file_identity']:row for row in previous.values() if row['file_identity']}
+            records, identities, memberships = {}, {}, set()
+            errors, completed = [], set()
+            skipped = visits = 0
+            deadline = time.monotonic()+MAX_SCAN_SECONDS
             truncated = False
-            for source, source_root in self.sources.items():
-                if not source_root.exists():
-                    continue
+            old_active = sum(bool(row['available']) and not row['removed'] for row in previous.values())
+            newly_added = 0
+            for source, location in self.locations.items():
+                if not location['enabled']:
+                    location['status']='disabled';completed.add(source);continue
+                if time.monotonic()>deadline or visits>=MAX_SCAN_ENTRIES:
+                    location['status']='truncated';truncated=True;continue
                 try:
-                    root = _check_no_links(source_root)
-                    if not root.is_dir() or _key(root) in seen_roots:
-                        continue
-                    seen_roots.add(_key(root))
-                except (UserError, OSError) as exc:
-                    skipped += 1
-                    errors.append(str(exc))
+                    roots,status = scan_roots(location,_check_no_links,deadline=deadline)
+                    location['status']=status
+                except DiscoveryBudget as exc:
+                    location['status']='truncated';truncated=True
+                    if len(errors)<20:errors.append(f"{location['label']}：{exc}")
                     continue
-                stack = [(root, 0)]
-                while stack and len(records) < MAX_SKILLS and visits < MAX_SCAN_ENTRIES:
-                    folder, depth = stack.pop()
+                except (OSError,UserError) as exc:
+                    location['status']='error'
+                    if len(errors)<20: errors.append(f"{location['label']}：{exc}")
+                    continue
+                stack = [(root,0) for root in roots]
+                complete = True
+                while stack:
+                    if visits>=MAX_SCAN_ENTRIES or time.monotonic()>deadline or len(records)>=MAX_SKILLS:
+                        complete=False;break
+                    folder,depth = stack.pop()
                     try:
                         _check_no_links(folder)
                         with os.scandir(folder) as entries:
                             for entry in entries:
-                                visits += 1
-                                if visits > MAX_SCAN_ENTRIES or len(records) >= MAX_SKILLS:
-                                    truncated = True
-                                    break
-                                path = Path(entry.path)
-                                if has_link(path):
-                                    skipped += 1
-                                    continue
+                                visits+=1
+                                if visits>MAX_SCAN_ENTRIES or time.monotonic()>deadline or len(records)>=MAX_SKILLS:
+                                    complete=False;break
+                                path=Path(entry.path)
+                                if has_link(path): skipped+=1;continue
                                 if entry.is_dir(follow_symlinks=False):
-                                    if depth < MAX_DEPTH and not entry.name.startswith(".") and entry.name.casefold() not in SKIP_DIRS:
-                                        stack.append((path, depth + 1))
+                                    if depth<MAX_DEPTH and not entry.name.startswith('.') and entry.name.casefold() not in SKIP_DIRS:
+                                        stack.append((path,depth+1))
                                     continue
-                                if entry.name.lower() != "skill.md" or not entry.is_file(follow_symlinks=False):
-                                    continue
+                                if entry.name.lower()!='skill.md' or not entry.is_file(follow_symlinks=False):continue
                                 try:
-                                    # On Windows DirEntry.stat may report st_ino=0;
-                                    # Path.lstat obtains the actual file identity.
-                                    info = path.lstat()
-                                    identity = (info.st_dev, info.st_ino) if info.st_ino else (_key(path),)
-                                    key = _key(path)
-                                    if key in seen_paths or identity in seen_files:
-                                        skipped += 1
-                                        continue
-                                    if info.st_size > MAX_SKILL_BYTES:
-                                        skipped += 1
-                                        continue
-                                    old = previous.get(key)
-                                    if old and old["mtime"] == info.st_mtime_ns and old["size"] == info.st_size:
-                                        record = dict(old)
-                                        record.update(available=1, source=source, editable=int(source == "yingxu" and info.st_nlink == 1))
+                                    info=path.lstat();key=_key(path)
+                                    identity=(info.st_dev,info.st_ino) if info.st_ino else (key,)
+                                    existing=records.get(key) or identities.get(identity)
+                                    if existing:
+                                        memberships.add((existing['id'],source));skipped+=1;continue
+                                    if info.st_size>MAX_SKILL_BYTES:skipped+=1;continue
+                                    identity_key=f'{info.st_dev}:{info.st_ino}' if info.st_ino else ''
+                                    old=previous.get(key)
+                                    if old is None and identity_key in previous_identities:
+                                        candidate=previous_identities[identity_key]
+                                        try:
+                                            prior=_check_no_links(candidate['path']).lstat()
+                                            if (prior.st_dev,prior.st_ino)==(info.st_dev,info.st_ino):old=candidate
+                                        except (OSError,UserError):pass
+                                    if old is None and old_active+newly_added>=MAX_SKILLS:
+                                        complete=False;continue
+                                    if old and old['mtime']==info.st_mtime_ns and old['size']==info.st_size:
+                                        record=dict(old)
+                                        record.update(available=1,source=source,editable=int(source=='yingxu' and info.st_nlink==1),
+                                                      path=str(path),path_key=key,file_identity=identity_key)
                                     else:
-                                        _raw, content, etag = _read(path)
-                                        record = self._record(path, source, content, etag, old)
-                                    records.append(record)
-                                    seen_paths.add(key)
-                                    seen_files.add(identity)
-                                except (OSError, UserError) as exc:
-                                    skipped += 1
-                                    if len(errors) < 20:
-                                        errors.append(f"{path.name}：{exc}")
-                    except (OSError, UserError) as exc:
-                        skipped += 1
-                        if len(errors) < 20:
-                            errors.append(f"{folder.name}：{exc}")
-                if stack or len(records) >= MAX_SKILLS or visits >= MAX_SCAN_ENTRIES:
-                    truncated = True
-            with self.store.lock, self.store.connection() as db:
-                db.execute("UPDATE yx_skills SET available=0")
-                for record in records:
-                    self._upsert(db, record)
-            result = self.list()
-            result.update(scanned=len(records), skipped=skipped, errors=errors, truncated=truncated)
+                                        _raw,content,etag=_read(path)
+                                        record=self._record(path,source,content,etag,old)
+                                    if old is None:newly_added+=1
+                                    records[key]=record;identities[identity]=record
+                                    memberships.add((record['id'],source))
+                                except (OSError,UserError) as exc:
+                                    skipped+=1;complete=False
+                                    if len(errors)<20:errors.append(f"{location['label']}：{path.name}：{exc}")
+                    except (OSError,UserError) as exc:
+                        complete=False
+                        if len(errors)<20:errors.append(f"{location['label']}：{exc}")
+                if complete:completed.add(source)
+                else:location['status']='truncated';truncated=True
+            enabled={key for key,value in self.locations.items() if value['enabled']}
+            with self.store.lock,self.store.connection() as db:
+                # Seed legacy IDs and local creations without changing bindings.
+                db.execute('INSERT OR IGNORE INTO yx_skill_locations SELECT id,source FROM yx_skills WHERE id NOT IN (SELECT skill_id FROM yx_skill_locations)')
+                for source in completed:
+                    db.execute('DELETE FROM yx_skill_locations WHERE source_id=?',(source,))
+                for record in records.values():self._upsert(db,record)
+                db.executemany('INSERT OR IGNORE INTO yx_skill_locations(skill_id,source_id) VALUES(?,?)',memberships)
+                links=db.execute('SELECT skill_id,source_id FROM yx_skill_locations').fetchall()
+                available={row['skill_id'] for row in links if row['source_id'] in enabled}
+                db.execute('UPDATE yx_skills SET available=0')
+                db.executemany('UPDATE yx_skills SET available=1 WHERE id=?',((key,) for key in available))
+                # A file present through another enabled location remains usable.
+                alternatives={}
+                for row in links:
+                    if row['source_id'] in enabled:alternatives.setdefault(row['skill_id'],row['source_id'])
+                for row in db.execute('SELECT id,source FROM yx_skills WHERE available=1').fetchall():
+                    if row['source'] not in enabled:
+                        db.execute('UPDATE yx_skills SET source=?,editable=0 WHERE id=?',(alternatives[row['id']],row['id']))
+            result=self.list()
+            result.update(scanned=len(records),skipped=skipped,errors=errors,truncated=truncated)
             return result
 
-    def list(self, q="", project_id=""):
-        if project_id:
-            self.store.get_project(project_id)
-        query = str(q or "").strip().casefold()[:300]
-        with self.store.connection() as db:
-            bound = {row[0] for row in db.execute("SELECT skill_id FROM yx_project_skills WHERE project_id=?", (project_id,))} if project_id else set()
-            rows = db.execute("SELECT * FROM yx_skills WHERE available=1 AND removed=0 ORDER BY source!='yingxu',name,id").fetchall()
-        skills = [self._item(row, row["id"] in bound) for row in rows
-                  if not query or all(part in (row["name"] + " " + row["description"] + " " + row["path"]).casefold() for part in query.split())]
-        return {"skills": skills, "total": len(skills)}
+    @_synchronized
+    def list(self, q='', project_id='', source='', source_id=''):
+        if project_id:self.store.get_project(project_id)
+        if source and source not in LABELS:raise UserError('未知技能来源。')
+        if source_id and source_id not in self.locations:raise UserError('扫描位置不存在。',404)
+        query=str(q or '').strip().casefold()[:300]
+        with self.lock,self.store.connection() as db:
+            bound={row[0] for row in db.execute('SELECT skill_id FROM yx_project_skills WHERE project_id=?',(project_id,))} if project_id else set()
+            rows=db.execute("SELECT * FROM yx_skills WHERE available=1 AND removed=0 ORDER BY source!='yingxu',name,id").fetchall()
+            links=db.execute('SELECT skill_id,source_id FROM yx_skill_locations').fetchall()
+        locations={}
+        for link in links:
+            if self.locations.get(link['source_id'],{}).get('enabled'):
+                locations.setdefault(link['skill_id'],set()).add(link['source_id'])
+        skills=[]
+        for row in rows:
+            ids=locations.get(row['id'],set())
+            if self.locations.get(row['source'],{}).get('enabled'):ids.add(row['source'])
+            if source_id and source_id not in ids:continue
+            if source and not any(self.locations[key]['source']==source for key in ids):continue
+            if query and not all(part in (row['name']+' '+row['description']+' '+row['path']).casefold() for part in query.split()):continue
+            item=self._item(row,row['id'] in bound);item['source_ids']=sorted(ids);skills.append(item)
+        return dict(self.source_list(),skills=skills,total=len(skills))
 
     def get(self, skill_id):
         with self.lock:

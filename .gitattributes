@@ -1,0 +1,3 @@
+# Generated bundles are hashed byte-for-byte; never rewrite their line endings.
+frontend/live-markdown.js -text
+frontend/canvas/** -text

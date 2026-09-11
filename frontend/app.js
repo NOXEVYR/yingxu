@@ -1059,14 +1059,111 @@ function renameDialog({titleOnly = false} = {}) {
   showDialog({title:titleOnly ? '修改标题' : '重命名文件',subtitle:'修改后同步更新文件名称，正文保持不变。',submit:'保存名称',body:`<div class="field"><label for="diskFilename">${titleOnly ? '标题' : '文件名称'}</label><input id="diskFilename" name="name" value="${escapeHtml(parts.title)}" required maxlength="${100-parts.extension.length}"><p class="field-hint">只需填写名称，文件后缀自动保留。同名文件不会被覆盖；外部软件引用的旧路径需要同步更新。</p></div>`,onSubmit:async form => renameTabFile(tab,String(new FormData(form).get('name')))});
 }
 
+// Source filters read the catalogue; only an explicit scan or registry change scans disk.
+const skillSourceState = {group:'',directory:'',sources:[],groups:[],allTotal:null,busy:false,registrySequence:0};
+function acceptSkillSources(result) {
+  if (Array.isArray(result.sources)) skillSourceState.sources = result.sources;
+  if (Array.isArray(result.groups)) skillSourceState.groups = result.groups;
+  if (Number.isFinite(result.all_total)) skillSourceState.allTotal = result.all_total;
+}
+function skillSourceStatus(source) {
+  return ({ready:'可用',missing:'未找到目录',disabled:'已关闭',error:'读取失败',truncated:'扫描未完整'})[source.status] || '尚未扫描';
+}
+function skillSourcesHtml() {
+  const model=skillSourceState;
+  const groups=[{id:'',label:'全部来源',count:model.allTotal},...model.groups];
+  const directories=model.sources.filter(source=>!model.group || source.source===model.group);
+  return `<div class="skill-source-toolbar"><div class="skill-source-top"><span>按来源整理已有能力</span><div class="skill-source-buttons"><button type="button" class="button button-secondary button-small" data-action="manage-skill-sources">${icon('folder')}扫描位置</button><button type="button" class="button button-secondary button-small" data-action="refresh-skills" ${model.busy?'disabled':''}>${icon('refresh')}${model.busy?'正在扫描…':'扫描本机 SKILL'}</button></div></div><div class="skill-source-groups" role="group" aria-label="按 SKILL 来源筛选">${groups.map(group=>`<button type="button" class="skill-source-chip ${model.group===group.id?'active':''}" data-action="skill-source-filter" data-source-group="${escapeHtml(group.id)}" aria-pressed="${model.group===group.id}"><span>${escapeHtml(group.label)}</span>${Number.isFinite(group.count)?`<small>${Math.max(0,group.count)}</small>`:''}</button>`).join('')}</div><div class="skill-source-directory"><label for="skillSourceDirectory">具体目录</label><select id="skillSourceDirectory"><option value="">此来源的全部目录</option>${directories.map(source=>`<option value="${escapeHtml(source.id)}" ${model.directory===source.id?'selected':''}>${escapeHtml(source.label || source.path)} · ${Math.max(0,Number(source.count)||0)} 项${source.status!=='ready'?` · ${escapeHtml(skillSourceStatus(source))}`:''}</option>`).join('')}</select>${model.group||model.directory?'<button type="button" class="inline-link-button" data-action="clear-skill-source-filter">清除来源筛选</button>':''}</div><p class="skill-source-hint">来源筛选与上方搜索共同生效；切换来源不会重新扫描磁盘。</p></div>`;
+}
+async function setSkillSourceFilter(kind,value) {
+  if(state.section!=='skills' || skillSourceState.busy || state.modalBusy)return;
+  if(kind==='group') {
+    if(value && !skillSourceState.groups.some(group=>group.id===value))return;
+    skillSourceState.group=value;skillSourceState.directory='';
+  } else if(kind==='directory') {
+    if(value && !skillSourceState.sources.some(source=>source.id===value && (!skillSourceState.group || source.source===skillSourceState.group)))return;
+    skillSourceState.directory=value;
+  } else return;
+  state.offset=0;hideMenu();await loadSkills();
+}
+function skillSourceRegistryHtml() {
+  return skillSourceState.sources.map(source=>`<section class="skill-source-row"><div class="skill-source-row-main"><strong>${escapeHtml(source.label || source.source)}</strong><span class="skill-source-state">${escapeHtml(skillSourceStatus(source))} · ${Math.max(0,Number(source.count)||0)} 项</span><p class="skill-source-path">${escapeHtml(source.path)}</p><small>${source.readonly?'外部来源，只读原文件':'映序本地，可编辑自己的 SKILL'}</small></div><div class="skill-source-row-actions">${source.id==='yingxu'?'<span class="field-hint">始终启用</span>':`<button type="button" class="button button-secondary button-small" data-action="toggle-skill-source" data-source-id="${escapeHtml(source.id)}" ${skillSourceState.busy?'disabled':''}>${source.enabled?'关闭扫描':'启用扫描'}</button>`}${source.custom?`<button type="button" class="button button-ghost button-small" data-action="remove-skill-source" data-source-id="${escapeHtml(source.id)}" ${skillSourceState.busy?'disabled':''}>移除登记</button>`:''}</div></section>`).join('') || '<p class="field-hint">尚未登记扫描位置。</p>';
+}
+function skillSourcesIncomplete(result) {
+  const sources=Array.isArray(result.sources)?result.sources:skillSourceState.sources;
+  return !!result.truncated || !!result.errors?.length || sources.some(source=>['error','truncated'].includes(source.status));
+}
+function showSkillSourceNotice(result) {
+  const notice=$('#skillSourceNotice');if(!notice)return;
+  notice.textContent=skillSourcesIncomplete(result) ? '部分位置未能完整扫描。请查看各位置状态；已有登记和原文件保留。' : '关闭或移除登记仅改变映序扫描范围，原工具与原文件保留。';
+}
+async function skillSourcesDialog() {
+  if(state.modalBusy || $('#appDialog').open || groupsIsOpen() || globalSearchIsOpen() || skillSourceState.busy)return;
+  const dialog=showDialog({title:'SKILL 扫描位置',wide:true,subtitle:'查看来源、登记自定义目录。外部 SKILL 保持只读；关闭扫描或移除登记不会删除原文件。',body:`<div id="skillSourceManager"><p class="field-hint" id="skillSourceNotice">正在读取已登记位置…</p><div id="skillSourceList" class="skill-source-list">${skillSourceRegistryHtml()}</div><div class="skill-source-add"><h3>登记自定义目录</h3><div class="field"><label for="skillSourceLabel">显示名称（可选）</label><input id="skillSourceLabel" maxlength="80" placeholder="例如：团队创作规范"></div><div class="field"><label for="skillSourcePath">本地目录</label><input id="skillSourcePath" placeholder="填写完整的本地目录路径" autocomplete="off"></div><div class="skill-source-buttons">${state.bootstrap?.capabilities?.native_picker?'<button type="button" class="button button-secondary" data-action="pick-skill-source">选择目录</button>':''}<button type="button" class="button button-primary" data-action="add-skill-source">登记并扫描</button></div><p class="field-hint">只读取其中的 SKILL.md，不复制、移动或改写原目录。</p></div></div>`,actions:'<button type="button" class="button button-secondary" data-dialog-cancel>完成</button>'});
+  const sequence=++skillSourceState.registrySequence,modal=state.modalSequence;
+  try {
+    const result=await api('/api/skill-sources');
+    if(sequence!==skillSourceState.registrySequence || modal!==state.modalSequence || !dialog.open)return;
+    acceptSkillSources(result);$('#skillSourceList').innerHTML=skillSourceRegistryHtml();showSkillSourceNotice(result);
+  } catch(error) { if(sequence===skillSourceState.registrySequence && modal===state.modalSequence && dialog.open){$('#skillSourceNotice').textContent=error.message;report(error);} }
+}
+async function skillSourceAction(action,id='') {
+  if(skillSourceState.busy || state.modalBusy || !$('#appDialog').open || !$('#skillSourceManager'))return;
+  let source=skillSourceState.sources.find(value=>value.id===id),options,url;
+  if(action==='toggle') {
+    if(!source || source.id==='yingxu')return;
+    url=`/api/skill-sources/${encodeURIComponent(id)}`;options={method:'PATCH',body:{enabled:!source.enabled}};
+  } else if(action==='remove') {
+    if(!source?.custom)return;
+    url=`/api/skill-sources/${encodeURIComponent(id)}`;options={method:'DELETE'};
+  } else if(action==='add') {
+    const path=$('#skillSourcePath').value.trim(),label=$('#skillSourceLabel').value.trim();
+    if(!path){$('#skillSourceNotice').textContent='请先选择或填写完整目录路径。';$('#skillSourcePath').focus();return;}
+    if([...label].length>80){$('#skillSourceNotice').textContent='显示名称最多 80 个字符。';$('#skillSourceLabel').focus();return;}
+    url='/api/skill-sources';options={method:'POST',body:{path,label}};
+  } else if(action!=='pick')return;
+  const modal=state.modalSequence;skillSourceState.busy=true;state.modalBusy=true;skillSourceState.registrySequence++;
+  $$('#skillSourceManager button').forEach(button=>button.disabled=true);
+  try {
+    if(action==='pick') {
+      const result=await api('/api/pick',{method:'POST',body:{kind:'folder'}});
+      if(modal===state.modalSequence && $('#appDialog').open && result.paths?.[0])$('#skillSourcePath').value=result.paths[0];
+      return;
+    }
+    const result=await api(url,options);acceptSkillSources(result);
+    if(action==='remove' && skillSourceState.directory===id)skillSourceState.directory='';
+    state.offset=0;
+    if(modal===state.modalSequence && $('#appDialog').open){
+      if(action==='add'){$('#skillSourcePath').value='';$('#skillSourceLabel').value='';}
+      $('#skillSourceList').innerHTML=skillSourceRegistryHtml();showSkillSourceNotice(result);
+    }
+    if(state.section==='skills')await loadSkills();
+  } catch(error) { if(modal===state.modalSequence && $('#appDialog').open)$('#skillSourceNotice').textContent=error.message;report(error); }
+  finally {
+    skillSourceState.busy=false;
+    if(modal===state.modalSequence){state.modalBusy=false;$$('#skillSourceManager button').forEach(button=>button.disabled=false);}
+    if(state.section==='skills')renderSkills();
+  }
+}
+async function refreshSkillSources() {
+  if(skillSourceState.busy || state.modalBusy)return;
+  skillSourceState.busy=true;if(state.section==='skills')renderSkills();
+  try {
+    const result=await api('/api/skills/refresh',{method:'POST',body:{}});acceptSkillSources(result);state.offset=0;
+    if(state.section==='skills')await loadSkills();
+    toast(skillSourcesIncomplete(result) ? '扫描已结束，部分位置未完整读取。可在扫描位置中查看状态。' : '本机 SKILL 已刷新。',skillSourcesIncomplete(result)?'info':'success');
+  } finally {skillSourceState.busy=false;if(state.section==='skills')renderSkills();}
+}
+
 async function loadSkills() {
   const sequence = ++state.listSequence; state.listController?.abort(); configureSection(); $('#resourceItems').className = 'resource-grid'; $('#resourceItems').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
-  try { const params = new URLSearchParams({q:state.q}); if (state.projectId) params.set('project',state.projectId); const result = await api(`/api/skills?${params}`); if (sequence !== state.listSequence || state.section !== 'skills') return; state.skills = result.skills || []; for (const tab of state.tabs.filter(value => value.source === 'skill')) { const current = state.skills.find(skill => String(skill.id) === String(tab.id)); if (current) tab.item.bound = !!current.bound; } renderSkills(); renderInspector(); }
+  try { const params = new URLSearchParams({q:state.q}); if (state.projectId) params.set('project',state.projectId); if(skillSourceState.group)params.set('source',skillSourceState.group);if(skillSourceState.directory)params.set('source_id',skillSourceState.directory);const result = await api(`/api/skills?${params}`); if (sequence !== state.listSequence || state.section !== 'skills') return; state.skills = result.skills || []; acceptSkillSources(result);state.offset=Math.min(state.offset,Math.max(0,Math.ceil(state.skills.length/state.limit)-1)*state.limit); for (const tab of state.tabs.filter(value => value.source === 'skill')) { const current = state.skills.find(skill => String(skill.id) === String(tab.id)); if (current) tab.item.bound = !!current.bound; } renderSkills(); renderInspector(); }
   catch(error) { if (error.name === 'AbortError' || sequence !== state.listSequence || state.section !== 'skills') return; $('#resourceItems').innerHTML = emptyHtml('暂时无法读取 SKILL 库',error.message,'skills','重新读取','retry'); report(error); }
 }
 function renderSkills() {
   const root = $('#resourceItems'); root.className = 'resource-grid skill-grid'; $('#resourceCount').textContent = state.skills.length; $('#searchTiming').textContent = '';
-  root.innerHTML = `<div class="skill-actions"><span>将创作规范变成可复用的能力。</span><button class="button button-secondary button-small" data-action="refresh-skills">${icon('refresh')}扫描本机 SKILL</button></div>` + (state.skills.length ? state.skills.slice(state.offset,state.offset+state.limit).map(skill => `<article class="skill-card" tabindex="0" role="button" data-skill="${escapeHtml(skill.id)}"><button class="icon-button resource-more-button skill-menu-button" data-skill-menu="${escapeHtml(skill.id)}" title="SKILL 选项" aria-label="${escapeHtml(skill.name)} SKILL 选项">${icon('more')}</button><div class="skill-card-top"><span class="skill-symbol">${icon('skills')}</span>${skill.bound ? '<span class="skill-bound">项目已启用</span>' : `<span class="skill-source">${escapeHtml(skill.source_label || skill.source || (skill.editable ? '映序自定义' : '本机 SKILL'))}</span>`}</div><h3>${escapeHtml(skill.name)}</h3><p>${escapeHtml(skill.description || '打开阅读能力说明与操作规范。')}</p><div class="skill-card-bottom"><span>${skill.editable ? '可编辑' : '只读源文件'}</span>${icon('chevron')}</div></article>`).join('') : emptyHtml('积累属于你的创作方法','先扫描本机已有的 SKILL，或者创建一份新的创作规范。','skills','创建 SKILL','new-skill'));
+  root.innerHTML = skillSourcesHtml() + (state.skills.length ? state.skills.slice(state.offset,state.offset+state.limit).map(skill => `<article class="skill-card" tabindex="0" role="button" data-skill="${escapeHtml(skill.id)}"><button class="icon-button resource-more-button skill-menu-button" data-skill-menu="${escapeHtml(skill.id)}" title="SKILL 选项" aria-label="${escapeHtml(skill.name)} SKILL 选项">${icon('more')}</button><div class="skill-card-top"><span class="skill-symbol">${icon('skills')}</span>${skill.bound ? '<span class="skill-bound">项目已启用</span>' : `<span class="skill-source">${escapeHtml(skill.source_label || skill.source || (skill.editable ? '映序自定义' : '本机 SKILL'))}</span>`}</div><h3>${escapeHtml(skill.name)}</h3><p>${escapeHtml(skill.description || '打开阅读能力说明与操作规范。')}</p><div class="skill-card-bottom"><span>${skill.editable ? '可编辑' : '只读源文件'}</span>${icon('chevron')}</div></article>`).join('') : state.q || skillSourceState.group || skillSourceState.directory ? emptyHtml('没有符合条件的 SKILL','试试其他来源、目录或搜索词；已有原文件不会受筛选影响。','skills') : emptyHtml('积累属于你的创作方法','先扫描本机已有的 SKILL，或者创建一份新的创作规范。','skills','创建 SKILL','new-skill'));
+  $('#skillSourceDirectory')?.addEventListener('change',event=>setSkillSourceFilter('directory',event.target.value).catch(report));
   updatePagination();
 }
 async function openSkill(id) {
@@ -1122,8 +1219,12 @@ async function handleAction(action,target) {
     if (action === 'rename-title') return renameDialog({titleOnly:true});
     if (action === 'copy-path') return copyText(activeTab()?.item.path,'文件路径已复制。'); if (action === 'add-relation') return relationDialog(); if (action === 'rename-file') return renameDialog();
     if (action === 'show-context') return selectSection('context'); if (action === 'new-skill') return newSkillDialog();
-    if (action === 'refresh-skills') { target.disabled = true; await api('/api/skills/refresh',{method:'POST',body:{}}); await loadSkills(); toast('本机 SKILL 已刷新。'); return; }
-    if (action === 'bind-skill') { const tab = activeTab(); if (!tab) return; target.disabled = true; await api('/api/skills/bind',{method:'POST',body:{project_id:state.projectId,skill_id:tab.id,bound:!tab.item.bound}}); tab.item.bound = !tab.item.bound; renderSkillInspector(tab); if (state.section === 'skills') { const result = await api(`/api/skills?project=${encodeURIComponent(state.projectId)}&q=${encodeURIComponent(state.q)}`); state.skills = result.skills || []; renderSkills(); } toast(tab.item.bound ? '已加入当前项目的能力说明。' : '已从当前项目解绑。'); return; }
+    if (action === 'refresh-skills') return await refreshSkillSources();
+    if (action === 'manage-skill-sources') return await skillSourcesDialog();
+    if (action === 'skill-source-filter') return await setSkillSourceFilter('group',target.dataset.sourceGroup || '');
+    if (action === 'clear-skill-source-filter') return await setSkillSourceFilter('group','');
+    if (['add-skill-source','pick-skill-source','toggle-skill-source','remove-skill-source'].includes(action))return await skillSourceAction(action.split('-')[0],target.dataset.sourceId || '');
+    if (action === 'bind-skill') { const tab = activeTab(); if (!tab) return; target.disabled = true; await api('/api/skills/bind',{method:'POST',body:{project_id:state.projectId,skill_id:tab.id,bound:!tab.item.bound}}); tab.item.bound = !tab.item.bound; renderSkillInspector(tab); if (state.section === 'skills') await loadSkills(); toast(tab.item.bound ? '已加入当前项目的能力说明。' : '已从当前项目解绑。'); return; }
     if (action === 'copy-skill') { const tab = activeTab(); return newSkillDialog({...tab.item,content:tab.draft}); }
     if (action === 'refresh-context') { target.disabled = true; state.context = await api('/api/context/refresh',{method:'POST',body:{project_id:state.projectId}}); renderContext(); toast('项目交接文件已更新。'); return; }
     if (action === 'copy-context') return copyText(state.context?.markdown,'项目交接内容已复制。'); if (action === 'copy-context-path') return copyText(state.context?.path,'交接文件路径已复制，可以发给 Codex。');
@@ -1208,7 +1309,7 @@ function wireEvents() {
     if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="button"],[role="tab"]')) { event.preventDefault(); event.target.click(); }
   });
   window.addEventListener('resize',hideMenu); $('#resourceViewport').addEventListener('scroll',hideMenu,{passive:true});
-  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('pagehide',() => { stopPreviewMedia(); persistDrafts(true); });
   document.addEventListener('visibilitychange',() => { if (document.hidden) stopPreviewMedia(); });
   const divider = $('#editorDivider'); let resizing = false;
@@ -1397,7 +1498,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.4-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.4 · ${escapeHtml(state.bootstrap?.version === '0.4.4' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目参考资料，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.5-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.5 · ${escapeHtml(state.bootstrap?.version === '0.4.5' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目参考资料，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);
@@ -1431,7 +1532,7 @@ async function handleDesktopMessage(data) {
   if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : []);
   if (data?.action === 'prepare-exit') {
     let allow = false;
-    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.uploading && !state.exitBusy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs]); allow = allow && !state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab)); persistDrafts(true); } }
+    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs]); allow = allow && !state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab)); persistDrafts(true); } }
     finally { state.exitBusy = false; window.chrome?.webview?.postMessage({action:'exit-response',requestId:data.requestId,allow}); }
     if (!allow) toast('退出已取消，请先完成当前操作或保存文稿。','info');
   }

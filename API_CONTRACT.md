@@ -1,5 +1,7 @@
 # 映序 API v1
 
+本文保留历次契约，新增的 0.4.5 SKILL 来源接口处于开发状态，尚未发布；当前下载版本见 [README](README.md)。
+
 Base http://127.0.0.1:8791。JSON；错误 {error:"中文信息"} 配相应状态码。GET /api/bootstrap 返回 {app:"yingxu",version,token,project_root,data_root,categories:[{key,label}],statuses:[...],capabilities:{...}}。写请求头 X-YingXu-Token=token，Content-Type:application/json。
 
 Categories: scripts 剧本与文档 / shots 分镜 / characters 角色 / scenes 场景 / props 道具 / previs 白模预演 / generated 生成素材 / delivery 成片交付 / references 参考资料。Statuses: 待开始, 进行中, 待审核, 已完成。
@@ -159,3 +161,28 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 - `POST /api/maintenance/preview` 接收 `include_cache`、`include_versions`、`keep_versions`、`older_than_days`，返回容量分组、可清理数量、5 分钟一次性 token、truncated 与 warnings。默认只选缓存，历史不自动清理。
 - `POST /api/maintenance/cleanup {token}` 只处理本次预览绑定的候选，执行前复验身份；原稿、数据库和数据库备份不进入候选，每篇至少保留最新历史。扫描超出 2 万入口或 3 秒时拒绝清理；返回 removed_files/removed_bytes/skipped_files/warnings。前端改变选项或离开弹窗时不得复用旧确认。
 - 画板 iframe 挂载到固定宿主，标签切换隐藏而不重载；关闭标签销毁。只在场景内容版本变化后合并序列化，保存/关闭同步读取最终内容。字体仅使用本地来源。Markdown 编辑器首次打开需要时才载入本地 bundle。
+
+## 0.4.5 SKILL 来源与扫描位置（开发中，未发布）
+
+读接口沿用本地来源校验；写接口沿用同源、会话令牌与 JSON 请求体要求。目录登记不赋予外部技能编辑权限。
+
+| 接口 | 请求与返回 |
+| --- | --- |
+| `GET /api/skill-sources` | 不接受查询参数；返回 `{sources,groups,all_total,errors,truncated}`，不重新扫描磁盘 |
+| `GET /api/skills` | 仅接受 `q`、`project`、`source`、`source_id`；返回以上来源字段及 `{skills,total}`，筛选只读取索引 |
+| `POST /api/skills/refresh` | 手动有界刷新，返回技能列表和来源字段，追加 `scanned`、`skipped`、本次 `errors` 与 `truncated` |
+| `POST /api/skill-sources` | 仅接受 `{path,label?}`，成功返回 201 与刷新结果 |
+| `PATCH /api/skill-sources/ID` | 接受非空 `{enabled?,label?}`；`enabled` 必须是布尔值，成功返回刷新结果 |
+| `DELETE /api/skill-sources/ID` | 空请求体，只移除自定义登记，返回刷新结果 |
+
+`source` 为来源组：`yingxu`、`codex`、`claude`、`dsh`、`workbuddy`、`zcode`、`agents`、`custom`。`source_id` 是具体位置 ID，两者与 `q` 组合取交集。`project` 用于校验项目并标记 `bound`，**不将列表过滤为仅绑定技能**。`q` 去除首尾空白、Unicode casefold 后最多取 300 字符，按空白拆词，所有词都须在名称、描述或路径中命中；不是全文或正则搜索。未知来源返回 400，未知位置返回 404。接口不接受 `limit/offset`，前端对有界结果按页显示，默认每页 48 条。
+
+每个 `sources` 条目含 `id`、`source`（组 ID）、`label`、`path`、`enabled`、`custom`、`removable`、`readonly`、`status`、`count`。状态包括 `ready`、`missing`、`disabled`、`error`、`truncated`；客户端必须检查各位置状态，不能只凭 `errors` 数组判断全部正常，因为普通列表不重放上次扫描错误。`groups` 为 `{id,label,count}`，各组按当前可用、未移除技能 ID 去重；`all_total` 为全库去重数，均不随当前关键词筛选变化。`total` 才是当前筛选命中数。技能摘要增加 `source_id`、`source_group`、`source_label` 与 `source_ids`；同一文件可有多个有效来源，不能把各组计数相加作为总量。
+
+自定义位置最多 16 个，路径字符串最多 4096 字符，必须为存在的本地绝对目录，拒绝 NUL、UNC/网络共享、磁盘根、用户目录及其祖先、符号链接或目录联接。规范路径已登记返回 409。新增时 `label` 可省略或留空，默认目录名；非空名称去首尾空白后最多 80 字符且无控制字符，PATCH 名称不可为空。映序本地位置不可修改启用状态或移除；其他内置位置可关闭但不可移除，此类操作返回 403。不存在的 ID 返回 404，其余非法参数返回 400。
+
+关闭或移除位置只修改映序登记，不删除源文件、技能记录或项目绑定。技能仍有其他启用来源时继续可用；否则暂时不可用，不参与交接。恢复登记/启用并成功扫描后可恢复使用。物理同文件去重保留多位置成员关系，独立副本不按内容合并；来源切换复用身份时重新核实原规范路径的当前文件身份，不能只信任历史 inode。
+
+默认目录与识别边界见[功能指南](docs/功能指南.md)：WorkBuddy 插件只采用经过路径校验的安装清单位置；ZCode 只识别已知缓存层级，不代表插件当前启用。扫描不执行技能，不加载账号配置，也不自动安装依赖。单文件最多 1 MiB、索引最多 2000 技能、单轮最多 20000 条目、技能根目录向下最多 3 层，约 3 秒协作式时间预算；插件目录发现另有限额。限时不是慢 I/O 的硬超时。
+
+初始化、手动刷新及来源登记变更触发扫描，查询和翻页不触发扫描，无后台轮询。未变化文件按 mtime/size 复用元数据。只有完整扫描的位置才替换其旧成员关系；读取失败或预算中断保留相应旧索引并标记部分结果，旧索引不保证文件当前仍可打开。来源列表与技能列表组装保持同一锁保护，避免并发移除导致不一致。

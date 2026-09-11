@@ -433,7 +433,12 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/items':return self.json(self.app.store.list_items(query.get('project',''),**{k:query[k] for k in ('category','q','status','kind','limit','offset','sort','folder') if k in query}))
                 if path=='/api/folders':return self.json(self.app.organize.folders(query.get('project',''),query.get('category','')))
                 if path=='/api/trash':return self.json(self.app.trash(query.get('project',''),query.get('limit',48),query.get('offset',0),query.get('q','')))
-                if path=='/api/skills':return self.json(self.app.skills.list(query.get('q',''),query.get('project','')))
+                if path=='/api/skill-sources':
+                    if query:raise UserError('扫描位置列表不接受额外参数。')
+                    return self.json(self.app.skills.source_list())
+                if path=='/api/skills':
+                    if set(query)-{'q','project','source','source_id'}:raise UserError('技能列表参数无效。')
+                    return self.json(self.app.skills.list(query.get('q',''),query.get('project',''),query.get('source',''),query.get('source_id','')))
                 if path=='/api/context':return self.json(self.app.context.get(query.get('project','')))
                 external=re.fullmatch(r'/api/(external|external-media)/([a-f0-9]{32})',path)
                 if external:
@@ -486,7 +491,17 @@ class Handler(BaseHTTPRequestHandler):
             if library_project:
                 if self.command=='POST' and library_project[2]:return self.json(self.app.project_library.visit(library_project[1]))
                 if self.command=='PATCH' and not library_project[2]:return self.json(self.app.project_library.assign_project(library_project[1],data))
+            skill_source=re.fullmatch(r'/api/skill-sources/([a-z0-9_]{1,64})',path)
+            if skill_source:
+                if query:raise UserError('扫描位置操作不接受查询参数。')
+                if self.command=='PATCH':return self.json(self.app.skills.update_source(skill_source[1],data))
+                if self.command=='DELETE':
+                    if data:raise UserError('移除扫描位置不接受额外参数。')
+                    return self.json(self.app.skills.update_source(skill_source[1],{},remove=True))
             if self.command=='POST':
+                if path=='/api/skill-sources':
+                    if query:raise UserError('扫描位置操作不接受查询参数。')
+                    return self.json(self.app.skills.add_source(data),201)
                 if path=='/api/resource-groups':return self.json(self.app.resource_groups.create(data),201)
                 if path=='/api/project-folders':return self.json(self.app.project_library.create_folder(data),201)
                 if path=='/api/external-open':return self.json(self.app.external.open(data))
