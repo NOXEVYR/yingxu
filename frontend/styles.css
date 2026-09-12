@@ -196,3 +196,9 @@ kbd{font-family:inherit;font-size:10px;line-height:1.6;border:1px solid var(--li
 #documentSearchMount{flex:none}.canvas-layer>.canvas-editor-host{position:absolute;inset:0;height:100%;width:100%}.canvas-editor-host[hidden]{display:none!important}
 
 .maintenance-option{display:flex;gap:8px;align-items:center;margin:10px 0}.maintenance-table{width:100%;border-collapse:collapse;margin:14px 0;font-size:12px}.maintenance-table th,.maintenance-table td{text-align:left;border-bottom:1px solid var(--line);padding:7px}
+
+/* Share theme color across compact and full-size settings controls. */
+input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
+#returnWorkspaceButton{flex:none;width:32px;font-size:22px}
+.skill-label-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.skill-label-sources{display:grid;gap:8px;max-height:190px;overflow:auto;margin:10px 0}.skill-label-sources label{display:flex;align-items:center;gap:8px}.skill-label-sources input{flex:none}

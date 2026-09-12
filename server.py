@@ -491,6 +491,15 @@ class Handler(BaseHTTPRequestHandler):
             if library_project:
                 if self.command=='POST' and library_project[2]:return self.json(self.app.project_library.visit(library_project[1]))
                 if self.command=='PATCH' and not library_project[2]:return self.json(self.app.project_library.assign_project(library_project[1],data))
+            if path=='/api/skill-source-labels' and self.command=='POST':
+                if query:raise UserError('标签操作不接受查询参数。')
+                return self.json(self.app.skills.add_filter_label(data),201)
+            skill_label=re.fullmatch(r'/api/skill-source-labels/([a-z0-9_]{1,64})',path)
+            if skill_label:
+                if query:raise UserError('标签操作不接受查询参数。')
+                if self.command=='DELETE' and not data:return self.json(self.app.skills.remove_filter_label(skill_label[1]))
+                if self.command=='PATCH' and set(data)=={'hidden'} and data['hidden'] is False:return self.json(self.app.skills.remove_filter_label(skill_label[1],restore=True))
+                raise UserError('标签操作无效。')
             skill_source=re.fullmatch(r'/api/skill-sources/([a-z0-9_]{1,64})',path)
             if skill_source:
                 if query:raise UserError('扫描位置操作不接受查询参数。')

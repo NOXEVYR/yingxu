@@ -1,0 +1,7 @@
+html,body,#root{margin:0;width:100%;height:100%;overflow:hidden}
+.excalidraw{--color-primary:#466d57;--color-primary-darker:#365443}
+.excalidraw .library-button{display:none}
+/* Embedded narrow workspaces use Excalidraw's mobile property panel. Keep it compact. */
+.excalidraw .App-bottom-bar>.Island{width:min(300px,100%);min-width:0;max-width:100%;max-height:70%;overflow:hidden}
+.excalidraw .App-mobile-menu{min-height:0;overscroll-behavior:contain}
+.excalidraw .App-menu__left{max-height:calc(100% - 96px);overscroll-behavior:contain}

@@ -16,6 +16,12 @@ test('real Chromium reports image size, follows fit resize, and disconnects obse
       const img=document.querySelector('#mainImage');
       await img.decode();trackImageZoom(tab,img);updateImageZoomLabel(img);
       const label=()=>document.querySelector('#imageZoomPercent').textContent;
+      const bounds=img.getBoundingClientRect();
+      const wheel=new WheelEvent('wheel',{ctrlKey:true,deltaY:-100,clientX:bounds.left+40,clientY:bounds.top+40,bubbles:true,cancelable:true});
+      img.dispatchEvent(wheel);check('Ctrl wheel is consumed by image preview',wheel.defaultPrevented&&tab.zoom>0.5);
+      const ordinary=new WheelEvent('wheel',{deltaY:100,bubbles:true,cancelable:true});img.dispatchEvent(ordinary);check('ordinary scrolling is preserved',!ordinary.defaultPrevented);
+      changeImageZoom('zoom-fit');
+
       check('fit uses rendered width and natural dimensions',label()==='图片 50%');
       changeImageZoom('zoom-in');check('plus starts at current fit percentage',label()==='图片 63%');
       changeImageZoom('zoom-out');check('minus reverses plus',label()==='图片 50%');
@@ -36,5 +42,5 @@ test('real Chromium reports image size, follows fit resize, and disconnects obse
   const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--virtual-time-budget=3000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
   const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1500));
   const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
-  assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,11);for(const row of result)assert.equal(row.ok,true,row.name);
+  assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,13);for(const row of result)assert.equal(row.ok,true,row.name);
 });

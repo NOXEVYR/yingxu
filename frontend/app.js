@@ -313,6 +313,31 @@ async function selectProject(id) {
   state.projectId = id; state.offset = 0; state.counts = []; state.folderId = null; state.folderPage = 0; state.folders = []; state.selectedIds.clear(); storage.set('yingxu:project',String(id)); renderNavigation(); renderHero();
   if (!activeTab()) renderInspector(); await loadSection();
 }
+let previousWorkspace=null;
+const workspaceFields=['projectId','category','folderId','folderPage','folderScope','offset','q','status','kind','sort','view','activeKey'];
+function rememberWorkspace() { previousWorkspace=Object.fromEntries(workspaceFields.map(key=>[key,state[key]])); }
+async function returnToWorkspace() {
+  const saved=previousWorkspace, sequence=state.workspaceReturnSequence=(state.workspaceReturnSequence||0)+1;
+  const location=()=>JSON.stringify([state.section,state.listSequence,...workspaceFields.map(key=>state[key])]);
+  const origin=location(), current=()=>sequence===state.workspaceReturnSequence && saved===previousWorkspace && origin===location();
+  if (!await guardProperties() || !current()) return;
+  const destination=saved && state.projects.some(project=>String(project.id)===String(saved.projectId)) ? {...saved} : null;
+  if(destination?.folderId && destination.category!=='all') {
+    const result=await api(`/api/folders?${new URLSearchParams({project:destination.projectId,category:destination.category})}`);
+    if(!current())return;
+    if(!result.truncated && Array.isArray(result.folders) && !result.folders.some(folder=>String(folder.id)===String(destination.folderId))) {
+      destination.folderId=null;destination.folderPage=0;destination.offset=0;
+    }
+  }
+  if(!current())return;
+  if(destination && state.projects.some(project=>String(project.id)===String(destination.projectId)))Object.assign(state,destination);
+  else {state.category='all';state.folderId=null;state.folderPage=0;state.offset=0;state.q='';}
+  if(state.projectId)storage.set('yingxu:project',String(state.projectId));
+  state.section='assets';state.selectedIds.clear();
+  if(!state.tabs.some(tab=>tab.key===state.activeKey))state.activeKey=null;
+  $('#searchInput').value=state.q;$('#statusFilter').value=state.status;$('#kindFilter').value=state.kind;$('#sortFilter').value=state.sort;
+  renderWorkspace();renderNavigation();renderHero();configureSection();await loadItems();
+}
 async function selectSidebarProject(id) {
   if (String(id) === String(state.projectId)) return false;
   if (!state.projects.some(project => String(project.id) === String(id))) return false;
@@ -320,9 +345,9 @@ async function selectSidebarProject(id) {
   return String(id) === String(state.projectId);
 }
 async function selectCategory(category) { if ((state.section !== 'assets' || state.category !== category || state.folderId) && !await guardProperties()) return; state.section = 'assets'; state.category = category; state.folderId = null; state.folderPage = 0; state.folderScope = 'current'; state.selectedIds.clear(); state.offset = 0; renderNavigation(); renderHero(); configureSection(); await loadItems(); }
-async function selectSection(section) { if (!await guardProperties()) return; state.section = section; state.offset = 0; state.activeKey = null; state.selectedIds.clear(); renderWorkspace(); renderNavigation(); renderHero(); configureSection(); await loadSection(); }
+async function selectSection(section) { if (!await guardProperties()) return; if (state.section==='assets' && section!=='assets') rememberWorkspace(); state.section = section; state.offset = 0; state.activeKey = null; state.selectedIds.clear(); renderWorkspace(); renderNavigation(); renderHero(); configureSection(); await loadSection(); }
 function configureSection() {
-  const isAssets = state.section === 'assets'; $('.filterbar').hidden = !isAssets; $('.view-switch').hidden = !isAssets; $('.library-footer').hidden = state.section === 'context'; $('#folderToolbar').hidden = !isAssets; $('#folderStrip').hidden = !isAssets;
+  const isAssets = state.section === 'assets'; const back=$('#returnWorkspaceButton'); if(back)back.hidden=isAssets; $('.filterbar').hidden = !isAssets; $('.view-switch').hidden = !isAssets; $('.library-footer').hidden = state.section === 'context'; $('#folderToolbar').hidden = !isAssets; $('#folderStrip').hidden = !isAssets;
   $('#sectionTitle').textContent = state.section === 'skills' ? '全部 SKILL' : state.section === 'context' ? '项目交接文件' : state.section === 'trash' ? '已删除的内容' : state.folderId ? state.folders.find(folder => String(folder.id) === String(state.folderId))?.name || categoryLabel(state.category) : categoryLabel(state.category);
   $('#searchInput').placeholder = state.section === 'skills' ? '搜索 SKILL 名称与用途…' : state.section === 'trash' ? '搜索回收站…' : '搜索素材、剧本、标签…';
   $('#advancedSearch').disabled = !isAssets; $('#searchInput').disabled = state.section === 'context'; $('#folderScope').hidden = state.category === 'all'; $('#folderScope').value = state.folderScope;
@@ -375,7 +400,7 @@ function renderFolders() {
   const map = new Map(state.folders.map(folder => [String(folder.id),folder])); const chain = []; let folder = currentFolder();
   while (folder && chain.length < 40 && !chain.some(value => String(value.id) === String(folder.id))) { chain.unshift(folder); folder = map.get(String(folder.parent_id)); }
   $('#folderBreadcrumb').hidden = isCategory && !chain.length && !state.foldersTruncated;
-  $('#folderBreadcrumb').innerHTML = isCategory ? (chain.length ? `<button data-folder-open="root" data-folder-drop="root" data-folder-category="${escapeHtml(state.category)}">${icon('folder')}${escapeHtml(categoryLabel(state.category))}</button>${chain.slice(0,-1).map(value => `<span class="breadcrumb-slash">/</span><button data-folder-open="${escapeHtml(value.id)}" data-folder-drop="${escapeHtml(value.id)}" data-folder-category="${escapeHtml(value.category)}">${escapeHtml(value.name)}</button>`).join('')}` : '') : `<span>${state.projectId ? '全部分类中的文件' : '先创建一个项目'}</span>`;
+  $('#folderBreadcrumb').innerHTML = isCategory ? (chain.length ? `<button data-folder-open="root" data-folder-drop="root" data-folder-category="${escapeHtml(state.category)}">${icon('folder')}${escapeHtml(categoryLabel(state.category))}</button>${chain.map(value => `<span class="breadcrumb-slash">/</span><button data-folder-open="${escapeHtml(value.id)}" data-folder-drop="${escapeHtml(value.id)}" data-folder-category="${escapeHtml(value.category)}">${escapeHtml(value.name)}</button>`).join('')}` : '') : `<span>${state.projectId ? '全部分类中的文件' : '先创建一个项目'}</span>`;
   const folderTerms = state.q.split(/\s+/).filter(term => term && !term.includes(':')).map(term => term.toLocaleLowerCase());
   const children = isCategory ? state.folders.filter(value => String(value.parent_id || '') === String(state.folderId || '') && folderTerms.every(term => `${value.name} ${value.folder_path || ''}`.toLocaleLowerCase().includes(term))) : [];
   const folderPages = Math.max(1,Math.ceil(children.length/12)); state.folderPage = Math.min(state.folderPage || 0,folderPages-1); const visibleChildren = children.slice(state.folderPage*12,state.folderPage*12+12);
@@ -770,6 +795,7 @@ function renderTabs() {
   $('#editorTabs').innerHTML = state.tabs.map(tab => `<div class="editor-tab ${tab.key === state.activeKey ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${tab.key === state.activeKey}" data-tab="${escapeHtml(tab.key)}">${icon(kindIcons[tab.item.kind])}<span class="editor-tab-name" title="${escapeHtml(tab.item.name)}">${escapeHtml(tab.item.name)}</span>${tab.dirty || tab.propertiesDirty ? '<span class="dirty-dot" title="文稿或制作信息未保存"></span>' : ''}<button class="tab-close" data-close-tab="${escapeHtml(tab.key)}" aria-label="关闭 ${escapeHtml(tab.item.name)}">${icon('close')}</button></div>`).join('');
 }
 function renderWorkspace() {
+  window.chrome?.webview?.postMessage({action:'image-preview',active:['image','svg'].includes(activeTab()?.item?.kind)});
   const tab = activeTab(); if(documentSearchKey!==tab?.key){documentSearchUI?.close(false);documentSearchKey=tab?.key || null;} const editing = !!tab; $('#workspace').classList.toggle('editing',editing); $('#editor').hidden = !editing; $('#editorDivider').hidden = !editing;
   discardUnusedMarkdownEditors(); renderTabs(); renderInspector(); if (state.section === 'assets') $$('#resourceItems [data-item]').forEach(node => node.classList.toggle('selected',state.activeKey === `file:${node.dataset.item}`));
   if (!tab) { if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=true;$('#editorContent').hidden=false;unmountDocxPreview();unmountDocxEditor(); stopImageZoomTracking(); stopPreviewMedia(true); $('#editorContent').replaceChildren(); return; }
@@ -798,10 +824,22 @@ function updateImageZoomLabel(image = $('#mainImage')) {
   label.textContent = ratio > 0 ? `图片 ${Math.round(ratio * 100)}%` : '图片 —';
 }
 function trackImageZoom(tab, image) {
+  image.closest('.media-stage')?.addEventListener('wheel',imagePreviewWheel,{passive:false});
   const update = () => { if (activeTab() === tab && $('#mainImage') === image) updateImageZoomLabel(image); };
   image.addEventListener('load',update,{once:true});
   if (typeof ResizeObserver !== 'undefined') { imageZoomObserver = new ResizeObserver(update); imageZoomObserver.observe(image); }
   update();
+}
+function imagePreviewWheel(event) {
+  const tab=activeTab(),image=$('#mainImage');
+  if (!(event.ctrlKey||event.metaKey) || !image || !['image','svg'].includes(tab?.item?.kind) || !event.deltaY) return;
+  event.preventDefault();event.stopPropagation();
+  if(!image.naturalWidth || !image.naturalHeight)return;
+  const stage=image.closest('.media-stage'),before=image.getBoundingClientRect();
+  const x=(event.clientX-before.left)/before.width,y=(event.clientY-before.top)/before.height;
+  changeImageZoom(event.deltaY<0?'zoom-in':'zoom-out');
+  const after=image.getBoundingClientRect();
+  if(stage){stage.scrollLeft+=after.left+x*after.width-event.clientX;stage.scrollTop+=after.top+y*after.height-event.clientY;}
 }
 function changeImageZoom(action) {
   const image = $('#mainImage'), tab = activeTab();
@@ -1111,11 +1149,12 @@ function acceptSkillSources(result) {
 function skillSourceStatus(source) {
   return ({ready:'可用',missing:'未找到目录',disabled:'已关闭',error:'读取失败',truncated:'扫描未完整'})[source.status] || '尚未扫描';
 }
+function skillGroupContains(id,source) { const group=skillSourceState.groups.find(value=>value.id===id); return group?.source_ids ? group.source_ids.includes(source.id) : source.source===id; }
 function skillSourcesHtml() {
   const model=skillSourceState;
-  const groups=[{id:'',label:'全部来源',count:model.allTotal},...model.groups];
-  const directories=model.sources.filter(source=>!model.group || source.source===model.group);
-  return `<div class="skill-source-toolbar"><div class="skill-source-top"><span>按来源整理已有能力</span><div class="skill-source-buttons"><button type="button" class="button button-secondary button-small" data-action="manage-skill-sources">${icon('folder')}扫描位置</button><button type="button" class="button button-secondary button-small" data-action="refresh-skills" ${model.busy?'disabled':''}>${icon('refresh')}${model.busy?'正在扫描…':'扫描本机 SKILL'}</button></div></div><div class="skill-source-groups" role="group" aria-label="按 SKILL 来源筛选">${groups.map(group=>`<button type="button" class="skill-source-chip ${model.group===group.id?'active':''}" data-action="skill-source-filter" data-source-group="${escapeHtml(group.id)}" aria-pressed="${model.group===group.id}"><span>${escapeHtml(group.label)}</span>${Number.isFinite(group.count)?`<small>${Math.max(0,group.count)}</small>`:''}</button>`).join('')}</div><div class="skill-source-directory"><label for="skillSourceDirectory">具体目录</label><select id="skillSourceDirectory"><option value="">此来源的全部目录</option>${directories.map(source=>`<option value="${escapeHtml(source.id)}" ${model.directory===source.id?'selected':''}>${escapeHtml(source.label || source.path)} · ${Math.max(0,Number(source.count)||0)} 项${source.status!=='ready'?` · ${escapeHtml(skillSourceStatus(source))}`:''}</option>`).join('')}</select>${model.group||model.directory?'<button type="button" class="inline-link-button" data-action="clear-skill-source-filter">清除来源筛选</button>':''}</div><p class="skill-source-hint">来源筛选与上方搜索共同生效；切换来源不会重新扫描磁盘。</p></div>`;
+  const groups=[{id:'',label:'全部来源',count:model.allTotal},...model.groups.filter(group=>!group.hidden)];
+  const directories=model.sources.filter(source=>!model.group || skillGroupContains(model.group,source));
+  return `<div class="skill-source-toolbar"><div class="skill-source-top"><span>按来源整理已有能力</span><div class="skill-source-buttons"><button type="button" class="button button-secondary button-small" data-action="manage-skill-labels">管理标签</button><button type="button" class="button button-secondary button-small" data-action="manage-skill-sources">${icon('folder')}扫描位置</button><button type="button" class="button button-secondary button-small" data-action="refresh-skills" ${model.busy?'disabled':''}>${icon('refresh')}${model.busy?'正在扫描…':'扫描本机 SKILL'}</button></div></div><div class="skill-source-groups" role="group" aria-label="按 SKILL 来源筛选">${groups.map(group=>`<button type="button" class="skill-source-chip ${model.group===group.id?'active':''}" data-action="skill-source-filter" data-source-group="${escapeHtml(group.id)}" aria-pressed="${model.group===group.id}"><span>${escapeHtml(group.label)}</span>${Number.isFinite(group.count)?`<small>${Math.max(0,group.count)}</small>`:''}</button>`).join('')}</div><div class="skill-source-directory"><label for="skillSourceDirectory">具体目录</label><select id="skillSourceDirectory"><option value="">此来源的全部目录</option>${directories.map(source=>`<option value="${escapeHtml(source.id)}" ${model.directory===source.id?'selected':''}>${escapeHtml(source.label || source.path)} · ${Math.max(0,Number(source.count)||0)} 项${source.status!=='ready'?` · ${escapeHtml(skillSourceStatus(source))}`:''}</option>`).join('')}</select>${model.group||model.directory?'<button type="button" class="inline-link-button" data-action="clear-skill-source-filter">清除来源筛选</button>':''}</div><p class="skill-source-hint">来源筛选与上方搜索共同生效；切换来源不会重新扫描磁盘。</p></div>`;
 }
 async function setSkillSourceFilter(kind,value) {
   if(state.section!=='skills' || skillSourceState.busy || state.modalBusy)return;
@@ -1123,10 +1162,31 @@ async function setSkillSourceFilter(kind,value) {
     if(value && !skillSourceState.groups.some(group=>group.id===value))return;
     skillSourceState.group=value;skillSourceState.directory='';
   } else if(kind==='directory') {
-    if(value && !skillSourceState.sources.some(source=>source.id===value && (!skillSourceState.group || source.source===skillSourceState.group)))return;
+    if(value && !skillSourceState.sources.some(source=>source.id===value && (!skillSourceState.group || skillGroupContains(skillSourceState.group,source))))return;
     skillSourceState.directory=value;
   } else return;
   state.offset=0;hideMenu();await loadSkills();
+}
+function skillLabelsBody() {
+  return `<div id="skillLabelsManager"><p class="field-hint">标签用于筛选来源。移除标签会保留 SKILL、扫描位置和项目绑定；预设标签可以恢复。</p><div>${skillSourceState.groups.map(group=>`<div class="skill-label-row"><span>${escapeHtml(group.label)}${group.hidden?' · 已移除':''}</span><button type="button" class="button button-ghost button-small" data-action="${group.hidden?'restore':'remove'}-skill-label" data-label-id="${escapeHtml(group.id)}">${group.hidden?'恢复':'移除标签'}</button></div>`).join('')}</div><h3>新增标签</h3><div class="field"><label for="skillLabelName">标签名称</label><input id="skillLabelName" maxlength="40" placeholder="例如：编剧工具"></div><p class="field-hint">选择这个标签对应的扫描位置。新的目录可先在“扫描位置”登记。</p><div class="skill-label-sources">${skillSourceState.sources.map(source=>`<label><input type="checkbox" name="skillLabelSource" value="${escapeHtml(source.id)}"><span>${escapeHtml(source.label)}</span></label>`).join('')}</div><button type="button" class="button button-primary" data-action="add-skill-label">添加标签</button><p id="skillLabelNotice" role="status"></p></div>`;
+}
+function skillLabelsDialog() {
+  if($('#appDialog').open || skillSourceState.busy || state.modalBusy)return;
+  showDialog({title:'管理来源标签',body:skillLabelsBody(),actions:'<button type="button" class="button button-secondary" data-dialog-cancel>完成</button>'});
+}
+async function skillLabelAction(action,id) {
+  if(state.modalBusy || skillSourceState.busy || !$('#appDialog').open || !$('#skillLabelsManager'))return;
+  const options=action==='add-skill-label'?{method:'POST',body:{label:$('#skillLabelName').value.trim(),source_ids:$$('input[name="skillLabelSource"]:checked').map(input=>input.value)}}:action==='restore-skill-label'?{method:'PATCH',body:{hidden:false}}:{method:'DELETE',body:{}};
+  if(options.method==='POST' && (!options.body.label || !options.body.source_ids.length)){$('#skillLabelNotice').textContent='请填写名称并选择至少一个扫描位置。';return;}
+  const modal=state.modalSequence;state.modalBusy=true;
+  try {
+    const result=await api('/api/skill-source-labels'+(options.method==='POST'?'':'/'+encodeURIComponent(id)),options);
+    acceptSkillSources(result);
+    if(skillSourceState.group && !skillSourceState.groups.some(group=>group.id===skillSourceState.group&&!group.hidden)){skillSourceState.group='';skillSourceState.directory='';}
+    if(modal===state.modalSequence && $('#appDialog').open)$('#dialogBody').innerHTML=skillLabelsBody();
+    state.offset=0;await loadSkills();
+  } catch(error) {if(modal===state.modalSequence && $('#skillLabelNotice'))$('#skillLabelNotice').textContent=error.message;report(error);}
+  finally {if(modal===state.modalSequence)state.modalBusy=false;}
 }
 function skillSourceRegistryHtml() {
   return skillSourceState.sources.map(source=>`<section class="skill-source-row"><div class="skill-source-row-main"><strong>${escapeHtml(source.label || source.source)}</strong><span class="skill-source-state">${escapeHtml(skillSourceStatus(source))} · ${Math.max(0,Number(source.count)||0)} 项</span><p class="skill-source-path">${escapeHtml(source.path)}</p><small>${source.readonly?'外部来源，只读原文件':'映序本地，可编辑自己的 SKILL'}</small></div><div class="skill-source-row-actions">${source.id==='yingxu'?'<span class="field-hint">始终启用</span>':`<button type="button" class="button button-secondary button-small" data-action="toggle-skill-source" data-source-id="${escapeHtml(source.id)}" ${skillSourceState.busy?'disabled':''}>${source.enabled?'关闭扫描':'启用扫描'}</button>`}${source.custom?`<button type="button" class="button button-ghost button-small" data-action="remove-skill-source" data-source-id="${escapeHtml(source.id)}" ${skillSourceState.busy?'disabled':''}>移除登记</button>`:''}</div></section>`).join('') || '<p class="field-hint">尚未登记扫描位置。</p>';
@@ -1262,6 +1322,9 @@ async function handleAction(action,target) {
     if (action === 'copy-path') return copyText(activeTab()?.item.path,'文件路径已复制。'); if (action === 'add-relation') return relationDialog(); if (action === 'rename-file') return renameDialog();
     if (action === 'show-context') return selectSection('context'); if (action === 'new-skill') return newSkillDialog();
     if (action === 'refresh-skills') return await refreshSkillSources();
+    if (action === 'return-workspace') return await returnToWorkspace();
+    if (action === 'manage-skill-labels') return skillLabelsDialog();
+    if (['add-skill-label','remove-skill-label','restore-skill-label'].includes(action)) return await skillLabelAction(action,target.dataset.labelId);
     if (action === 'manage-skill-sources') return await skillSourcesDialog();
     if (action === 'skill-source-filter') return await setSkillSourceFilter('group',target.dataset.sourceGroup || '');
     if (action === 'clear-skill-source-filter') return await setSkillSourceFilter('group','');
@@ -1542,7 +1605,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.6-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.6 · ${escapeHtml(state.bootstrap?.version === '0.4.6' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.7-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.7 · ${escapeHtml(state.bootstrap?.version === '0.4.7' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);

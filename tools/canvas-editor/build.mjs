@@ -27,7 +27,7 @@ if(fontFallbacks!==1)throw new Error('Pinned Excalidraw font fallback changed; i
 await cp('node_modules/@excalidraw/excalidraw/dist/prod/fonts',path.join(output,'fonts'),{recursive:true});
 await writeFile(path.join(output,'index.html'),'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>映序画板</title><link rel="stylesheet" href="/canvas/entry.css"><link rel="stylesheet" href="/canvas/host.css"><div id="root"></div><script src="/canvas/local-assets.js"></script><script type="module" src="/canvas/entry.js"></script></html>');
 await build({entryPoints:['local-assets.js'],bundle:true,format:'iife',outfile:path.join(output,'local-assets.js'),minify:true});
-await writeFile(path.join(output,'host.css'),'html,body,#root{margin:0;width:100%;height:100%;overflow:hidden}.excalidraw{--color-primary:#466d57;--color-primary-darker:#365443}.excalidraw .library-button{display:none}');
+await cp('host.css',path.join(output,'host.css'));
 const manifest=[];
 async function walk(folder){for(const item of await readdir(folder,{withFileTypes:true})){const file=path.join(folder,item.name);if(item.isDirectory())await walk(file);else {const data=await readFile(file);manifest.push({path:path.relative(output,file).replaceAll('\\','/'),bytes:data.length,sha256:createHash('sha256').update(data).digest('hex')});}}}
 await cp('pnpm-lock.yaml',path.join(output,'DEPENDENCIES.lock.yaml'));

@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from server import Application, Server
+from yingxu.skills import SkillLibrary
 
 
 class SkillSourcesHttpTests(unittest.TestCase):
@@ -74,3 +75,90 @@ class SkillSourcesHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/skill-sources/dsh','PATCH',{'path':str(self.external.parent)})[0],400)
         self.assertEqual(self.request('/api/skill-sources','GET',overrides={'Origin':'https://foreign.invalid'})[0],403)
         self.assertEqual(self.request('/api/skill-sources','POST',{'path':str(self.external.parent),'execute':True})[0],400)
+
+    def test_filter_labels_persist_without_changing_sources_files_or_bindings(self):
+        status,added=self.request('/api/skill-sources','POST',{'path':str(self.external.parent.parent),'label':'合成来源'})
+        self.assertEqual(status,201,added)
+        sid=next(s['id'] for s in added['sources'] if s['custom'])
+        iid=added['skills'][0]['id']
+        status,project=self.request('/api/projects','POST',{'name':'标签测试'})
+        self.assertEqual(status,201,project)
+        self.assertEqual(self.request('/api/skills/bind','POST',{'project_id':project['id'],'skill_id':iid,'bound':True})[0],200)
+        sources_before=self.request('/api/skill-sources')[1]['sources']
+
+        # Label changes and filtered queries operate on the existing index only.
+        with patch.object(self.app.skills,'refresh',side_effect=AssertionError('label operation must not scan')):
+            status,created=self.request('/api/skill-source-labels','POST',{'label':'  创作能力  ','source_ids':[sid,sid,'yingxu']})
+            self.assertEqual(status,201,created)
+            label=next(g for g in created['groups'] if not g['builtin'])
+            lid=label['id']
+            self.assertEqual(label['label'],'创作能力')
+            self.assertEqual(set(label['source_ids']),{sid,'yingxu'})
+            self.assertEqual(len(label['source_ids']),2)
+            self.assertEqual(label['count'],1)
+            status,hidden=self.request('/api/skill-source-labels/custom','DELETE')
+            self.assertEqual(status,200,hidden)
+            self.assertTrue(next(g for g in hidden['groups'] if g['id']=='custom')['hidden'])
+            status,filtered=self.request('/api/skills?source='+lid+'&project='+project['id'])
+            self.assertEqual(status,200,filtered)
+            self.assertEqual([(s['id'],s['bound']) for s in filtered['skills']],[(iid,True)])
+            self.assertEqual(self.request('/api/skill-sources')[1]['sources'],sources_before)
+
+        # Recreate the library over the same isolated database, as at app startup.
+        with patch('yingxu.skills.Path.home',return_value=self.root/'empty-home'):
+            self.app.skills=SkillLibrary(self.app.store)
+        status,reloaded=self.request('/api/skill-sources')
+        self.assertEqual(status,200,reloaded)
+        self.assertEqual(next(g for g in reloaded['groups'] if g['id']==lid),label)
+        self.assertTrue(next(g for g in reloaded['groups'] if g['id']=='custom')['hidden'])
+        self.assertEqual(self.request('/api/skill-source-labels/custom','PATCH',{'hidden':False})[0],200)
+        status,deleted=self.request('/api/skill-source-labels/'+lid,'DELETE')
+        self.assertEqual(status,200,deleted)
+        self.assertFalse(any(g['id']==lid for g in deleted['groups']))
+        self.assertFalse(next(g for g in deleted['groups'] if g['id']=='custom')['hidden'])
+        self.assertEqual(self.request('/api/skills?source='+lid)[0],400)
+        status,listing=self.request('/api/skills?project='+project['id'])
+        self.assertEqual(status,200,listing)
+        self.assertEqual([(s['id'],s['bound']) for s in listing['skills']],[(iid,True)])
+        self.assertTrue(next(s for s in deleted['sources'] if s['id']==sid)['enabled'])
+
+    def test_filter_label_mutations_require_same_origin_and_token(self):
+        status,created=self.request('/api/skill-source-labels','POST',{'label':'权限测试','source_ids':['yingxu']})
+        self.assertEqual(status,201,created)
+        lid=next(g['id'] for g in created['groups'] if not g['builtin'])
+        self.assertEqual(self.request('/api/skill-source-labels/codex','DELETE')[0],200)
+        before=self.request('/api/skill-sources')[1]
+        operations=[('POST','/api/skill-source-labels',{'label':'不应创建','source_ids':['yingxu']}),
+                    ('DELETE','/api/skill-source-labels/'+lid,{}),
+                    ('DELETE','/api/skill-source-labels/yingxu',{}),
+                    ('PATCH','/api/skill-source-labels/codex',{'hidden':False})]
+        for method,path,body in operations:
+            for overrides in ({'Origin':'https://foreign.invalid'},{'X-YingXu-Token':None},{'X-YingXu-Token':'wrong'}):
+                with self.subTest(method=method,path=path,overrides=overrides):
+                    status,result=self.request(path,method,body,overrides)
+                    self.assertEqual(status,403,result)
+        self.assertEqual(self.request('/api/skill-sources')[1],before)
+
+    def test_filter_label_validation_and_unknown_operations_do_not_mutate(self):
+        invalid=[{}, {'label':'','source_ids':['yingxu']}, {'label':'x'*41,'source_ids':['yingxu']},
+                 {'label':'a\nb','source_ids':['yingxu']}, {'label':'x','source_ids':[]},
+                 {'label':'x','source_ids':'yingxu'}, {'label':'x','source_ids':['missing']},
+                 {'label':'x','source_ids':[None]}, {'label':'x','source_ids':['yingxu'],'path':str(self.root)}]
+        before=self.request('/api/skill-sources')[1]
+        for body in invalid:
+            with self.subTest(body=body):
+                self.assertEqual(self.request('/api/skill-source-labels','POST',body)[0],400)
+        self.assertEqual(self.request('/api/skill-source-labels','POST',{'label':'cOdEx','source_ids':['yingxu']})[0],409)
+        for method,path,body,expected in [
+            ('DELETE','/api/skill-source-labels/label_missing',{},404),
+            ('PATCH','/api/skill-source-labels/label_missing',{'hidden':False},404),
+            ('PATCH','/api/skill-source-labels/codex',{'hidden':True},400),
+            ('PATCH','/api/skill-source-labels/codex',{'hidden':0},400),
+            ('PATCH','/api/skill-source-labels/codex',{'hidden':False,'extra':True},400),
+            ('DELETE','/api/skill-source-labels/codex',{'extra':True},400),
+            ('POST','/api/skill-source-labels?extra=1',{'label':'不应创建','source_ids':['yingxu']},400),
+            ('DELETE','/api/skill-source-labels/codex?extra=1',{},400),
+            ('PATCH','/api/skill-source-labels/codex?extra=1',{'hidden':False},400)]:
+            with self.subTest(method=method,path=path,body=body):
+                self.assertEqual(self.request(path,method,body)[0],expected)
+        self.assertEqual(self.request('/api/skill-sources')[1],before)

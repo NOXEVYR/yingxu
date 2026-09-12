@@ -79,7 +79,7 @@ jobs:
         run: |
           python tools/package_release.py
           if ($LASTEXITCODE) { throw 'Package failed' }
-          python tools/verify_release.py releases/YingXu-v0.4.6-Windows-x64.zip | Tee-Object releases/YingXu-v0.4.6-verification.json
+          python tools/verify_release.py releases/YingXu-v0.4.7-Windows-x64.zip | Tee-Object releases/YingXu-v0.4.7-verification.json
           if ($LASTEXITCODE) { throw 'Release verification failed' }
       - name: Upload draft, fetch and verify assets, then publish
         env:
@@ -88,7 +88,7 @@ jobs:
           REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && (github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' || github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'))) && 'true' || 'false' }}"
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = 'yingxu-v0.4.6'
+          $tag = 'yingxu-v0.4.7'
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           $taskExistingDraft = $false
           $taskReplaceIcons = $false
@@ -105,7 +105,7 @@ jobs:
             if (-not $taskReplaceIcons) {
             $taskTagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha
             if ($LASTEXITCODE -or $taskTagSha -ne $env:GITHUB_SHA) { throw 'Draft tag differs from this verified source commit; preserve it for review' }
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.6 · 轻量外观与导航'
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.7 · 预览、导航与画板交互修复'
             if ($LASTEXITCODE) { throw 'Draft title refresh failed' }
             $taskExistingDraft = $true
             }
@@ -116,15 +116,14 @@ jobs:
           @'
           完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。
 
-          默认黑白外观，雾白松绿、暖纸书卷可在设置中选择；侧栏按用途分组，“文本”“素材”“记录”仅调整显示名称，原分类与文件路径保持不变。工具区与正文分别排版，使用系统已有字体，更新黑白应用图标。SKILL 库、AI 协作、回收站集中在“工作空间”入口。
+          - 图片预览内按 Ctrl（macOS 可按 ⌘）加滚轮只调整图片大小，保留工具栏和界面缩放。
+          - 文件夹导航显示包含当前文件夹的完整层级，点击祖先可返回对应位置。
+          - 设置中的勾选颜色跟随当前配色，与同页按钮保持一致。
+          - SKILL 库支持增加和删除来源标签；标签调整保存在映序，不删除外部技能源文件。
+          - 工作空间入口旁增加返回按钮，回到先前工作台并恢复原来的浏览位置。
+          - 画板属性面板使用紧凑宽度，限制高度并在面板内滚动，避免遮住整个画面和拉长滑条。
 
-          菜单悬停采用短暂渐变，遵循减少动态效果偏好；无常驻动画，不增加字库、模型或运行依赖。保留文档内查找、Word 分页、Markdown 文件链接、素材组和多来源 SKILL 等既有功能。
-
-          全局搜索使用左侧独立图标入口；项目列表跟随项目库所选分类并记住选择，“全部项目”和“未分类”各按自身范围显示，切换分类不关闭正在编辑的文稿。列表随窗口高度显示 2–4 个完整行，更多项目在列表内滚动，点击项目不打乱顺序。
-
-          去掉重复的项目标题，修复黑白、暖纸外观下仍出现绿色弹窗遮罩的问题。确认放弃画板修改后可以正常退出；取消退出、保存失败或输入尚未完成时继续保留相应编辑状态。
-
-          本次附件为 Windows x64 0.4.6；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。
+          本次附件为 Windows x64 0.4.7；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。
 
           更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。
           '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/release-notes.md"
@@ -136,15 +135,15 @@ jobs:
           if ($taskExistingDraft) {
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes-file "$env:RUNNER_TEMP/release-notes.md"
             if ($LASTEXITCODE) { throw 'Draft notes refresh failed' }
-            gh release upload $tag releases/YingXu-v0.4.6-Windows-x64.zip releases/YingXu-v0.4.6-SHA256.txt releases/YingXu-v0.4.6-manifest.json releases/YingXu-v0.4.6-verification.json --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload $tag releases/YingXu-v0.4.7-Windows-x64.zip releases/YingXu-v0.4.7-SHA256.txt releases/YingXu-v0.4.7-manifest.json releases/YingXu-v0.4.7-verification.json --repo $env:GITHUB_REPOSITORY --clobber
           } else {
-          gh release create $tag releases/YingXu-v0.4.6-Windows-x64.zip releases/YingXu-v0.4.6-SHA256.txt releases/YingXu-v0.4.6-manifest.json releases/YingXu-v0.4.6-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.6 · 轻量外观与导航' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
+          gh release create $tag releases/YingXu-v0.4.7-Windows-x64.zip releases/YingXu-v0.4.7-SHA256.txt releases/YingXu-v0.4.7-manifest.json releases/YingXu-v0.4.7-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.7 · 预览、导航与画板交互修复' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
           }
           if ($LASTEXITCODE) { throw 'Draft upload failed' }
           gh release download $tag --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP/published-check"
           if ($LASTEXITCODE) { throw 'Draft download failed' }
-          $manifest = Get-Content "$env:RUNNER_TEMP/published-check/YingXu-v0.4.6-manifest.json" -Raw | ConvertFrom-Json
-          $zip = Get-Item "$env:RUNNER_TEMP/published-check/YingXu-v0.4.6-Windows-x64.zip"
+          $manifest = Get-Content "$env:RUNNER_TEMP/published-check/YingXu-v0.4.7-manifest.json" -Raw | ConvertFrom-Json
+          $zip = Get-Item "$env:RUNNER_TEMP/published-check/YingXu-v0.4.7-Windows-x64.zip"
           if ($zip.Length -ne $manifest.bytes -or (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower() -ne $manifest.sha256) { throw 'Downloaded asset differs' }
           python tools/verify_release.py $zip.FullName
           if ($LASTEXITCODE) { throw 'Downloaded asset failed verification' }

@@ -18,8 +18,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.6.0")]
-[assembly: AssemblyFileVersion("0.4.6.0")]
+[assembly: AssemblyVersion("0.4.7.0")]
+[assembly: AssemblyFileVersion("0.4.7.0")]
 
 namespace YingXu.Desktop
 {
@@ -408,6 +408,13 @@ namespace YingXu.Desktop
             catch { return false; }
             object value; if (message == null || !message.TryGetValue("action",out value) || !(value is string)) return false;
             string action = (string)value;
+            if (action == "image-preview")
+            {
+                object active;
+                if (message.Count != 2 || !message.TryGetValue("active",out active) || !(active is bool)) return false;
+                if (web != null && web.CoreWebView2 != null) web.CoreWebView2.Settings.IsZoomControlEnabled = !(bool)active;
+                return true;
+            }
             if (action == "open-file")
             {
                 object id;

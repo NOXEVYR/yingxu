@@ -141,6 +141,9 @@ class SkillLibrary:
             CREATE TABLE IF NOT EXISTS yx_skill_locations(
               skill_id TEXT NOT NULL REFERENCES yx_skills(id),source_id TEXT NOT NULL,
               PRIMARY KEY(skill_id,source_id));
+            CREATE TABLE IF NOT EXISTS yx_skill_filter_labels(
+              id TEXT PRIMARY KEY,label TEXT NOT NULL DEFAULT '',
+              source_ids TEXT NOT NULL DEFAULT '[]',hidden INTEGER NOT NULL DEFAULT 0);
             """)
             columns = {row[1] for row in db.execute('PRAGMA table_info(yx_skills)')}
             if 'file_identity' not in columns:
@@ -248,8 +251,42 @@ class SkillLibrary:
             item['count'] = len(counts[key])
             groups[item['source']].update(counts[key])
             sources.append(item)
-        return {'sources':sources,'groups':[{'id':key,'label':label,'count':len(groups[key])} for key,label in LABELS.items()],
+        with self.store.connection() as db:
+            labels={row['id']:dict(row) for row in db.execute('SELECT * FROM yx_skill_filter_labels')}
+        displayed=[{'id':key,'label':label,'count':len(groups[key]),'builtin':True,
+                    'hidden':bool(labels.get(key,{}).get('hidden')),
+                    'source_ids':[s['id'] for s in sources if s['source']==key]} for key,label in LABELS.items()]
+        for key,value in labels.items():
+            if key in LABELS:continue
+            members=json.loads(value['source_ids'])
+            matched=set().union(*(counts.get(member,set()) for member in members))
+            displayed.append(dict(id=key,label=value['label'],count=len(matched),builtin=False,hidden=False,source_ids=members))
+        return {'sources':sources,'groups':displayed,
                 'all_total':len(visible),'errors':[],'truncated':any(s['status']=='truncated' for s in sources)}
+
+    @_synchronized
+    def add_filter_label(self,data):
+        if not isinstance(data,dict) or set(data)!={'label','source_ids'}:raise UserError('请填写标签名称和扫描位置。')
+        name=data['label'];members=data['source_ids']
+        if not isinstance(name,str) or not 1<=len(name.strip())<=40 or any(ord(c)<32 for c in name):raise UserError('标签名称须为 1–40 个字符。')
+        name=name.strip()
+        if not isinstance(members,list) or not 1<=len(members)<=24 or any(not isinstance(key,str) or key not in self.locations for key in members):raise UserError('请关联至少一个已登记的扫描位置。')
+        with self.store.lock,self.store.connection() as db:
+            rows=db.execute('SELECT id,label FROM yx_skill_filter_labels').fetchall()
+            if sum(row['id'] not in LABELS for row in rows)>=32:raise UserError('最多添加 32 个来源标签。')
+            if name.casefold() in {value.casefold() for value in LABELS.values()}|{row['label'].casefold() for row in rows}:raise UserError('这个标签名称已存在。',409)
+            db.execute('INSERT INTO yx_skill_filter_labels(id,label,source_ids) VALUES(?,?,?)',('label_'+uid(),name,json.dumps(sorted(set(members)))))
+        return self.source_list()
+
+    @_synchronized
+    def remove_filter_label(self,label_id,restore=False):
+        with self.store.lock,self.store.connection() as db:
+            if label_id in LABELS:
+                db.execute('INSERT INTO yx_skill_filter_labels(id,hidden) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET hidden=excluded.hidden',(label_id,int(not restore)))
+            else:
+                if restore or not db.execute('SELECT 1 FROM yx_skill_filter_labels WHERE id=?',(label_id,)).fetchone():raise UserError('标签不存在。',404)
+                db.execute('DELETE FROM yx_skill_filter_labels WHERE id=?',(label_id,))
+        return self.source_list()
 
     def add_source(self, data):
         with self.lock:
@@ -394,7 +431,8 @@ class SkillLibrary:
     @_synchronized
     def list(self, q='', project_id='', source='', source_id=''):
         if project_id:self.store.get_project(project_id)
-        if source and source not in LABELS:raise UserError('未知技能来源。')
+        group=next((value for value in self.source_list()['groups'] if value['id']==source),None) if source else None
+        if source and group is None:raise UserError('未知技能来源。')
         if source_id and source_id not in self.locations:raise UserError('扫描位置不存在。',404)
         query=str(q or '').strip().casefold()[:300]
         with self.lock,self.store.connection() as db:
@@ -410,7 +448,7 @@ class SkillLibrary:
             ids=locations.get(row['id'],set())
             if self.locations.get(row['source'],{}).get('enabled'):ids.add(row['source'])
             if source_id and source_id not in ids:continue
-            if source and not any(self.locations[key]['source']==source for key in ids):continue
+            if group and not ids.intersection(group['source_ids']):continue
             if query and not all(part in (row['name']+' '+row['description']+' '+row['path']).casefold() for part in query.split()):continue
             item=self._item(row,row['id'] in bound);item['source_ids']=sorted(ids);skills.append(item)
         return dict(self.source_list(),skills=skills,total=len(skills))

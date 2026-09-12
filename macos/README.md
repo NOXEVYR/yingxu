@@ -31,6 +31,17 @@
 - 同步 0.4.5 的 Markdown 项目文件链接、画板切换与撤销、本地字体、隐藏刷新和重复序列化修复；设置提供版本与缓存/历史占用预览。
 - 关闭窗口前检查未保存文稿；退出会结束本实例的后台服务。
 
+## 0.4.7 源码更新（发布验证中）
+
+- 图片预览内按 Ctrl（macOS 可按 ⌘）加滚轮只调整图片大小，保留工具栏和界面缩放。
+- 文件夹导航显示包含当前文件夹的完整层级，点击祖先可返回对应位置。
+- 设置中的勾选颜色跟随当前配色，与同页按钮保持一致。
+- SKILL 库支持增加和删除来源标签；标签调整保存在映序，不删除外部技能源文件。
+- 工作空间入口旁增加返回按钮，回到先前工作台并恢复原来的浏览位置。
+- 画板属性面板使用紧凑宽度，限制高度并在面板内滚动，避免遮住整个画面和拉长滑条。
+
+当前下载版本仍以上方已发布附件为准。
+
 ## 0.4.6 源码更新
 
 - 默认黑白外观，雾白松绿、暖纸书卷可选；偏好保存到本机，不提供日夜自动切换。
@@ -59,7 +70,7 @@
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.6-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.7-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。
 

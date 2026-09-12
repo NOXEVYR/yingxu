@@ -17,7 +17,7 @@ from yingxu import macos
 
 class MacAdaptersTests(unittest.TestCase):
     def test_preview_and_close_drains_all_workers_in_order_once(self):
-        self.assertEqual(PREVIEW, '0.4.6-mac.1')
+        self.assertEqual(PREVIEW, '0.4.7-mac.1')
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
         events=[]

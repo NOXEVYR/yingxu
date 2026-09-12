@@ -122,6 +122,13 @@ namespace YingXu.Desktop
             int events=0;
             web.ZoomFactorChanged+=(sender,args)=>{events++;Call(window,"UpdateZoomStatus");};
             var zoom=(ToolStripStatusLabel)Field(window,"zoomStatus");
+            var messages=new JavaScriptSerializer();
+            Call(window,"ReceiveDesktopRequest",Hub.Url,messages.Serialize(new{action="image-preview",active=true}));
+            Check(!web.CoreWebView2.Settings.IsZoomControlEnabled,"image preview disables native page zoom so Ctrl+wheel belongs to the image");
+            Call(window,"ReceiveDesktopRequest","https://example.com",messages.Serialize(new{action="image-preview",active=false}));
+            Check(!web.CoreWebView2.Settings.IsZoomControlEnabled,"foreign frame cannot change zoom routing");
+            Call(window,"ReceiveDesktopRequest",Hub.Url,messages.Serialize(new{action="image-preview",active=false}));
+            Check(web.CoreWebView2.Settings.IsZoomControlEnabled,"leaving image restores native interface zoom");
             // Normal property assignment intentionally does not emit the SDK event.
             // An out-of-range assignment invokes the engine's real normalization event.
             web.ZoomFactor=100;

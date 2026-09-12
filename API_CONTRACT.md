@@ -191,3 +191,16 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 ## 外观设置（开发版）
 
 `GET /api/settings`、`PATCH /api/settings` 和 `bootstrap.settings` 支持 `appearance_theme`，仅允许 `swiss`（默认黑白）、`pine`、`paper`。旧设置缺省时回退 `swiss`，读取不改写旧文件；未知主题或错误类型拒绝，仍使用原子保存。分类显示名调整只在界面层映射，scripts/shots/previs/references 及目录路径不变。
+
+
+## 0.4.7 来源标签
+
+标签仅管理已登记来源的筛选，不变更扫描位置、原技能文件或项目绑定；读取和标签增删不触发扫描。`GET /api/skill-sources` 的 `groups` 增加 `builtin`、`hidden`、`source_ids`。`GET /api/skills?source=ID` 支持自定义标签，与目录、项目和搜索筛选组合。
+
+| 接口 | 请求与行为 |
+| --- | --- |
+| `POST /api/skill-source-labels` | `{label,source_ids}`；名称 1–40 字符、同名拒绝；关联 1–24 个已登记位置，自定义标签最多 32 个；返回 201 与来源列表 |
+| `DELETE /api/skill-source-labels/ID` | 空对象；预设标签隐藏，自定义标签移除；返回来源列表 |
+| `PATCH /api/skill-source-labels/ID` | 仅 `{hidden:false}`，恢复预设标签；返回来源列表 |
+
+所有写接口拒绝查询参数、未知字段及未知标签；要求现有同源和会话令牌校验。布尔值不接受数字替代。
