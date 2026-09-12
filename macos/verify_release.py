@@ -66,6 +66,14 @@ def verify(archive):
             assert entry.resolve().is_relative_to(delivery)
         app=delivery/'YingXu.app';executable=app/'Contents/MacOS/YingXu'
         info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
+        if manifest.get('icon_revision'):
+            assert manifest['icon_revision']=='viewfinder-v1'
+            icon_name=info['CFBundleIconFile']
+            if not icon_name.endswith('.icns'):icon_name+='.icns'
+            icon=app/'Contents/Resources'/icon_name
+            assert icon.resolve().is_relative_to((app/'Contents/Resources').resolve())
+            assert hashlib.sha256(icon.read_bytes()).hexdigest()==manifest['icon_sha256']
+            checks.append('Extracted application viewfinder icon matches repair manifest')
         assert info['CFBundleShortVersionString']=='0.4.6' and info['CFBundleVersion']=='40601'
         assert info['LSMinimumSystemVersion']=='14.0'
         assert subprocess.check_output(['lipo','-archs',str(executable)],text=True).strip()=='arm64'
@@ -77,7 +85,8 @@ def verify(archive):
     return {'ok':True,'version':manifest['version'],'source_commit':manifest['source_commit'],
             'archive':archive.name,'bytes':manifest['bytes'],'sha256':digest,
             'checks':checks,'real_user_data_used':False,'extracted_zip_executed':True,
-            'manual_ime_permissions_long_term_tested':False}
+            'manual_ime_permissions_long_term_tested':False,
+            'icon_revision':manifest.get('icon_revision'), 'icon_sha256':manifest.get('icon_sha256')}
 
 
 if __name__=='__main__':

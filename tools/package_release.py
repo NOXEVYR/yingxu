@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import zipfile
@@ -77,6 +78,9 @@ def main():
     paths += list(runtime_files(args.runtime_dir))
     manifest = {
         'application': 'YingXu', 'version': VERSION, 'root': 'YingXu/',
+        'icon_revision': 'viewfinder-v1',
+        'icon_sha256': hashlib.sha256((ROOT / 'desktop/brand.ico').read_bytes()).hexdigest(),
+        'source_commit': os.environ.get('GITHUB_SHA', ''),
         'architecture': 'Windows x64', 'python_bundled': True,
         'requirements': ['Windows 10 22H2 / Windows 11 x64'],
         'bundled': ['CPython 3.13.15', 'Pillow 12.3.0', 'FFmpeg 9.0.1', 'WebView2 152.0.4191.62 x64'],
@@ -91,7 +95,8 @@ def main():
     result = {'file': package.name, 'version': VERSION, 'bytes': package.stat().st_size,
               'sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
               'entries': len(paths) + 1, 'root': 'YingXu/', 'contains_user_data': False,
-              'python_bundled': True}
+              'python_bundled': True, 'icon_revision': manifest['icon_revision'],
+              'icon_sha256': manifest['icon_sha256'], 'source_commit': manifest['source_commit']}
     (target / f'YingXu-v{VERSION}-manifest.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     (target / f'YingXu-v{VERSION}-SHA256.txt').write_text(f"{result['sha256']}  {package.name}\n", encoding='ascii')
     print(json.dumps(result, ensure_ascii=False))

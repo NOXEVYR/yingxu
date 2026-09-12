@@ -4,6 +4,12 @@ on:
     branches: [main]
     paths: [macos/**, macos_app.py, macos_smoke.py, macos_ui_smoke.py, tests/test_macos.py, tests/test_portable.py, .github/workflows/yingxu-macos-preview.yml]
   workflow_dispatch:
+    inputs:
+      replace_icons:
+        description: 'Explicitly replace 0.4.6-mac.1 icon repair assets; retain tag and roll back on failure'
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -48,6 +54,8 @@ jobs:
       - name: Publish preview after full download verification
         env:
           GH_TOKEN: ${{ github.token }}
+          ICON_REPAIR_PUSH: "${{ github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' && 'true' || 'false' }}"
+          REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]')) && 'true' || 'false' }}"
         run: python -B macos/publish.py
       - uses: actions/upload-artifact@v4
         with:

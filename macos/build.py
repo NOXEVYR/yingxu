@@ -73,6 +73,7 @@ def main():
     digest = hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()
     manifest = {'file': archive.name, 'bytes': archive.stat().st_size, 'sha256': digest,
                 'version': PREVIEW, 'source_version': __version__, 'source_commit': os.environ.get('GITHUB_SHA', ''),
+                'icon_revision': 'viewfinder-v1', 'icon_sha256': hashlib.sha256((ROOT/'desktop/brand.icns').read_bytes()).hexdigest(),
                 'platform': 'macOS 14+', 'architecture': 'arm64', 'signing': 'ad-hoc; not notarized',
                 'root': 'YingXu/', 'contains_user_data': False}
     (artifact / (archive.stem + '-SHA256.txt')).write_text(digest + '  ' + archive.name + '\n', encoding='utf-8')

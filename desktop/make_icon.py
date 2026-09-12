@@ -1,55 +1,62 @@
-"""Render the original film/play mark into offline Windows and macOS icons.
+"""Build native icons matching the application's viewfinder/play favicon.
 
-Pillow is a build tool already used by this project. Icon files are generated
-before packaging; this module performs no work or downloads on import.
+Uses the project's existing Pillow build dependency, with no network activity.
+The native icon shape is the same four open corners used by the UI brand; it
+must not revert to the former filmstrip icon when native launchers are rebuilt.
 """
 from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
-BACKGROUND = "#202020"
-FRAME = "#f5f5f5"
-SCREEN = "#292929"
-PLAY = "#ffffff"
+BACKGROUND = "#202327"
+FOREGROUND = "#ffffff"
+VIEWBOX_SIZE = 64
+CORNER_PATH = "M16 22v-6h12m8 0h12v12m0 8v12H36m-8 0H16V36"
+PLAY_PATH = "m27 25 12 7-12 7z"
+STROKE_WIDTH = 4
+CORNER_RADIUS = 16
+# Explicit filled polygons reproduce the SVG's 4px butt caps and miter joins.
+# Their separation is intentional: this is an open viewfinder, not a film frame.
+CORNER_POLYGONS = (
+    ((14,22),(14,14),(28,14),(28,18),(18,18),(18,22)),
+    ((36,14),(50,14),(50,28),(46,28),(46,18),(36,18)),
+    ((50,36),(50,50),(36,50),(36,46),(46,46),(46,36)),
+    ((28,50),(14,50),(14,36),(18,36),(18,46),(28,46)),
+)
+PLAY_POINTS = ((27,25),(39,32),(27,39))
 WINDOWS_SIZES = [(size, size) for size in (16, 24, 32, 48, 64, 128, 256)]
 
 
 def render_mark():
-    """Keep the original geometry, rendered at 4x for small-icon antialiasing."""
-    scale = 4
-    image = Image.new("RGBA", (256 * scale, 256 * scale), (0, 0, 0, 0))
+    """Render the 64-unit favicon geometry at 1024px before downsampling."""
+    scale = 16
+    image = Image.new("RGBA", (VIEWBOX_SIZE * scale, VIEWBOX_SIZE * scale), (0,0,0,0))
     draw = ImageDraw.Draw(image)
-
-    def rect(box, radius, color):
-        draw.rounded_rectangle(tuple(int(x * scale) for x in box), radius * scale, fill=color)
-
-    rect((0, 0, 255, 255), 58, BACKGROUND)
-    rect((44, 53, 212, 203), 18, FRAME)
-    rect((66, 69, 190, 187), 7, SCREEN)
-    draw.polygon([(108 * scale, 94 * scale), (156 * scale, 128 * scale),
-                  (108 * scale, 162 * scale)], fill=PLAY)
-    for x, y in [(51, 73), (51, 111), (51, 150), (196, 90), (196, 128), (196, 166)]:
-        rect((x, y, x + 9, y + 17), 3, BACKGROUND)
+    draw.rounded_rectangle((0,0,image.width-1,image.height-1),
+                           radius=CORNER_RADIUS * scale,fill=BACKGROUND)
+    for polygon in (*CORNER_POLYGONS, PLAY_POINTS):
+        draw.polygon([(x * scale,y * scale) for x,y in polygon],fill=FOREGROUND)
     return image
 
 
 def generate(output=ROOT):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<rect width="256" height="256" rx="58" fill="{BACKGROUND}"/>
-<rect x="44" y="53" width="168" height="150" rx="18" fill="{FRAME}"/>
-<rect x="66" y="69" width="124" height="118" rx="7" fill="{SCREEN}"/>
-<path d="M108 94L156 128L108 162Z" fill="{PLAY}"/>
-<g fill="{BACKGROUND}"><rect x="51" y="73" width="9" height="17" rx="3"/><rect x="51" y="111" width="9" height="17" rx="3"/><rect x="51" y="150" width="9" height="17" rx="3"/><rect x="196" y="90" width="9" height="17" rx="3"/><rect x="196" y="128" width="9" height="17" rx="3"/><rect x="196" y="166" width="9" height="17" rx="3"/></g>
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEWBOX_SIZE} {VIEWBOX_SIZE}">
+<rect width="{VIEWBOX_SIZE}" height="{VIEWBOX_SIZE}" rx="{CORNER_RADIUS}" fill="{BACKGROUND}"/>
+<path d="{CORNER_PATH}" stroke="{FOREGROUND}" stroke-width="{STROKE_WIDTH}" fill="none"/>
+<path d="{PLAY_PATH}" fill="{FOREGROUND}"/>
 </svg>'''
     (output / "brand.svg").write_text(svg, encoding="utf-8")
     image = render_mark()
-    image.resize((256, 256), Image.Resampling.LANCZOS).save(
-        output / "brand.ico", sizes=WINDOWS_SIZES)
+    # WinForms/.NET Framework must be able to decode every frame repeatedly.
+    # Use uncompressed 32-bit DIB entries instead of PNG-compressed ICO frames;
+    # the existing 7 sizes avoid OS scaling at common desktop/tray DPI values.
+    image.resize((256,256),Image.Resampling.LANCZOS).save(
+        output / "brand.ico",sizes=WINDOWS_SIZES,bitmap_format="bmp")
     image.save(output / "brand.icns")
 
 
 if __name__ == "__main__":
     generate()
-    print("Created original monochrome film icons: SVG, Windows ICO, macOS ICNS")
+    print("Created matching viewfinder/play icons: SVG, Windows ICO, macOS ICNS")

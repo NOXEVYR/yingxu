@@ -373,6 +373,10 @@ def main():
                 path = PurePosixPath(name)
                 assert path.parts[0] == 'YingXu' and '..' not in path.parts and not path.is_absolute() and '\\' not in name
             manifest = json.loads(archive.read('YingXu/RELEASE_MANIFEST.json'))
+            if manifest.get('icon_revision'):
+                assert manifest['icon_revision'] == 'viewfinder-v1'
+                assert hashlib.sha256(archive.read('YingXu/desktop/brand.ico')).hexdigest() == manifest['icon_sha256']
+                checked.append('viewfinder icon revision and packaged icon SHA-256')
             for member in manifest['files']:
                 raw = archive.read('YingXu/' + member['path'])
                 assert len(raw) == member['bytes'] and hashlib.sha256(raw).hexdigest() == member['sha256']
@@ -479,7 +483,9 @@ def main():
             finally:
                 process.terminate()
                 process.wait(timeout=10)
-    print(json.dumps({'ok': True, 'archive': args.archive.name, 'checks': checked, 'private_data_used': False}, ensure_ascii=False, indent=2))
+    print(json.dumps({'ok': True, 'archive': args.archive.name, 'checks': checked, 'private_data_used': False,
+                      'source_commit': manifest.get('source_commit',''), 'icon_revision': manifest.get('icon_revision'),
+                      'icon_sha256': manifest.get('icon_sha256')}, ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':

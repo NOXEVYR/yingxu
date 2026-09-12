@@ -2,6 +2,12 @@
 name: YingXu portable release
 on:
   workflow_dispatch:
+    inputs:
+      replace_icons:
+        description: 'Explicitly replace 0.4.6 icon repair assets; retain tag and roll back on failure'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths:
@@ -76,19 +82,34 @@ jobs:
       - name: Upload draft, fetch and verify assets, then publish
         env:
           GH_TOKEN: ${{ github.token }}
+          ICON_REPAIR_PUSH: "${{ github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' && 'true' || 'false' }}"
+          REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]')) && 'true' || 'false' }}"
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = 'yingxu-v0.4.6'
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           $taskExistingDraft = $false
+          $taskReplaceIcons = $false
+          $taskIconRequest = $env:REPLACE_ICONS -eq 'true' -and ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -or ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:ICON_REPAIR_PUSH -eq 'true'))
           if ($LASTEXITCODE -eq 0) {
             $taskIsDraft = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft --jq .isDraft
-            if ($taskIsDraft -ne 'true') { Write-Output 'Published release preserved'; exit 0 }
+            if ($taskIsDraft -eq 'true' -and $taskIconRequest) {
+              throw 'Explicit icon replacement does not modify drafts'
+            }
+            if ($taskIsDraft -ne 'true') {
+              if ($taskIconRequest) { $taskReplaceIcons = $true }
+              else { Write-Output 'Published release preserved'; exit 0 }
+            }
+            if (-not $taskReplaceIcons) {
             $taskTagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha
             if ($LASTEXITCODE -or $taskTagSha -ne $env:GITHUB_SHA) { throw 'Draft tag differs from this verified source commit; preserve it for review' }
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.6 · 轻量外观与导航'
             if ($LASTEXITCODE) { throw 'Draft title refresh failed' }
             $taskExistingDraft = $true
+            }
+          }
+          if ($taskIconRequest -and -not $taskReplaceIcons) {
+            throw 'Explicit icon replacement requires an existing published Windows release'
           }
           @'
           完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。
@@ -105,6 +126,11 @@ jobs:
 
           更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。
           '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/release-notes.md"
+          if ($taskReplaceIcons) {
+            python -B macos/publish.py --replace-windows-icons "$env:RUNNER_TEMP/release-notes.md"
+            if ($LASTEXITCODE) { throw 'Verified icon replacement failed; see rollback report' }
+            exit 0
+          }
           if ($taskExistingDraft) {
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes-file "$env:RUNNER_TEMP/release-notes.md"
             if ($LASTEXITCODE) { throw 'Draft notes refresh failed' }

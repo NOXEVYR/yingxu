@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
@@ -16,6 +17,24 @@ namespace YingXu.Desktop
     internal static class LifecycleTests
     {
         private static int count;
+        [DllImport("user32.dll", CharSet=CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
+        private static bool SameIcon(Icon left,Icon right)
+        {
+            using(var a=new Bitmap(left.Width,left.Height)) using(var b=new Bitmap(right.Width,right.Height))
+            {
+                if(a.Size!=b.Size)return false;
+                using(var g=Graphics.FromImage(a)){g.Clear(Color.White);g.DrawIconUnstretched(left,new Rectangle(Point.Empty,a.Size));}
+                using(var g=Graphics.FromImage(b)){g.Clear(Color.White);g.DrawIconUnstretched(right,new Rectangle(Point.Empty,b.Size));}
+                for(int y=0;y<a.Height;y++)for(int x=0;x<a.Width;x++)
+                    if(a.GetPixel(x,y)!=b.GetPixel(x,y))
+                    {
+                        Console.WriteLine("Icon difference "+x+","+y+": "+a.GetPixel(x,y)+" vs "+b.GetPixel(x,y));
+                        return false;
+                    }
+                return true;
+            }
+        }
         private static void Check(bool value,string name)
         {
             if (!value) throw new Exception("FAILED: " + name);
@@ -139,6 +158,25 @@ namespace YingXu.Desktop
             {
                 window.Text = "映序桌面生命周期 · 合成测试";
                 var tray = (NotifyIcon)Field(window,"tray");
+                using(var embedded=Assembly.GetExecutingAssembly().GetManifestResourceStream("brand.ico"))
+                using(var bytes=new MemoryStream())
+                {
+                    embedded.CopyTo(bytes);
+                    Check(Convert.ToBase64String(bytes.ToArray())==Convert.ToBase64String(File.ReadAllBytes(Path.Combine(Hub.Root,"desktop","brand.ico"))),
+                        "embedded window/tray icon matches the packaged brand asset");
+                }
+                using(var expected=new Icon(Path.Combine(Hub.Root,"desktop","brand.ico"),window.Icon.Size))
+                {
+                    Check(SameIcon(window.Icon,expected)&&SameIcon(tray.Icon,expected),"window and notification area use the current brand artwork");
+                    IntPtr handle=SendMessage(window.Handle,0x007F,new IntPtr(1),IntPtr.Zero);
+                    Check(handle!=IntPtr.Zero,"native taskbar WM_GETICON exposes an explicit large icon");
+                    using(var native=(Icon)Icon.FromHandle(handle).Clone())
+                    using(var expectedNative=new Icon(Path.Combine(Hub.Root,"desktop","brand.ico"),native.Size))
+                    {
+                        Console.WriteLine("Native icon size: "+native.Size+"; asset size: "+expectedNative.Size);
+                        Check(SameIcon(native,expectedNative),"native taskbar icon pixels match the current packaged brand artwork");
+                    }
+                }
                 Check(tray.Visible && tray.ContextMenuStrip.Items.Count == 4,"tray icon and open/settings/exit menu exist");
                 var zoom=(ToolStripStatusLabel)Field(window,"zoomStatus");
                 Check(zoom.Text=="界面 100%"&&zoom.IsLink&&zoom.Owner==((ToolStripStatusLabel)Field(window,"status")).Owner,"independent zoom percentage keeps existing status messages in the same status bar");
