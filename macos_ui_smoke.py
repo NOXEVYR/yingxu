@@ -60,7 +60,7 @@ def run():
                 assert window.run_js("Boolean(document.querySelector('#previewMaintenance')) && document.querySelector('#appDialog').textContent.includes("+json.dumps(__version__)+")")
                 window.run_js("document.querySelector('#maintenanceCache').checked=false;document.querySelector('#maintenanceVersions').checked=false;document.querySelector('#previewMaintenance').click();true")
                 wait(lambda:window.run_js("Boolean(document.querySelector('.maintenance-table'))"))
-                result['checks'].append('Shared 0.4.5 version and maintenance preview remain available without Windows-only settings')
+                result['checks'].append('Current application version and maintenance preview remain available without Windows-only settings')
                 window.run_js("document.querySelector('#closeDialog').click(); true")
                 window.run_js("state.tabs[0].draft += '\\n未保存草稿'; state.tabs[0].dirty = true; true")
                 assert host.closing() is False
@@ -82,7 +82,7 @@ def run():
                 window.run_js("document.querySelectorAll('[data-tab]')[1].click();true")
                 wait(lambda:window.run_js('window.__macCanvasFrame.hidden === false'))
                 assert window.run_js("window.__macCanvasFrame === document.querySelector('iframe[title=\"Excalidraw 画板\"]') && window.__macCanvasDocument === window.__macCanvasFrame.contentDocument")
-                result['checks'].append('0.4.5 canvas uses the same iframe document across Markdown tab switches')
+                result['checks'].append('Canvas uses the same iframe document across Markdown tab switches')
                 window.run_js("selectSection('skills');true")
                 wait(lambda:window.run_js("Boolean(document.querySelector('[data-source-group=dsh]'))"))
                 window.run_js("document.querySelector('[data-source-group=dsh]').click();true")
