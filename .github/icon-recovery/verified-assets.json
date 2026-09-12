@@ -1,0 +1,74 @@
+{
+  "repo": "turnsolesama/yingxu",
+  "observed_body": "完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。\r\r\n\r\r\n默认黑白外观，雾白松绿、暖纸书卷可在设置中选择；侧栏按用途分组，“文本”“素材”“记录”仅调整显示名称，原分类与文件路径保持不变。工具区与正文分别排版，使用系统已有字体，更新黑白应用图标。SKILL 库、AI 协作、回收站集中在“工作空间”入口。\r\r\n\r\r\n菜单悬停采用短暂渐变，遵循减少动态效果偏好；无常驻动画，不增加字库、模型或运行依赖。保留文档内查找、Word 分页、Markdown 文件链接、素材组和多来源 SKILL 等既有功能。\r\r\n\r\r\n全局搜索使用左侧独立图标入口；项目列表跟随项目库所选分类并记住选择，“全部项目”和“未分类”各按自身范围显示，切换分类不关闭正在编辑的文稿。列表随窗口高度显示 2–4 个完整行，更多项目在列表内滚动，点击项目不打乱顺序。\r\r\n\r\r\n去掉重复的项目标题，修复黑白、暖纸外观下仍出现绿色弹窗遮罩的问题。确认放弃画板修改后可以正常退出；取消退出、保存失败或输入尚未完成时继续保留相应编辑状态。\r\r\n\r\r\n本次附件为 Windows x64 0.4.6；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。\r\r\n\r\r\n更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。\r\r\n",
+  "tag": "yingxu-v0.4.6",
+  "tag_sha": "3619dde37ae43bf25ec3c55fc55696457241d45d",
+  "source_commit": "b17a53c1f9df6bbe0ca7d7ef9b57b5033918dfcd",
+  "run_id": 34678617765,
+  "job_id": 103512889155,
+  "icon_sha256": "9cdbee72bd7588a1bed5f525a52fb1d8a0e3d02fa597dee94f0755943da7c1bb",
+  "assets": [
+    {
+      "name": "YingXu-v0.4.6-Windows-x64.zip",
+      "old": {
+        "id": 558672242,
+        "name": "YingXu-v0.4.6-Windows-x64.zip",
+        "size": 447927311,
+        "digest": "sha256:0c6f9ade02f7f4fa2b49a5522b8d846674224e49a14801d7ad477353662536fe"
+      },
+      "staged": {
+        "id": 558775917,
+        "name": "icon-stage-b17a53c1f9df-a81ff939-YingXu-v0.4.6-Windows-x64.zip",
+        "size": 447880485,
+        "digest": "sha256:a35a39a15c8f7c70ac968c8e48dbc4d0c262ac1c1b9b65d35db2cee45b8a38c6"
+      }
+    },
+    {
+      "name": "YingXu-v0.4.6-manifest.json",
+      "old": {
+        "id": 558672238,
+        "name": "YingXu-v0.4.6-manifest.json",
+        "size": 275,
+        "digest": "sha256:2f326175c6bf6909092423fbe16eabccda3feee7392cc112a0f8f325505b5d60"
+      },
+      "staged": {
+        "id": 558775920,
+        "name": "icon-stage-b17a53c1f9df-a81ff939-YingXu-v0.4.6-manifest.json",
+        "size": 462,
+        "digest": "sha256:6df0976713491b72942fc6b86e17e156db11dc2aaaaeeaac30f9611a19bfe9ce"
+      }
+    },
+    {
+      "name": "YingXu-v0.4.6-SHA256.txt",
+      "old": {
+        "id": 558672237,
+        "name": "YingXu-v0.4.6-SHA256.txt",
+        "size": 97,
+        "digest": "sha256:e3a22ed6b07752007d5181e0b1942e7d7564d0ebd9888c949a9894e536dd4266"
+      },
+      "staged": {
+        "id": 558775918,
+        "name": "icon-stage-b17a53c1f9df-a81ff939-YingXu-v0.4.6-SHA256.txt",
+        "size": 97,
+        "digest": "sha256:48c20ab35ebbcc8fdb2199bac2da075bc7f3d95fae7886e864d78f2bc3d6547e"
+      }
+    },
+    {
+      "name": "YingXu-v0.4.6-verification.json",
+      "old": {
+        "id": 558672239,
+        "name": "YingXu-v0.4.6-verification.json",
+        "size": 2389,
+        "digest": "sha256:1ad14e2e16ebbf171f6cbe9d65a31bc9c128615c5c5e67625558e314090ce08f"
+      },
+      "staged": {
+        "id": 558775916,
+        "name": "icon-stage-b17a53c1f9df-a81ff939-YingXu-v0.4.6-verification.json",
+        "size": 2635,
+        "digest": "sha256:321bac44873491b5a4ac7ab9e02a85e8e5955d2c5303a80323ba9f8da06363b8"
+      }
+    }
+  ],
+  "original_body": "完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。\n\n默认黑白外观，雾白松绿、暖纸书卷可在设置中选择；侧栏按用途分组，“文本”“素材”“记录”仅调整显示名称，原分类与文件路径保持不变。工具区与正文分别排版，使用系统已有字体，更新黑白应用图标。SKILL 库、AI 协作、回收站集中在“工作空间”入口。\n\n菜单悬停采用短暂渐变，遵循减少动态效果偏好；无常驻动画，不增加字库、模型或运行依赖。保留文档内查找、Word 分页、Markdown 文件链接、素材组和多来源 SKILL 等既有功能。\n\n全局搜索使用左侧独立图标入口；项目列表跟随项目库所选分类并记住选择，“全部项目”和“未分类”各按自身范围显示，切换分类不关闭正在编辑的文稿。列表随窗口高度显示 2–4 个完整行，更多项目在列表内滚动，点击项目不打乱顺序。\n\n去掉重复的项目标题，修复黑白、暖纸外观下仍出现绿色弹窗遮罩的问题。确认放弃画板修改后可以正常退出；取消退出、保存失败或输入尚未完成时继续保留相应编辑状态。\n\n本次附件为 Windows x64 0.4.6；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。\n\n更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。\n",
+  "new_body": "完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。\n\n默认黑白外观，雾白松绿、暖纸书卷可在设置中选择；侧栏按用途分组，“文本”“素材”“记录”仅调整显示名称，原分类与文件路径保持不变。工具区与正文分别排版，使用系统已有字体，更新黑白应用图标。SKILL 库、AI 协作、回收站集中在“工作空间”入口。\n\n菜单悬停采用短暂渐变，遵循减少动态效果偏好；无常驻动画，不增加字库、模型或运行依赖。保留文档内查找、Word 分页、Markdown 文件链接、素材组和多来源 SKILL 等既有功能。\n\n全局搜索使用左侧独立图标入口；项目列表跟随项目库所选分类并记住选择，“全部项目”和“未分类”各按自身范围显示，切换分类不关闭正在编辑的文稿。列表随窗口高度显示 2–4 个完整行，更多项目在列表内滚动，点击项目不打乱顺序。\n\n去掉重复的项目标题，修复黑白、暖纸外观下仍出现绿色弹窗遮罩的问题。确认放弃画板修改后可以正常退出；取消退出、保存失败或输入尚未完成时继续保留相应编辑状态。\n\n本次附件为 Windows x64 0.4.6；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。\n\n更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。\n\n\n## 0.4.6 同版本图标修复\n\n任务栏、窗口和应用图标统一为四角取景框；图标修订 `viewfinder-v1`。原发布标签保持不变，新包已完成完整验收和上传后回检。\n\n- 附件源码提交：`b17a53c1f9df6bbe0ca7d7ef9b57b5033918dfcd`\n- 原标签对象（未移动）：`3619dde37ae43bf25ec3c55fc55696457241d45d`\n- ZIP SHA-256：`a35a39a15c8f7c70ac968c8e48dbc4d0c262ac1c1b9b65d35db2cee45b8a38c6`\n"
+}

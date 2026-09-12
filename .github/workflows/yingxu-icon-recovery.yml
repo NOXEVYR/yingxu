@@ -1,0 +1,22 @@
+name: Promote verified 0.4.6 Windows icon assets
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/yingxu-icon-recovery.yml', '.github/icon-recovery/**']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: yingxu-portable-release
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: "github.repository == 'turnsolesama/yingxu' && github.event.head_commit.message == 'fix: promote verified 0.4.6 Windows icon assets'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reuse verified assets without downloading the ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B .github/icon-recovery/promote.py
