@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
@@ -15,11 +16,16 @@ def api(path, method='GET', fields=None, binary=False):
     args = ['gh', 'api', 'repos/' + REPO + '/' + path, '--method', method]
     if binary and path.startswith('releases/assets/'):
         args += ['-H', 'Accept: application/octet-stream']
+    if binary and path.startswith('actions/jobs/') and path.endswith('/logs'):
+        # Capture only into a pipe for evidence parsing; never render log ANSI.
+        args += ['--allow-escape-sequences']
     kwargs = {}
     if fields is not None:
         args += ['--input', '-']
         kwargs['input'] = json.dumps(fields, ensure_ascii=False).encode('utf-8')
     raw = subprocess.check_output(args, **kwargs)
+    if binary and path.endswith('/logs'):
+        raw = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', raw)
     return raw if binary else (json.loads(raw.decode('utf-8')) if raw.strip() else None)
 
 
