@@ -36,7 +36,8 @@ def run():
                 return raw if raw_response else json.loads(raw)
             finally:c.close()
         try:
-            assert request('GET','/api/health')['version']==__version__=='0.4.5'
+            assert request('GET','/api/health')['version']==__version__
+            assert PREVIEW.startswith(__version__+'-mac.')
             assert b'<html' in request('GET','/?desktop=macos',raw_response=True)
             assert b'yingxuMac' in request('GET','/macos.js',raw_response=True)
             checks.append('Frozen bundle serves its resolved frontend root through HTTP')

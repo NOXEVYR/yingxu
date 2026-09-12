@@ -12,6 +12,7 @@ def run():
     import webview
     from server import Application, Server
     from macos_app import Desktop, stop_server
+    from yingxu import __version__
     result={'ok':False,'checks':[],'real_user_data_used':False}
     with tempfile.TemporaryDirectory(prefix='yingxu-webkit-') as temporary:
         root=Path(temporary).resolve()
@@ -56,7 +57,7 @@ def run():
                 window.run_js("settingsDialog(); true")
                 wait(lambda:window.run_js("document.querySelector('#dialogTitle').textContent === '设置'"))
                 assert window.run_js("!document.querySelector('[name=capture_enabled]') && !document.querySelector('[name=close_to_tray]')")
-                assert window.run_js("Boolean(document.querySelector('#previewMaintenance')) && document.querySelector('#appDialog').textContent.includes('0.4.5')")
+                assert window.run_js("Boolean(document.querySelector('#previewMaintenance')) && document.querySelector('#appDialog').textContent.includes("+json.dumps(__version__)+")")
                 window.run_js("document.querySelector('#maintenanceCache').checked=false;document.querySelector('#maintenanceVersions').checked=false;document.querySelector('#previewMaintenance').click();true")
                 wait(lambda:window.run_js("Boolean(document.querySelector('.maintenance-table'))"))
                 result['checks'].append('Shared 0.4.5 version and maintenance preview remain available without Windows-only settings')
