@@ -20,6 +20,22 @@ def sha(data):
 
 
 class IconPublicationTests(unittest.TestCase):
+    def test_notes_file_writes_literal_lf_and_retains_markdown_content(self):
+        text = '# 映序\r\n\r\n- 四角图标  \r第二行\n\n'
+        with tempfile.TemporaryDirectory(prefix='yingxu-notes-test-') as temporary:
+            file = Path(temporary)/'notes.md'
+            # Real Windows-style file round trip exposes what read_text hides.
+            file.write_text('# 映序\n', encoding='utf-8', newline='\r\n')
+            self.assertEqual(file.read_bytes(), '# 映序\r\n'.encode('utf-8'))
+            self.assertNotEqual(file.read_bytes().decode('utf-8'), file.read_text(encoding='utf-8'))
+            publish.write_notes(file, text)
+            self.assertEqual(file.read_bytes(), '# 映序\n\n- 四角图标  \n第二行\n\n'.encode('utf-8'))
+
+    def test_notes_comparison_normalizes_only_line_endings(self):
+        self.assertEqual(publish.normalize_notes('中文\r\n\r第二行\n'), '中文\n\n第二行\n')
+        for changed in ('中文改\n', '中文 \n', '中文', '中文\n\n'):
+            self.assertNotEqual(publish.normalize_notes('中文\r\n'), publish.normalize_notes(changed))
+
     def test_api_uses_utf8_for_chinese_and_empty_delete_response(self):
         actual_check_output = publish.subprocess.check_output
         payload = json.dumps({'name': '映序落'}, ensure_ascii=False).encode('utf-8')
@@ -62,7 +78,8 @@ class IconPublicationTests(unittest.TestCase):
             for name, data in content.items(): (artifacts/name).write_bytes(data)
             original = {name: ('old '+name).encode() for name in names}
             remote = {i+1: {'name': name, 'data': data} for i, (name, data) in enumerate(original.items())}
-            body = ['old notes']; events = []; tag_calls = [0]; interrupted = [False]
+            old_notes = '旧说明\r\n\r\n- 保留两个空格  \r\n末行\r\n' if scenario == 'notes-crlf-rollback' else 'old notes'
+            body = [old_notes]; events = []; tag_calls = [0]; interrupted = [False]
             mutations = [0]; verifications = [0]
 
             def metadata(asset_id):
@@ -98,7 +115,10 @@ class IconPublicationTests(unittest.TestCase):
                 if scenario == 'stage-digest':
                     for asset in result:
                         if asset['name'].startswith('icon-stage-'): asset['digest'] = 'sha256:bad'
-                return {'draft': False, 'body': body[0], 'assets': result}
+                api_body = body[0]
+                if scenario in {'notes-crlf-success', 'notes-crlf-rollback'}:
+                    api_body = json.loads(json.dumps(body[0].replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\r\n')))
+                return {'draft': False, 'body': api_body, 'assets': result}
 
             def gh(*args, **kwargs):
                 action = args[1]; events.append((action, args))
@@ -123,8 +143,15 @@ class IconPublicationTests(unittest.TestCase):
                             interrupted[0] = True
                             raise RuntimeError('synthetic interrupted upload')
                 elif action == 'edit':
-                    body[0] = Path(args[args.index('--notes-file')+1]).read_text(encoding='utf-8')
-                    if scenario == 'notes-failure' and not interrupted[0]:
+                    raw = Path(args[args.index('--notes-file')+1]).read_bytes()
+                    self.assertNotIn(b'\r', raw, 'Every uploaded note, including rollback, must use LF')
+                    # gh reads the actual UTF-8 file bytes; do not silently
+                    # normalize Windows line endings via Path.read_text().
+                    body[0] = raw.decode('utf-8')
+                    if scenario == 'notes-body-mismatch' and not interrupted[0]:
+                        interrupted[0] = True
+                        body[0] += 'unexpected body edit'
+                    if scenario in {'notes-failure', 'notes-crlf-rollback'} and not interrupted[0]:
                         interrupted[0] = True
                         raise RuntimeError('synthetic lost notes response')
                 else: raise AssertionError(args)
@@ -147,10 +174,10 @@ class IconPublicationTests(unittest.TestCase):
                     patch.object(publish.subprocess, 'run', side_effect=verify):
                 try:
                     publish.replace_published_icons('unapproved' if scenario == 'wrong-tag' else 'yingxu-v0.4.6',
-                                                    names, artifacts, 'new notes', root/'verify.py', icon)
+                                                    names, artifacts, 'new notes\r\n\r\n正文  \r末行\n', root/'verify.py', icon)
                 except RuntimeError as failure: error = failure
             canonical = {a['name']: a['data'] for a in remote.values() if a['name'] in names}
-            if scenario in {'success', 'marked-push', 'cleanup-failure'}:
+            if scenario in {'success', 'marked-push', 'cleanup-failure', 'notes-crlf-success'}:
                 self.assertIsNone(error)
                 self.assertEqual(canonical, content)
                 self.assertIn('newcommit', body[0]); self.assertIn('oldcommit', body[0])
@@ -161,7 +188,8 @@ class IconPublicationTests(unittest.TestCase):
                 else: self.assertEqual(len(remote), 4)
             else:
                 self.assertIsNotNone(error)
-                self.assertEqual(canonical, original); self.assertEqual(body[0], 'old notes')
+                self.assertEqual(canonical, original)
+                self.assertEqual(body[0].replace('\r\n', '\n').replace('\r', '\n'), old_notes.replace('\r\n', '\n').replace('\r', '\n'))
                 self.assertEqual(set(remote), {1, 2, 3, 4}, 'Original asset IDs must be retained after rollback')
             if any(event[0] == 'upload' for event in events):
                 self.assertLess(next(i for i, event in enumerate(events) if event[0] == 'verify'),
@@ -178,6 +206,7 @@ for case in ('auto', 'disabled', 'wrong-tag', 'bad-manifest', 'success', 'upload
              'download-mismatch', 'stage-digest', 'tag-changed', 'marked-push', 'unmarked-push',
              'forged-marker', 'wrong-branch', 'wrong-repo', 'marker-extra-line', 'marker-case',
              'verification-failure', 'notes-failure', 'cleanup-failure',
+             'notes-crlf-success', 'notes-crlf-rollback', 'notes-body-mismatch',
              *(f'promotion-{i}' for i in range(1, 9))):
     setattr(IconPublicationTests, 'test_'+case.replace('-', '_'), lambda self, scenario=case: self.exercise(scenario))
 

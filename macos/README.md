@@ -4,6 +4,7 @@
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
 当前已发布 **0.4.6-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+2026-09-12 同版本更新四角取景框应用图标（`viewfinder-v1`），新附件已完成 20 项验证及上传后回检；版本号和下载入口不变。
 下载与校验见 [0.4.6-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.6-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
 

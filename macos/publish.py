@@ -41,6 +41,14 @@ def icon_replacement_requested():
 def digest(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 
+def normalize_notes(text):
+    # JSON preserves escaped CRLF, whereas Python text reads normalize it.
+    # Normalize line endings only: spaces, blank lines and content stay exact.
+    return (text or '').replace('\r\n','\n').replace('\r','\n')
+
+def write_notes(path,text):
+    path.write_text(normalize_notes(text),encoding='utf-8',newline='\n')
+
 def replace_published_icons(tag,names,artifacts,notes,verifier,icon):
     """Verify staged assets before promotion; old remote assets remain intact."""
     if not icon_replacement_requested() or os.environ.get('GITHUB_REPOSITORY')!=REPO:
@@ -73,14 +81,14 @@ def replace_published_icons(tag,names,artifacts,notes,verifier,icon):
     for name in names:
         try:os.link(artifacts/name,upload/stage_names[name])
         except OSError:shutil.copyfile(artifacts/name,upload/stage_names[name])
-    original_note=root/'original-notes.md';original_note.write_text(release.get('body') or '',encoding='utf-8')
+    original_note=root/'original-notes.md';write_notes(original_note,release.get('body'))
     (root/'original-release.json').write_text(json.dumps(release,indent=2),encoding='utf-8')
     print(f'Icon repair staging record: {root}; old remote assets retained without downloading',flush=True)
     repaired_note=root/'repaired-notes.md'
-    repaired_note.write_text(notes+'\n\n## 0.4.6 同版本图标修复\n\n'
+    write_notes(repaired_note,notes+'\n\n## 0.4.6 同版本图标修复\n\n'
         '任务栏、窗口和应用图标统一为四角取景框；图标修订 `viewfinder-v1`。原发布标签保持不变，附件由下列提交重新构建并完整验证。\n\n'
         f'- 附件源码提交：`{commit}`\n- 原标签对象（未移动）：`{original_tag["sha"]}`\n'
-        f'- ZIP SHA-256：`{manifest["sha256"]}`\n',encoding='utf-8')
+        f'- ZIP SHA-256：`{manifest["sha256"]}`\n')
     def current_assets():return {a['id']:a for a in github_api('releases/tags/'+tag)['assets']}
     def rename(asset_id,name):github_api(f'releases/assets/{asset_id}','--method','PATCH','-f','name='+name)
     def check_assets(expected):
@@ -127,7 +135,7 @@ def replace_published_icons(tag,names,artifacts,notes,verifier,icon):
         check_assets({backup_names[n]:assets[n] for n in names})
         if github_api('git/ref/tags/'+tag)['object']!=original_tag:raise RuntimeError('Original tag changed during promotion')
         gh('release','edit',tag,'--notes-file',str(repaired_note))
-        if github_api('releases/tags/'+tag).get('body')!=repaired_note.read_text(encoding='utf-8'):
+        if normalize_notes(github_api('releases/tags/'+tag).get('body'))!=normalize_notes(repaired_note.read_text(encoding='utf-8')):
             raise RuntimeError('Updated release notes differ')
         if github_api('git/ref/tags/'+tag)['object']!=original_tag:
             raise RuntimeError('Original tag changed before promotion completed')
@@ -141,7 +149,7 @@ def replace_published_icons(tag,names,artifacts,notes,verifier,icon):
                 for name in names:rename(assets[name]['id'],name)
                 gh('release','edit',tag,'--notes-file',str(original_note))
                 check_assets({n:assets[n] for n in names})
-                if github_api('releases/tags/'+tag).get('body')!=(release.get('body') or ''):
+                if normalize_notes(github_api('releases/tags/'+tag).get('body'))!=normalize_notes(release.get('body')):
                     raise RuntimeError('Original release notes not restored')
             except BaseException as rollback:
                 raise RuntimeError(f'Promotion rollback incomplete; retain all remote assets; record {root}: {rollback}') from error
@@ -206,7 +214,7 @@ def main():
         replace_published_icons(TAG,names,artifacts,notes,ROOT/'macos/verify_release.py',ROOT/'desktop/brand.icns')
         return
     with tempfile.TemporaryDirectory(prefix='yingxu-release-publish-') as temporary:
-        root=Path(temporary);note=root/'notes.md';note.write_text(notes,encoding='utf-8')
+        root=Path(temporary);note=root/'notes.md';write_notes(note,notes)
         if existing.returncode:
             gh('release','create',TAG,*[str(artifacts/n) for n in names],
                '--target',commit,'--title','映序 0.4.6 · 轻量外观 · macOS M 系列试用版',
@@ -223,7 +231,7 @@ def main():
         gh('release','edit',TAG,'--draft=false','--prerelease','--latest=false')
         print('macOS preview downloaded, extracted, verified, and published.',flush=True)
         portal=root/'downloads.md'
-        portal.write_text('''映序 0.4.6 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
+        write_notes(portal,'''映序 0.4.6 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
 
 ## 当前下载
 
@@ -239,7 +247,7 @@ def main():
 Mac 包适用于 macOS 14+ Apple Silicon，未公证，暂不支持 Intel、全局截图或菜单栏常驻。各平台独立构建和验证，校验和与具体测试范围见对应发布页。下方 Source code 是源码，不是安装包。
 
 [旧 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3) · [迁移说明](https://github.com/turnsolesama/yingxu/blob/main/MIGRATION.md)
-''',encoding='utf-8')
+''')
         gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.6 · Windows 与 macOS 下载','--notes-file',str(portal))
 
 if __name__=='__main__':

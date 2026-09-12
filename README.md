@@ -18,6 +18,8 @@
 
 [下载 macOS M 系列 0.4.6-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.6-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
+**0.4.6 图标修复（2026-09-12）：** Windows 任务栏、窗口、托盘与 macOS 应用图标统一为四角取景框样式，修复原生图标仍沿用旧图案的问题。两端安装包均已完成上传后回检，图标修订为 `viewfinder-v1`；版本号和下载地址不变，没有新增字库、模型或运行依赖。
+
 **0.4.6 已发布：Windows 正式包与 macOS 0.4.6-mac.1 试用包。** 两个平台均已完成最终安装包验证及上传后下载回检，上方下载入口已更新，历史版本保留。
 
 - 默认黑白，设置中保留松绿和暖纸；工具区与正文分别排版，复用系统字体，没有新增字库、模型或运行依赖。更新黑白应用图标，菜单悬停遵循减少动态效果偏好。
