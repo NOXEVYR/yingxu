@@ -16,9 +16,9 @@
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.5-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.5-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.6-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.6-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
-**0.4.6 Windows 已发布：轻量外观与导航调整。** macOS 0.4.6-mac.1 仍在独立验收，上方 Mac 下载链接暂时保留已发布的 0.4.5-mac.1。
+**0.4.6 已发布：Windows 正式包与 macOS 0.4.6-mac.1 试用包。** 两个平台均已完成最终安装包验证及上传后下载回检，上方下载入口已更新，历史版本保留。
 
 - 默认黑白，设置中保留松绿和暖纸；工具区与正文分别排版，复用系统字体，没有新增字库、模型或运行依赖。更新黑白应用图标，菜单悬停遵循减少动态效果偏好。
 - 侧栏按用途分组；文本、素材、预演、记录使用新显示名称，已有分类目录和文件不变。SKILL 库、AI 协作和回收站集中到右上角“工作空间”，全局搜索使用左侧独立图标入口。

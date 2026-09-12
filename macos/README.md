@@ -3,8 +3,8 @@
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
-当前源码目标为 **0.4.6-mac.1**；构建和最终附件验证通过后才会发布。
-已发布下载仍见 [0.4.5-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.5-mac.1)。
+当前已发布 **0.4.6-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+下载与校验见 [0.4.6-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.6-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
 
 ## 安装
