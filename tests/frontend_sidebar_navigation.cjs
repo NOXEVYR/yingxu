@@ -7,40 +7,60 @@ function setup(saved=new Map(),unavailable=false){
   const calls=[],writes=[],nodes=new Map();
   const context=vm.createContext({setTimeout,clearTimeout,URLSearchParams,console,window:{},document:{querySelector:id=>{if(!nodes.has(id))nodes.set(id,{});return nodes.get(id);}},
     localStorage:{getItem:k=>{if(unavailable)throw Error('storage unavailable');return saved.get(k)??null;},setItem:(k,value)=>{if(unavailable)throw Error('storage unavailable');saved.set(k,String(value));writes.push([k,String(value)]);}},calls});
-  vm.runInContext(source+`\nrenderNavigation=()=>{sidebarProjects();calls.push('render');};renderHero=()=>{};renderInspector=()=>{};loadSection=async()=>calls.push('load');guardProperties=async()=>{calls.push('guard');return true;};api=async(url,options)=>{calls.push({url,options});return {};};globalThis.app={state,sidebarProjects,selectSidebarProject};`,context);
+  vm.runInContext(source+`\nconst renderSidebar=renderNavigation;renderNavigation=()=>{sidebarProjects();calls.push('render');};renderHero=()=>{};renderInspector=()=>{};loadSection=async()=>calls.push('load');guardProperties=async()=>{calls.push('guard');return true;};api=async(url,options)=>{calls.push({url,options});return {};};globalThis.app={state,sidebarProjects,sidebarProjectFolder,selectSidebarProject,renderSidebar,projectLibraryDialog};`,context);
   Object.assign(context.app.state,{projects:'abcdef'.split('').map(id=>({id,name:id})),projectId:'a',projectLibrary:{recent_ids:['a','b','c','d','e','f']},bootstrap:{capabilities:{project_library:true}}});
-  return {...context.app,context,calls,writes,saved,ids:()=>Array.from(context.app.sidebarProjects(),p=>p.id)};
+  return {...context.app,context,calls,writes,saved,nodes,ids:()=>Array.from(context.app.sidebarProjects(),p=>p.id)};
 }
 function location(s){return {project:s.state.projectId,folder:s.state.folderId,page:s.state.folderPage,offset:s.state.offset,selected:Array.from(s.state.selectedIds),active:s.state.activeKey};}
 function setLocation(s){Object.assign(s.state,{folderId:'nested',folderPage:2,offset:48,activeKey:'file:editing',tabs:[{key:'file:editing',dirty:true,draft:'保留正文'}]});s.state.selectedIds.add('selected');}
 
-test('first launch chooses current and four recent live projects with deduplication',()=>{
-  const s=setup();s.state.projectLibrary.recent_ids=['missing','a','b','b','c','d','e','f'];assert.deepEqual(s.ids(),['a','b','c','d','e']);
+test('all projects are available and visits never shuffle their positions',async()=>{
+  const s=setup();assert.deepEqual(s.ids(),['a','b','c','d','e','f']);const before=s.ids();
+  await s.selectSidebarProject('c');assert.deepEqual(s.ids(),before);assert.equal(s.state.projectLibrary.recent_ids[0],'c');
 });
-test('selecting a visible project preserves every displayed position while recording recency',async()=>{
-  const s=setup();const before=s.ids();await s.selectSidebarProject('c');assert.deepEqual(s.ids(),before);assert.equal(s.state.projectId,'c');assert.equal(s.state.projectLibrary.recent_ids[0],'c');assert.equal(s.calls.filter(v=>v?.url?.endsWith('/c/visit')).length,1);assert.ok(s.calls.includes('load'));
+
+test('classification includes exact members and does not force the active project into another folder',()=>{
+  const s=setup();setLocation(s);const before=location(s);
+  s.state.projectLibrary={folders:[{id:'one',name:'长篇'},{id:'child',name:'子分类',parent_id:'one'}],projects:[{id:'b',folder_id:'one'},{id:'c',folder_id:'child'}]};
+  s.state.projectLibraryFolder='one';assert.deepEqual(s.ids(),['b']);assert.deepEqual(location(s),before);assert.equal(s.state.tabs[0].draft,'保留正文');
+  s.state.projectLibraryFolder='';assert.deepEqual(s.ids(),['a','d','e','f']);
+  s.state.projectLibraryFolder='*';assert.equal(s.ids().length,6);
 });
-test('a newly opened project enters the five-project set and only the least recent member leaves',()=>{
-  const s=setup();assert.deepEqual(s.ids(),['a','b','c','d','e']);s.state.projectId='f';s.state.projectLibrary.recent_ids=['f','b','a','c','d','e'];const result=s.ids();assert.equal(result.length,5);assert.ok(result.includes('f'));assert.ok(!result.includes('e'));assert.deepEqual(result.filter(id=>id!=='f'),['a','b','c','d']);
+
+test('category title and empty state follow the selection without creating or opening a project',()=>{
+  const s=setup();s.state.projectLibrary={folders:[{id:'empty',name:'空分类'}],projects:[]};s.state.projectLibraryFolder='empty';s.renderSidebar();
+  assert.equal(s.nodes.get('#sidebarProjectTitle').textContent,'空分类');assert.match(s.nodes.get('#projectList').innerHTML,/此分类暂无项目/);assert.equal(s.state.projectId,'a');
+  s.state.projectLibraryFolder='';s.renderSidebar();assert.equal(s.nodes.get('#sidebarProjectTitle').textContent,'未分类');
+  s.state.projectLibraryFolder='*';s.renderSidebar();assert.equal(s.nodes.get('#sidebarProjectTitle').textContent,'全部项目');
 });
-test('deleted projects are removed without disturbing surviving order',()=>{
-  const s=setup();s.ids();s.state.projects=s.state.projects.filter(p=>p.id!=='b');assert.deepEqual(s.ids(),['a','c','d','e','f']);
+
+test('classification refresh immediately removes moved members while keeping open drafts',()=>{
+  const s=setup();setLocation(s);s.state.projectLibrary={folders:[{id:'one',name:'长篇'}],projects:[{id:'b',folder_id:'one'}]};s.state.projectLibraryFolder='one';assert.deepEqual(s.ids(),['b']);
+  s.state.projectLibrary.projects[0].folder_id=null;assert.deepEqual(s.ids(),[]);assert.equal(s.state.activeKey,'file:editing');assert.equal(s.state.tabs[0].dirty,true);
 });
-test('empty and stale candidate sets contain no undefined entries',()=>{
-  const s=setup();s.state.projects=[];s.state.projectId='gone';assert.deepEqual(s.ids(),[]);s.state.projects=[{id:'live'}];s.state.projectId=null;s.state.projectLibrary.recent_ids=['missing'];assert.deepEqual(s.ids(),[]);s.state.projectId='live';assert.deepEqual(s.ids(),['live']);
+
+test('saved classification restores on restart and deleted classifications fall back to all',()=>{
+  const s=setup(new Map([['yingxu:project-library-folder','one']]));s.state.projectLibrary={folders:[{id:'one',name:'长篇'}],projects:[{id:'b',folder_id:'one'}]};assert.deepEqual(s.ids(),['b']);
+  s.state.projectLibrary.folders=[];assert.equal(s.sidebarProjectFolder(),'*');assert.equal(s.ids().length,6);
 });
-test('stored display order survives a restart even when recency changes',async()=>{
-  const saved=new Map(),first=setup(saved);first.ids();await first.selectSidebarProject('d');assert.ok(saved.has(key));const second=setup(saved);second.state.projectId='d';second.state.projectLibrary.recent_ids=['d','a','b','c','e'];assert.deepEqual(second.ids(),['a','b','c','d','e']);
+
+test('project-library selection callback only changes sidebar scope and keeps editing location',async()=>{
+  const s=setup();setLocation(s);const before=location(s);let callbacks;
+  s.context.window.YingXuProjectLibrary={install:options=>{callbacks=options;return {open:async()=>{}};}};
+  await s.projectLibraryDialog();callbacks.onFolderChange('one',{folders:[{id:'one',name:'长篇'}],projects:[{id:'b',folder_id:'one'}]});
+  assert.deepEqual(s.ids(),['b']);assert.equal(s.saved.get('yingxu:project-library-folder'),'one');assert.deepEqual(location(s),before);assert.equal(s.state.tabs[0].draft,'保留正文');assert.equal(s.calls.filter(x=>x?.url).length,0);
 });
-test('stored stale ids and duplicates cannot hide the current project',()=>{
-  const s=setup(new Map([[key,JSON.stringify(['gone','c','c','b','a','x'])]]));const ids=s.ids();assert.equal(ids.length,5);assert.equal(new Set(ids).size,5);assert.ok(ids.includes('a'));assert.deepEqual(ids.filter(id=>['a','b','c'].includes(id)),['c','b','a']);
+
+test('stored ordering survives recent visits and ignores removed duplicates',async()=>{
+  const s=setup(new Map([[key,JSON.stringify(['gone','c','c','b','a'])]]));assert.deepEqual(s.ids(),['c','b','a','d','e','f']);
+  await s.selectSidebarProject('d');assert.deepEqual(s.ids(),['c','b','a','d','e','f']);s.state.projects=s.state.projects.filter(p=>p.id!=='b');assert.deepEqual(s.ids(),['c','a','d','e','f']);
 });
-test('malformed or non-array saved order falls back to a valid initial sidebar',()=>{
-  for(const raw of ['{broken','null','42','"c"','{}']){const s=setup(new Map([[key,raw]]));assert.deepEqual(s.ids(),['a','b','c','d','e']);}
+
+test('malformed saved order or unavailable storage does not hide projects',()=>{
+  for(const raw of ['{broken','null','42','"c"','{}']){assert.equal(setup(new Map([[key,raw]])).ids().length,6);}
+  const s=setup(new Map(),true);assert.equal(s.ids().length,6);
 });
-test('blocked local storage does not block navigation or stable in-memory ordering',async()=>{
-  const s=setup(new Map(),true);const ids=s.ids();await s.selectSidebarProject('b');assert.deepEqual(s.ids(),ids);assert.equal(s.state.projectId,'b');
-});
+
 test('repeated current-project click preserves folder, page, selection, draft and makes no requests',async()=>{
   const s=setup();s.ids();setLocation(s);const before=location(s);s.calls.length=0;s.writes.length=0;assert.equal(await s.selectSidebarProject('a'),false);assert.deepEqual(location(s),before);assert.equal(s.state.tabs[0].draft,'保留正文');assert.equal(s.state.tabs[0].dirty,true);assert.deepEqual(s.calls,[]);assert.deepEqual(s.writes,[]);
 });

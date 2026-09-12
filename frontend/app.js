@@ -4,6 +4,8 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const iconPaths = {
+  toolbox:'<path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M3 12h18M8 10v4M16 10v4"/>',
+  searchAll:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="13" y="3" width="6" height="6" rx="1"/><rect x="3" y="13" width="6" height="6" rx="1"/><circle cx="16" cy="16" r="3.5"/><path d="m18.5 18.5 3 3"/>',
   plus:'<path d="M12 5v14M5 12h14"/>', close:'<path d="m6 6 12 12M18 6 6 18"/>', chevron:'<path d="m9 5 7 7-7 7"/>', left:'<path d="m15 5-7 7 7 7"/>', down:'<path d="m6 9 6 6 6-6"/>',
   grid:'<rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/>',
   list:'<path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/>', board:'<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="14" rx="1"/>',
@@ -26,9 +28,9 @@ const iconPaths = {
 };
 const icon = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name] || iconPaths.file}</svg>`;
 const categoryDefs = [
-  {key:'all',label:'全部资源',icon:'grid'}, {key:'unclassified',label:'未分类',icon:'folder'}, {key:'scripts',label:'剧本与文档',icon:'script'}, {key:'shots',label:'分镜',icon:'film'},
+  {key:'all',label:'全部资源',icon:'grid'}, {key:'unclassified',label:'未分类',icon:'folder'}, {key:'scripts',label:'文本',icon:'script'}, {key:'shots',label:'素材',icon:'film'},
   {key:'characters',label:'角色',icon:'user'}, {key:'scenes',label:'场景',icon:'scene'}, {key:'props',label:'道具',icon:'cube'},
-  {key:'previs',label:'白模预演',icon:'video'}, {key:'generated',label:'生成素材',icon:'sparkle'}, {key:'delivery',label:'成片交付',icon:'delivery'}, {key:'references',label:'参考资料',icon:'folder'}
+  {key:'previs',label:'预演',icon:'video'}, {key:'generated',label:'生成素材',icon:'sparkle'}, {key:'delivery',label:'成片交付',icon:'delivery'}, {key:'references',label:'记录',icon:'folder'}
 ];
 const kindLabels = {excalidraw:'画板',markdown:'Markdown',text:'文本',docx:'Word',html:'HTML',svg:'SVG',image:'图片',video:'视频',audio:'音频',pdf:'PDF',model:'3D 模型',file:'文件',skill:'SKILL'};
 const kindIcons = {excalidraw:'board',markdown:'script',text:'script',docx:'file',html:'file',svg:'image',image:'image',video:'video',audio:'audio',pdf:'file',model:'cube',file:'file',skill:'skills'};
@@ -37,7 +39,11 @@ const categoryLabel = key => categoryDefs.find(category => category.key === key)
 const storage = {get(key){try{return localStorage.getItem(key);}catch{return null;}},set(key,value){try{localStorage.setItem(key,value);}catch{/* Browser storage is optional. */}}};
 const state = {bootstrap:null,projects:[],projectId:null,section:'assets',category:'all',folderId:null,folderScope:'current',folders:[],selectedIds:new Set(),trashEntries:[],q:'',status:'',kind:'',sort:'updated',view:storage.get('yingxu:view') || 'grid',offset:0,limit:48,items:[],total:0,counts:[],listSequence:0,listController:null,tabs:[],activeKey:null,skills:[],context:null,modalSequence:0,modalBusy:false,thumbCache:new Map(),thumbPending:new Set(),thumbTimers:new Set(),jobs:new Map(),drafts:{}};
 let searchTimer, draftTimer, observer;
-const defaultSettings = {confirm_delete:true,confirm_trash_delete:true,close_to_tray:true,default_view:'grid',default_sort:'updated',autoplay_media:false,capture_enabled:true,capture_hotkey:'Ctrl+Alt+Shift+S',capture_mode:'annotate'};
+const defaultSettings = {appearance_theme:'swiss',confirm_delete:true,confirm_trash_delete:true,close_to_tray:true,default_view:'grid',default_sort:'updated',autoplay_media:false,capture_enabled:true,capture_hotkey:'Ctrl+Alt+Shift+S',capture_mode:'annotate'};
+function applyAppearance() {
+  const theme = ['swiss','pine','paper'].includes(preference('appearance_theme')) ? preference('appearance_theme') : 'swiss';
+  if (document.documentElement) document.documentElement.dataset.appearance = theme;
+}
 function systemTrashName() { return globalThis.window?.yingxuMac ? 'macOS 废纸篓' : 'Windows 回收站'; }
 function preference(key) { return state.bootstrap?.settings?.[key] ?? defaultSettings[key]; }
 function desktopMessage(action,extra={}) {
@@ -73,24 +79,31 @@ function formatDate(value, detail = false) { const date = asDate(value); return 
 function statusHtml(value) { return `<span class="status-label" data-status="${escapeHtml(value || '待开始')}">${escapeHtml(value || '待开始')}</span>`; }
 function optionHtml(options, selected) { return options.map(value => `<option value="${escapeHtml(typeof value === 'object' ? value.key : value)}" ${String(selected) === String(typeof value === 'object' ? value.key : value) ? 'selected' : ''}>${escapeHtml(typeof value === 'object' ? value.label : value)}</option>`).join(''); }
 function debounce(callback, delay = 250) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => callback(...args), delay); }; }
+function sidebarProjectFolder() {
+  if (state.projectLibraryFolder === undefined) state.projectLibraryFolder = storage.get('yingxu:project-library-folder') ?? '*';
+  if (state.projectLibraryFolder !== '*' && state.projectLibraryFolder !== '' && Array.isArray(state.projectLibrary?.folders) && !state.projectLibrary.folders.some(folder => String(folder.id) === state.projectLibraryFolder)) state.projectLibraryFolder = '*';
+  return state.projectLibraryFolder;
+}
 function sidebarProjects() {
   const projects = new Map(state.projects.map(project => [String(project.id),project]));
-  const candidates = [...new Set([state.projectId,...(state.projectLibrary?.recent_ids || [])].filter(Boolean).map(String))].filter(id => projects.has(id)).slice(0,5);
+  const folder = sidebarProjectFolder();
+  const memberships = new Map((state.projectLibrary?.projects || []).map(project => [String(project.id),project.folder_id || '']));
+  const candidates = [...projects.keys()].filter(id => folder === '*' || (memberships.get(id) || '') === folder);
   if (!state.sidebarProjectIds) {
     try {
       const saved = storage.get('yingxu:sidebar-project-order');
-      const ids = saved && saved.length <= 2048 ? JSON.parse(saved) : [];
-      state.sidebarProjectIds = Array.isArray(ids) ? ids.filter(id => typeof id === 'string').slice(0,5) : [];
+      const ids = saved && saved.length <= 131072 ? JSON.parse(saved) : [];
+      state.sidebarProjectIds = Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
     } catch { state.sidebarProjectIds = []; }
   }
-  // Visits still choose which recent projects are visible. Keep their row
-  // positions stable so selecting a row does not move another under the mouse.
-  const ids = [...new Set([...state.sidebarProjectIds.filter(id => candidates.includes(id)),...candidates])];
+  // Classification chooses visibility; visits never shuffle rows under the pointer.
+  const ids = [...new Set([...state.sidebarProjectIds.filter(id => projects.has(id)),...projects.keys()])];
   if (JSON.stringify(ids) !== JSON.stringify(state.sidebarProjectIds)) {
     state.sidebarProjectIds = ids;
     storage.set('yingxu:sidebar-project-order',JSON.stringify(ids));
   }
-  return ids.map(id => projects.get(id));
+  const visible = new Set(candidates);
+  return ids.filter(id => visible.has(id)).map(id => projects.get(id));
 }
 let resourceGroups;
 function groupsIsOpen() { return !!resourceGroups?.isOpen(); }
@@ -246,15 +259,24 @@ async function projectLibraryDialog(projectId) {
   if ($('#appDialog').open) return;
   if (!window.YingXuProjectLibrary) throw new Error('项目库尚未载入，请重新打开工作台。');
   if (!projectLibraryUI) projectLibraryUI = window.YingXuProjectLibrary.install({api,showDialog,choose,toast,escapeHtml,refreshProjects:async () => { await refreshProjects(); renderInspector(); },
+    getSelectedFolder:sidebarProjectFolder,onFolderChange:(folder,data) => { if (state.projectLibraryFolder !== folder) $('#projectList').scrollTop = 0; state.projectLibraryFolder = folder; state.projectLibrary = data; storage.set('yingxu:project-library-folder',folder); renderNavigation(); },
     selectProject:async id => { if (!await guardProperties()) return false; state.section = 'assets'; state.activeKey = null; await selectProject(id); renderWorkspace(); configureSection(); return true; }});
   return projectLibraryUI.open(projectId ? {projectId} : undefined);
 }
 
 function renderNavigation() {
-  $('#projectList').innerHTML = state.projects.length ? sidebarProjects().map(project => `<div class="project-row ${String(project.id) === String(state.projectId) ? 'active' : ''}"><button class="project-button ${String(project.id) === String(state.projectId) ? 'active' : ''}" data-project="${escapeHtml(project.id)}" title="${escapeHtml(project.name)}"><span class="project-initial">${escapeHtml(project.name?.slice(0,1) || '映')}</span><span class="project-name">${escapeHtml(project.name)}</span></button><button class="icon-button project-menu-button" data-project-menu="${escapeHtml(project.id)}" aria-label="${escapeHtml(project.name)} 项目选项" title="项目选项">${icon('more')}</button></div>`).join('') : '<button class="project-button" data-action="new-project"><span class="project-initial">+</span><span class="project-name">创建第一个项目</span></button>';
+  const projects = sidebarProjects(), folder = sidebarProjectFolder();
+  const title = folder === '*' ? '全部项目' : folder === '' ? '未分类' : state.projectLibrary?.folders?.find(item => String(item.id) === folder)?.name || '全部项目';
+  if ($('#sidebarProjectTitle')) { $('#sidebarProjectTitle').textContent = title; $('#sidebarProjectTitle').title = title; }
+  $('#projectList').innerHTML = projects.length ? projects.map(project => `<div class="project-row ${String(project.id) === String(state.projectId) ? 'active' : ''}"><button class="project-button ${String(project.id) === String(state.projectId) ? 'active' : ''}" data-project="${escapeHtml(project.id)}" title="${escapeHtml(project.name)}"><span class="project-initial">${escapeHtml(project.name?.slice(0,1) || '映')}</span><span class="project-name">${escapeHtml(project.name)}</span></button><button class="icon-button project-menu-button" data-project-menu="${escapeHtml(project.id)}" aria-label="${escapeHtml(project.name)} 项目选项" title="项目选项">${icon('more')}</button></div>`).join('') : state.projects.length ? '<div class="project-list-empty">此分类暂无项目</div>' : '<button class="project-button" data-action="new-project"><span class="project-initial">+</span><span class="project-name">创建第一个项目</span></button>';
   if ($('#projectLibraryCount')) $('#projectLibraryCount').textContent = state.projects.length;
   const counts = Object.fromEntries((state.counts || []).map(category => [category.key, category.count]));
-  $('#categoryNav').innerHTML = categoryDefs.map((category,index) => `${category.key === 'scripts' ? '<div class="nav-category-divider" role="separator"></div>' : ['characters','previs'].includes(category.key) ? '<div class="nav-category-gap"></div>' : ''}<button class="nav-item ${state.section === 'assets' && state.category === category.key ? 'active' : ''}" data-category="${category.key}">${icon(category.icon)}<span>${category.label}</span>${counts[category.key] ? `<small class="nav-count">${counts[category.key]}</small>` : ''}</button>`).join('') + `<div class="nav-category-gap"></div><button class="nav-item ${state.section === 'skills' ? 'active' : ''}" data-section="skills">${icon('skills')}<span>SKILL 库</span></button><button class="nav-item ${state.section === 'context' ? 'active' : ''}" data-section="context">${icon('context')}<span>AI 协作</span></button><button class="nav-item ${state.section === 'trash' ? 'active' : ''}" data-section="trash">${icon('trash')}<span>回收站</span></button>`;
+  $('#categoryNav').innerHTML = categoryDefs.map(category => `${['scripts','characters','previs','delivery'].includes(category.key) ? '<div class="nav-category-divider" role="separator"></div>' : ''}<button class="nav-item ${state.section === 'assets' && state.category === category.key ? 'active' : ''}" data-category="${category.key}">${icon(category.icon)}<span>${category.label}</span>${counts[category.key] ? `<small class="nav-count">${counts[category.key]}</small>` : ''}</button>`).join('');
+  const workspaceSections = [{key:'skills',label:'SKILL 库',icon:'skills'},{key:'context',label:'AI 协作',icon:'context'},{key:'trash',label:'回收站',icon:'trash'}];
+  const tools = $('#workspaceToolsNav');
+  if (tools) tools.innerHTML = workspaceSections.map(section => `<button type="button" class="workspace-tool ${state.section === section.key ? 'active' : ''}" data-section="${section.key}" ${state.section === section.key ? 'aria-current="page"' : ''}>${icon(section.icon)}<span>${section.label}</span></button>`).join('');
+  const toolsLabel = $('#workspaceToolsLabel');
+  if (toolsLabel) toolsLabel.textContent = workspaceSections.find(section => section.key === state.section)?.label || '工作空间';
   $('#sidebarTotal').textContent = currentProject()?.counts?.total || '0';
   $('#breadcrumbProject').textContent = currentProject()?.name || '开始创作';
   $('#importButton').disabled = !state.projectId || state.section !== 'assets';
@@ -352,7 +374,8 @@ function renderFolders() {
   const isCategory = state.section === 'assets' && state.category !== 'all' && !!state.projectId;
   const map = new Map(state.folders.map(folder => [String(folder.id),folder])); const chain = []; let folder = currentFolder();
   while (folder && chain.length < 40 && !chain.some(value => String(value.id) === String(folder.id))) { chain.unshift(folder); folder = map.get(String(folder.parent_id)); }
-  $('#folderBreadcrumb').innerHTML = isCategory ? `<button data-folder-open="root" data-folder-drop="root" data-folder-category="${escapeHtml(state.category)}">${icon('folder')}${escapeHtml(categoryLabel(state.category))}</button>${chain.map(value => `<span class="breadcrumb-slash">/</span><button data-folder-open="${escapeHtml(value.id)}" data-folder-drop="${escapeHtml(value.id)}" data-folder-category="${escapeHtml(value.category)}">${escapeHtml(value.name)}</button>`).join('')}` : `<span>${state.projectId ? '全部分类中的文件' : '先创建一个项目'}</span>`;
+  $('#folderBreadcrumb').hidden = isCategory && !chain.length && !state.foldersTruncated;
+  $('#folderBreadcrumb').innerHTML = isCategory ? (chain.length ? `<button data-folder-open="root" data-folder-drop="root" data-folder-category="${escapeHtml(state.category)}">${icon('folder')}${escapeHtml(categoryLabel(state.category))}</button>${chain.slice(0,-1).map(value => `<span class="breadcrumb-slash">/</span><button data-folder-open="${escapeHtml(value.id)}" data-folder-drop="${escapeHtml(value.id)}" data-folder-category="${escapeHtml(value.category)}">${escapeHtml(value.name)}</button>`).join('')}` : '') : `<span>${state.projectId ? '全部分类中的文件' : '先创建一个项目'}</span>`;
   const folderTerms = state.q.split(/\s+/).filter(term => term && !term.includes(':')).map(term => term.toLocaleLowerCase());
   const children = isCategory ? state.folders.filter(value => String(value.parent_id || '') === String(state.folderId || '') && folderTerms.every(term => `${value.name} ${value.folder_path || ''}`.toLocaleLowerCase().includes(term))) : [];
   const folderPages = Math.max(1,Math.ceil(children.length/12)); state.folderPage = Math.min(state.folderPage || 0,folderPages-1); const visibleChildren = children.slice(state.folderPage*12,state.folderPage*12+12);
@@ -526,14 +549,33 @@ async function runMenu(command,context) {
     if (command === 'trash-project') return trashProject(id); if (command === 'trash-folder') return trashFolder(id); if (command === 'trash-skill') return trashSkill(id);
   } catch(error) { report(error); }
 }
-async function prepareTabs(tabs) {
-  for (const tab of tabs) {
-    if (!await guardProperties(tab)) return false;
-    if (tab.dirty) { const choice = await choose('文档还有未保存的修改',`先处理「${tab.item.name}」的修改，再继续整理文件。`,[{key:'cancel',label:'继续编辑',style:'ghost'},{key:'discard',label:'放弃修改',style:'secondary'},{key:'save',label:'保存文档',style:'primary'}]); if (!choice || choice === 'cancel') return false; if (choice === 'save' && !await saveTab(tab)) return false; if (choice === 'discard') { tab.dirty = false; tab.draft = String(tab.content?.content || ''); tab.paragraphs = (tab.content?.paragraphs || []).map(paragraph => ({...paragraph})); delete state.drafts[tab.key]; } }
+async function prepareTabs(tabs, {exiting = false} = {}) {
+  const discardedCanvases = new Set(); let prepared = false;
+  try {
+    if (tabs.some(tab => tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) return false;
+    for (const tab of tabs) {
+      if (!await guardProperties(tab)) return false;
+      if (tab.dirty) {
+        const choice = await choose('文档还有未保存的修改',`先处理「${tab.item.name}」的修改，再继续。`,[{key:'cancel',label:'继续编辑',style:'ghost'},{key:'discard',label:'放弃修改',style:'secondary'},{key:'save',label:'保存文档',style:'primary'}]);
+        if (!choice || choice === 'cancel' || tab.saving || tab.propertiesSaving || !markdownInputReady(tab)) return false;
+        if (choice === 'save' && !await saveTab(tab)) return false;
+        if (choice === 'discard') {
+          // Destroy the discarded scene so a later flush cannot restore it.
+          if (tab.canvasEditor) { discardedCanvases.add(tab); tab.canvasEditor.destroy(); tab.canvasHost?.remove(); delete tab.canvasEditor; delete tab.canvasHost; canvasTabs.delete(tab); }
+          tab.dirty = false; tab.draft = String(tab.content?.content || '');
+          tab.paragraphs = (tab.content?.paragraphs || []).map(paragraph => ({...paragraph})); delete state.drafts[tab.key];
+        }
+      }
+    }
+    persistDrafts(true); renderTabs();
+    if (tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving)) return false;
+    if (!exiting && tabs.includes(activeTab())) { renderEditorBody(activeTab()); renderEditorStatus(activeTab()); }
+    prepared = true; return true;
+  } finally {
+    // Moving/deleting also prepares tabs; cancelling a later tab must leave
+    // the explicitly discarded active canvas usable with its saved content.
+    if (!prepared && discardedCanvases.has(activeTab()) && !activeTab().canvasEditor) renderWorkspace();
   }
-  persistDrafts(true); renderTabs();
-  if (tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) return false;
-  if (tabs.includes(activeTab())) { renderEditorBody(activeTab()); renderEditorStatus(activeTab()); } return true;
 }
 function fileTabs(ids) { const keys = new Set(ids.map(String)); return state.tabs.filter(tab => tab.source === 'file' && keys.has(String(tab.id))); }
 function removeOpenTabs(tabs) { const keys = new Set(tabs.map(tab => tab.key)); state.tabs = state.tabs.filter(tab => !keys.has(tab.key)); for (const key of keys) delete state.drafts[key]; if (keys.has(state.activeKey)) state.activeKey = state.tabs.at(-1)?.key || null; persistDrafts(true); renderWorkspace(); }
@@ -903,7 +945,7 @@ async function saveTab(tab = activeTab()) {
     if (tab.source === 'file') { const item = await api(`/api/items/${encodeURIComponent(tab.id)}`); tab.item = item; if (activeTab() === tab) renderInspector(); await refreshProjects(); if (state.section === 'assets') loadItems(); }
     else if (tab.source === 'external') { tab.item = {...tab.item,...response}; delete tab.item.content; renderTabs(); if (activeTab() === tab) renderInspector(); }
     else { tab.item = {...tab.item,...result,kind:'skill',bound:tab.item.bound}; state.skills = state.skills.map(skill => String(skill.id) === String(tab.id) ? {...skill,...tab.item} : skill); if (state.section === 'skills') renderSkills(); renderTabs(); if (activeTab() === tab) renderInspector(); }
-    return !tab.dirty && markdownInputReady(tab);
+    return markdownInputReady(tab) && !tab.dirty;
   } catch(error) {
     tab.saving = false; if (error.status === 409) { tab.conflict = true; toast('文件已被其他程序修改。你的草稿仍保留，请先复制草稿，再重新打开文件核对。','error',11000); }
     else report(error); if (activeTab() === tab) { renderEditorToolbar(tab); renderEditorStatus(tab); } return false;
@@ -1245,7 +1287,7 @@ function wireEvents() {
   $('#batchPropertiesButton').addEventListener('click',() => batchPropertiesDialog().catch(report));
   installResourceMarquee();
   if ($('#projectLibraryIcon')) $('#projectLibraryIcon').innerHTML = icon('folder'); if ($('#settingsIcon')) $('#settingsIcon').innerHTML = icon('filter'); if ($('#openLocalIcon')) $('#openLocalIcon').innerHTML = icon('open');
-  $('#addProject').innerHTML = icon('plus'); $('#helpIcon').innerHTML = icon('help'); $('#searchIcon').innerHTML = icon('search'); $('#globalSearchButton').innerHTML = icon('search'); if ($('#captureButton')) $('#captureButton').innerHTML = icon('image'); $('#advancedSearch').innerHTML = icon('filter'); $('#importIcon').innerHTML = icon('upload'); $('#newItemIcon').innerHTML = icon('plus'); $('#rescanButton').innerHTML = icon('refresh'); $('#previousPage').innerHTML = icon('left'); $('#nextPage').innerHTML = icon('chevron'); $('#closeDialog').innerHTML = icon('close');
+  $('#workspaceToolsIcon').innerHTML = icon('toolbox'); $('#workspaceToolsChevron').innerHTML = icon('down'); $('#addProject').innerHTML = icon('plus'); $('#helpIcon').innerHTML = icon('help'); $('#searchIcon').innerHTML = icon('search'); $('#globalSearchButton').innerHTML = icon('searchAll');  if ($('#captureButton')) $('#captureButton').innerHTML = icon('image'); $('#advancedSearch').innerHTML = icon('filter'); $('#importIcon').innerHTML = icon('upload'); $('#newItemIcon').innerHTML = icon('plus'); $('#rescanButton').innerHTML = icon('refresh'); $('#previousPage').innerHTML = icon('left'); $('#nextPage').innerHTML = icon('chevron'); $('#closeDialog').innerHTML = icon('close');
   $('#newFolderButton').innerHTML = `${icon('folder')}新建文件夹`; $('#moveSelectionButton').innerHTML = `${icon('move')}移动到`; $('#deleteSelectionButton').innerHTML = `${icon('trash')}删除`;
   $('#newFolderButton').addEventListener('click',() => newFolderDialog().catch(report)); $('#moveSelectionButton').addEventListener('click',() => moveDialog([...state.selectedIds]).catch(report)); $('#deleteSelectionButton').addEventListener('click',() => (state.selectedIds.size ? trashItems([...state.selectedIds]) : trashFolder(state.folderId)).catch(report));
   $('#selectPageButton').addEventListener('click',() => { if (state.loadingItems) return; const ids = selectableResourceIds(); state.selectedIds = state.selectedIds.size === ids.length ? new Set() : new Set(ids); updateSelection(); });
@@ -1274,6 +1316,7 @@ function wireEvents() {
     event.preventDefault(); showMenu(target.anchor,target.kind,target.id,{x:event.clientX,y:event.clientY});
   });
   document.addEventListener('click',async event => {
+    const tools = $('#workspaceTools'); if (tools?.open && !event.target.closest('#workspaceTools')) tools.open = false;
     const command = event.target.closest('[data-menu-command]'); if (command && state.menu) { const context = {...state.menu}; hideMenu(); runMenu(command.dataset.menuCommand,context).catch(report); return; }
     const deleteEntry = event.target.closest('[data-delete-trash-id]'); if (deleteEntry) { deleteTrash(deleteEntry.dataset.deleteTrashId,deleteEntry.dataset.deleteTrashKind); return; }
     const restore = event.target.closest('[data-restore-id]'); if (restore) { restoreTrash(restore.dataset.restoreId,restore.dataset.restoreKind,restore); return; }
@@ -1288,7 +1331,7 @@ function wireEvents() {
     const action = event.target.closest('[data-action]'); if (action) { handleAction(action.dataset.action,action).catch(report); return; }
     const project = event.target.closest('[data-project]'); if (project) { selectSidebarProject(project.dataset.project).catch(report); return; }
     const category = event.target.closest('[data-category]'); if (category) { selectCategory(category.dataset.category).catch(report); return; }
-    const section = event.target.closest('[data-section]'); if (section) { selectSection(section.dataset.section).catch(report); return; }
+    const section = event.target.closest('[data-section]'); if (section) { const tools = $('#workspaceTools'); if (tools) { tools.open = false; $('#workspaceToolsSummary')?.focus(); } selectSection(section.dataset.section).catch(report); return; }
     const tab = event.target.closest('[data-tab]'); if (tab) { if (state.activeKey !== tab.dataset.tab && !await guardProperties()) return; state.activeKey = tab.dataset.tab; renderWorkspace(); return; }
     const format = event.target.closest('[data-markdown-format]'); if (format) { applyMarkdownFormat(format.dataset.markdownFormat); return; }
     const mode = event.target.closest('[data-editor-mode]'); if (mode) { const tab = activeTab(); if (tab && markdownInputReady(tab)) { tab.mode = mode.dataset.editorMode; renderEditorToolbar(tab); renderEditorBody(tab); } return; }
@@ -1297,6 +1340,7 @@ function wireEvents() {
     const relation = event.target.closest('[data-remove-relation]'); if (relation) { try { await api(`/api/relations/${encodeURIComponent(relation.dataset.removeRelation)}`,{method:'DELETE'}); const tab = activeTab(); if (tab) { tab.item = await api(`/api/items/${encodeURIComponent(tab.id)}`); renderInspector(); } toast('关联已解除。'); } catch(error) { report(error); } }
   });
   document.addEventListener('keydown',event => {
+    const tools = $('#workspaceTools'); if (event.key === 'Escape' && tools?.open) { tools.open = false; $('#workspaceToolsSummary')?.focus(); event.preventDefault(); return; }
     if (event.isComposing || activeTab()?.markdownEditor?.isComposing() || activeTab()?.docxEditor?.isComposing()) { if ((event.ctrlKey || event.metaKey) && ['s','f','k'].includes(event.key.toLowerCase())) { event.preventDefault(); markdownInputReady(); } return; }
     if (searchShortcut(event) || globalSearchIsOpen() || groupsIsOpen()) return;
     if (deleteSelectionShortcut(event)) return;
@@ -1498,11 +1542,12 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.5-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.5 · ${escapeHtml(state.bootstrap?.version === '0.4.5' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目参考资料，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.6-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.6 · ${escapeHtml(state.bootstrap?.version === '0.4.6' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);
-    const saved = await api('/api/settings',{method:'PATCH',body:patch}); state.bootstrap.settings = saved;
+    patch.appearance_theme = values.get('appearance_theme') || preference('appearance_theme');
+    const saved = await api('/api/settings',{method:'PATCH',body:patch}); state.bootstrap.settings = saved; applyAppearance();
     state.view = saved.default_view; state.sort = saved.default_sort; $('#sortFilter').value = state.sort; storage.set('yingxu:view',state.view);
     window.chrome?.webview?.postMessage({action:'settings-changed'});
     configureSection(); if (state.section === 'assets') await loadItems(); toast('设置已保存。');
@@ -1532,7 +1577,7 @@ async function handleDesktopMessage(data) {
   if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : []);
   if (data?.action === 'prepare-exit') {
     let allow = false;
-    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs]); allow = allow && !state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab)); persistDrafts(true); } }
+    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving); persistDrafts(true); } }
     finally { state.exitBusy = false; window.chrome?.webview?.postMessage({action:'exit-response',requestId:data.requestId,allow}); }
     if (!allow) toast('退出已取消，请先完成当前操作或保存文稿。','info');
   }
@@ -1553,7 +1598,7 @@ async function queueExternalFiles(entries) {
 }
 async function boot() {
   wireEvents(); readDrafts();
-  try { state.bootstrap = await api('/api/bootstrap'); state.view = preference('default_view'); state.sort = preference('default_sort'); $('#sortFilter').value = state.sort; $('#connectionState').textContent = '本地连接正常'; if (Array.isArray(state.bootstrap.categories)) for (const category of state.bootstrap.categories) { const existing = categoryDefs.find(value => value.key === category.key); if (existing && category.label) existing.label = category.label; } await refreshProjects(); configureSection(); await loadItems(); renderInspector(); const recoverable = Object.values(state.drafts).filter(draft => draft.id && ['file','skill'].includes(draft.source) && Date.now()-draft.when < 7*86400000).slice(0,8); state.restoringDrafts = true; try { for (const draft of recoverable) { if (draft.source === 'skill') await openSkill(draft.id); else await openItem(draft.id); } } finally { state.restoringDrafts = false; } }
+  try { state.bootstrap = await api('/api/bootstrap'); applyAppearance(); state.view = preference('default_view'); state.sort = preference('default_sort'); $('#sortFilter').value = state.sort; $('#connectionState').textContent = '本地连接正常'; if (Array.isArray(state.bootstrap.categories)) for (const category of state.bootstrap.categories) { const existing = categoryDefs.find(value => value.key === category.key); if (existing && category.label && !['scripts','shots','references','previs'].includes(category.key)) existing.label = category.label; } await refreshProjects(); configureSection(); await loadItems(); renderInspector(); const recoverable = Object.values(state.drafts).filter(draft => draft.id && ['file','skill'].includes(draft.source) && Date.now()-draft.when < 7*86400000).slice(0,8); state.restoringDrafts = true; try { for (const draft of recoverable) { if (draft.source === 'skill') await openSkill(draft.id); else await openItem(draft.id); } } finally { state.restoringDrafts = false; } }
   catch(error) { $('#connectionState').textContent = '连接暂时中断'; $('#projectHero').innerHTML = `<div class="fatal-state"><h1>映序还没有连接上本地服务</h1><p>${escapeHtml(error.message)}<br>请从桌面启动“映序”，随后刷新这个窗口。</p><button class="button button-secondary" data-action="reload">重新连接</button></div>`; $('#resourceItems').innerHTML = ''; }
   if (state.bootstrap) window.chrome?.webview?.postMessage({action:'desktop-ready'});
 }

@@ -44,13 +44,13 @@ jobs:
       - name: Build isolated application ZIP
         run: python -B macos/build.py
       - name: Verify extracted delivery and real WebKit
-        run: python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.5-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.5-mac.1-verification.json
+        run: python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.6-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.6-mac.1-verification.json
       - name: Publish preview after full download verification
         env:
           GH_TOKEN: ${{ github.token }}
         run: python -B macos/publish.py
       - uses: actions/upload-artifact@v4
         with:
-          name: YingXu-0.4.5-mac.1-arm64
+          name: YingXu-0.4.6-mac.1-arm64
           path: releases/macos-preview/*
           if-no-files-found: error

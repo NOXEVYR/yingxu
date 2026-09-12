@@ -154,7 +154,7 @@
     listen(dialog,'close',destroy,{once:true});
     return {cancel,destroy};
   }
-  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects}) {
+  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects,getSelectedFolder=()=>null,onFolderChange=()=>{}}) {
     let data = {folders:[],projects:[]}, folder = '*', query = '', page = 0, sequence = 0, activeDialog = null, dialogGeneration = 0, dragController = null;
     const size = 40;
     const error = e => toast(e.message || '项目库操作未完成。', 'error');
@@ -190,6 +190,9 @@
           const result = await api(id ? `/api/project-folders/${encodeURIComponent(id)}` : '/api/project-folders', {
             method:id ? 'PATCH' : 'POST', body:{name:form.elements.name.value.trim(),parent_id:form.elements.parent_id.value || null}});
           folder = result.id; query = ''; page = 0;
+          const index = data.folders.findIndex(item => item.id === result.id);
+          if (index < 0) data.folders.push(result); else data.folders[index] = result;
+          onFolderChange(folder,data);
           await refreshProjects(); toast(id ? '分类已保存。' : '分类已创建。');
         }});
       returnOnClose(dialog);
@@ -233,7 +236,7 @@
       const result = await choose('删除空分类', `删除“${current?.name || ''}”？只允许删除没有项目和子分类的分类。历史回收项目以后恢复时会进入未分类。`, [
         {key:'cancel',label:'取消'}, {key:'delete',label:'删除空分类',style:'danger'}]);
       try {
-        if (result === 'delete') { await api(`/api/project-folders/${encodeURIComponent(id)}`,{method:'DELETE'}); folder = '*'; await refreshProjects(); toast('空分类已删除。'); }
+        if (result === 'delete') { await api(`/api/project-folders/${encodeURIComponent(id)}`,{method:'DELETE'}); folder = '*'; data.folders = data.folders.filter(item => item.id !== id); onFolderChange(folder,data); await refreshProjects(); toast('空分类已删除。'); }
       } finally { await open(); }
     }
     function foldersHtml() {
@@ -263,7 +266,9 @@
       const loaded = await api('/api/project-library');
       if (ticket !== sequence) return;
       data = loaded;
+      const selected = getSelectedFolder(); if (typeof selected === 'string') folder = selected;
       if (folder !== '*' && folder && !data.folders.some(f => f.id === folder)) folder = '*';
+      onFolderChange(folder,data);
       if (options.projectId) { await assignProject(options.projectId); return; }
       await closeCurrent();
       if (ticket !== sequence) return;
@@ -326,7 +331,7 @@
         const button = event.target.closest('[data-library-open],button');
         if (!button || busy) return;
         dragController?.cancel();
-        if (button.hasAttribute('data-library-folder')) { folder = button.dataset.libraryFolder; query = ''; search.value = ''; page = 0; drawResults(dialog); return; }
+        if (button.hasAttribute('data-library-folder')) { folder = button.dataset.libraryFolder; query = ''; search.value = ''; page = 0; onFolderChange(folder,data); drawResults(dialog); return; }
         if (button.hasAttribute('data-library-prev')) { page--; drawResults(dialog); return; }
         if (button.hasAttribute('data-library-next')) { page++; drawResults(dialog); return; }
         busy = true;

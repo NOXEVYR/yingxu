@@ -37,6 +37,31 @@ class SettingsExternalTests(unittest.TestCase):
         self.assertEqual(self.settings.path.read_bytes(),original)
         self.assertEqual(list(self.data.glob('*.tmp')),[])
 
+    def test_appearance_theme_persists_and_rejects_unknown_values_without_writes(self):
+        self.assertEqual(self.settings.get()['appearance_theme'],'swiss')
+        for theme in ('pine','paper','swiss'):
+            with self.subTest(theme=theme):
+                self.settings.update({'appearance_theme':theme})
+                self.assertEqual(Settings(self.data).get()['appearance_theme'],theme)
+        original=self.settings.path.read_bytes()
+        for invalid in ('', 'dark', 'green', 'SWISS', None, True, 1, ['swiss'], {'theme':'swiss'}):
+            with self.subTest(theme=invalid),self.assertRaises(UserError):
+                self.settings.update({'appearance_theme':invalid})
+        self.assertEqual(self.settings.path.read_bytes(),original)
+
+    def test_legacy_settings_default_to_swiss_without_rewriting_preferences(self):
+        legacy={'confirm_delete':False,'default_view':'list','capture_mode':'quick'}
+        self.settings.path.write_text(json.dumps(legacy),encoding='utf-8')
+        original=self.settings.path.read_bytes()
+        values=self.settings.get()
+        self.assertEqual(values['appearance_theme'],'swiss')
+        for key,value in legacy.items(): self.assertEqual(values[key],value)
+        self.assertEqual(self.settings.path.read_bytes(),original)
+        self.settings.update({'appearance_theme':'paper'})
+        reloaded=Settings(self.data).get()
+        self.assertEqual(reloaded['appearance_theme'],'paper')
+        for key,value in legacy.items(): self.assertEqual(reloaded[key],value)
+
     def test_capture_mode_defaults_to_annotate_and_persists_only_known_modes(self):
         self.assertEqual(self.settings.get()['capture_mode'],'annotate')
         self.settings.update({'capture_mode':'quick'})

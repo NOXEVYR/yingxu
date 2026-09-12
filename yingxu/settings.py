@@ -15,13 +15,14 @@ DEFAULTS = {
     'close_to_tray': True,
     'default_view': 'grid',
     'default_sort': 'updated',
+    'appearance_theme': 'swiss',
     'autoplay_media': False,
     'capture_enabled': True,
     'capture_hotkey': 'Ctrl+Alt+Shift+S',
     'capture_mode': 'annotate',
 }
 OPTIONS = {'default_view': {'grid','list','board'}, 'default_sort': {'updated','name','order'},
-           'capture_mode': {'quick','annotate'}}
+           'capture_mode': {'quick','annotate'}, 'appearance_theme': {'swiss','pine','paper'}}
 
 
 class Settings:

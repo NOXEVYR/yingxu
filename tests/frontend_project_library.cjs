@@ -9,7 +9,7 @@ const folders = [{id:'a',name:'长篇',parent_id:null},{id:'b',name:'第一季',
 const projects = [{id:'p1',name:'雨夜<script>',folder_id:'b',description:'港口',counts:{total:3}},{id:'p2',name:'新项目',folder_id:null}];
 const snapshot = () => ({folders,projects});
 const escapeHtml = value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function harness(response = snapshot, shared = false, dragEnvironment = null, write = null, refresh = async()=>{}) {
+function harness(response = snapshot, shared = false, dragEnvironment = null, write = null, refresh = async()=>{}, scope = {}) {
   const calls = [],dialogs = [],opened = [],toasts = [];
   function node() { return {value:'',textContent:'',innerHTML:'',listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}}; }
   const api = async (path,options) => { calls.push({path,options}); if(path === '/api/project-library') return response(); if(write)return write(path,options); return {id:'new'}; };
@@ -31,7 +31,7 @@ function harness(response = snapshot, shared = false, dragEnvironment = null, wr
     }
     dialogs.push(dialog); return dialog;
   };
-  const app = library.install({api,showDialog,choose:async()=> 'cancel',toast:(...v)=>toasts.push(v),escapeHtml,selectProject:async id => opened.push(id),refreshProjects:refresh});
+  const app = library.install({api,showDialog,choose:async()=> 'cancel',toast:(...v)=>toasts.push(v),escapeHtml,selectProject:async id => opened.push(id),refreshProjects:refresh,...scope});
   const click = async (dialog,attrs) => {
     const button = {dataset:Object.fromEntries(Object.entries(attrs).filter(([k])=>k.startsWith('data-')).map(([k,v])=>[k.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase()),v])),hasAttribute:k=>k in attrs};
     await dialog.querySelector('.project-library-layout').listeners.click({target:{closest:()=>button}});
@@ -361,5 +361,13 @@ test('failed drag write preserves previous classification and unlocks the dialog
   assert.equal(db.projects[0].folder_id,'b');assert.equal(h.toasts[0][1],'error');
   assert.equal(d.emit('cancel').prevented,undefined);assert.equal(d.children.length,0);
   d.close();await new Promise(setImmediate);
+});
+test('folder selection synchronizes the sidebar without navigation and global search leaves its scope intact',async()=>{
+  const changes=[];let selected='b';
+  const h=harness(snapshot,false,null,null,async()=>{},{getSelectedFolder:()=>selected,onFolderChange:(folder,data)=>{selected=folder;changes.push({folder,ids:data.projects.map(p=>p.id)});}});
+  await h.app.open();const d=h.dialogs[0];assert.equal(changes[0].folder,'b');assert.match(d.querySelector('[data-library-heading]').textContent,/第一季/);
+  await h.click(d,{'data-library-folder':''});assert.equal(changes.at(-1).folder,'');assert.deepEqual(h.opened,[]);
+  const count=changes.length,search=d.querySelector('[data-library-search]');search.value='港口';search.listeners.input();assert.equal(changes.length,count);
+  await h.click(d,{'data-library-folder':'*'});assert.equal(changes.at(-1).folder,'*');assert.equal(h.calls.filter(x=>x.options).length,0);
 });
 (async()=>{for(const {name,fn} of tests){await fn();console.log('PASS',name);}console.log(`${tests.length} tests passed`);})().catch(e=>{console.error(e);process.exitCode=1;});

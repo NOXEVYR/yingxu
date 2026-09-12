@@ -63,7 +63,7 @@ def wait_health(port, process=None):
 
 def check_server(port, data, projects, restart=None):
     health = wait_health(port)
-    assert health['version'] == '0.4.5'
+    assert health['version'] == '0.4.6'
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')
@@ -72,6 +72,11 @@ def check_server(port, data, projects, restart=None):
     assert request(port, 'GET', '/api/projects')['projects'] == []
     assert request(port, 'GET', '/api/skills')['skills'] == []
     token = bootstrap['token']
+    assert bootstrap['settings']['appearance_theme'] == 'swiss'
+    for theme in ('pine','paper','swiss'):
+        saved = request(port, 'PATCH', '/api/settings', {'appearance_theme': theme}, token)
+        assert saved['appearance_theme'] == theme
+        assert request(port, 'GET', '/api/settings')['appearance_theme'] == theme
     # Only create a synthetic source beneath this verifier's temporary root.
     # The server's HOME/USERPROFILE is also redirected by the caller.
     sources = request(port, 'GET', '/api/skill-sources')

@@ -1,11 +1,15 @@
-# 映序 macOS 试用版 · 0.4.5-mac.1
+# 映序 macOS 试用版
 
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
+当前源码目标为 **0.4.6-mac.1**；构建和最终附件验证通过后才会发布。
+已发布下载仍见 [0.4.5-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.5-mac.1)。
+请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
+
 ## 安装
 
-完整解压 `YingXu-v0.4.5-mac.1-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
+完整解压所选版本的 `YingXu-v版本号-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
 自带 Python、Pillow、FFmpeg 和本地编辑器；窗口使用 macOS 系统 WebKit。
 正常使用无需安装 Python、Node.js 或 Homebrew，也不在启动时下载组件。
 
@@ -25,6 +29,13 @@
 - Command+S 保存，Command+F 按焦点查文档正文或当前资源，Command+K 全局搜索；Word 查找可跨分页定位。
 - 同步 0.4.5 的 Markdown 项目文件链接、画板切换与撤销、本地字体、隐藏刷新和重复序列化修复；设置提供版本与缓存/历史占用预览。
 - 关闭窗口前检查未保存文稿；退出会结束本实例的后台服务。
+
+## 0.4.6 源码更新
+
+- 默认黑白外观，雾白松绿、暖纸书卷可选；偏好保存到本机，不提供日夜自动切换。
+- 侧栏按功能分组；“剧本与文档”显示为“文本”，“分镜”显示为“素材”，“参考资料”显示为“记录”。原分类 ID、文件路径和功能保持不变。
+- 工具区与正文分别排版，只使用系统已有字体，无新增字库或运行依赖；菜单悬停使用短暂渐变，并遵循减少动态效果偏好。
+- 黑白应用图标；SKILL 库、AI 协作与回收站集中在“工作空间”入口。既有编辑、搜索和整理功能保留。
 
 ## 第一版范围
 
@@ -47,7 +58,7 @@
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.5-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.6-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。
 

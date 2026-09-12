@@ -1,9 +1,17 @@
 .project-library-toolbar{display:flex;gap:12px;align-items:center;margin-bottom:16px}
+/* Use available window height for complete project rows; overflow stays local. */
+#projectList.project-list{max-height:91px;min-height:0;flex:none;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+#projectList .project-row{min-height:44px;flex:none}
+#projectList .project-button{height:44px}
+@media(min-height:850px){#projectList.project-list{max-height:138px}}
+@media(min-height:1000px){#projectList.project-list{max-height:185px}}
+#sidebarProjectTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-list-empty{padding:10px 8px;color:var(--muted);font-size:12px}
 .project-library-search{flex:1;min-width:0}.project-library-search input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:7px;background:var(--panel)}
 .project-library-layout{display:grid;grid-template-columns:180px minmax(0,1fr);min-height:310px;height:min(56vh,550px);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .project-library-folders{position:relative;overflow:auto;background:var(--panel);padding:8px;border-right:1px solid var(--line)}
 .project-library-folders>button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:5px;padding:9px 12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.project-library-folders>button[aria-current=true]{background:#dce5dd;color:var(--accent)}.project-library-folders>button:hover{background:var(--panel-hover)}
+.project-library-folders>button[aria-current=true]{background:var(--line);color:var(--accent)}.project-library-folders>button:hover{background:var(--panel-hover)}
 .project-library-folders>button>span{float:right;color:var(--muted)}
 .project-library-folders>button.project-library-folder-button{display:flex;align-items:center;gap:5px;cursor:grab;touch-action:pan-y}
 .project-library-folder-button>.project-library-folder-grip{float:none;flex:none;display:flex;align-items:center;justify-content:center;width:20px;min-height:24px;cursor:grab;touch-action:none;user-select:none}
@@ -26,10 +34,10 @@
 .project-library-open:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .project-library-drag-source{opacity:.45}
 .project-library-dragging,.project-library-dragging *{cursor:grabbing!important;user-select:none!important}
-.project-library-folders>button.project-library-drop-target{background:#dcebdd;outline:2px solid var(--accent);outline-offset:-2px;color:var(--accent)}
-.project-library-drag-ghost{position:fixed;z-index:20;width:270px;max-width:calc(100vw - 24px);padding:12px;border:1px solid var(--accent);border-radius:8px;background:#fff;box-shadow:0 8px 24px #20301533;pointer-events:none;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
-.project-library-outside-hint{position:fixed;z-index:21;bottom:12px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 24px);padding:9px 16px;border:1px solid #ccd8cd;border-radius:7px;background:#fff;color:var(--text);font-size:12px;pointer-events:none;text-align:center}
-.project-library-outside-hint.is-active{background:#e0efdf;border:2px solid var(--accent);color:var(--accent);font-weight:600}
+.project-library-folders>button.project-library-drop-target{background:var(--panel-3);outline:2px solid var(--accent);outline-offset:-2px;color:var(--accent)}
+.project-library-drag-ghost{position:fixed;z-index:20;width:270px;max-width:calc(100vw - 24px);padding:12px;border:1px solid var(--accent);border-radius:8px;background:var(--bg);box-shadow:0 8px 24px #20301533;pointer-events:none;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.project-library-outside-hint{position:fixed;z-index:21;bottom:12px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 24px);padding:9px 16px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px;pointer-events:none;text-align:center}
+.project-library-outside-hint.is-active{background:var(--panel-3);border:2px solid var(--accent);color:var(--accent);font-weight:600}
 .project-library-drop-outside{outline:3px solid var(--accent);outline-offset:5px}
 .app-dialog[aria-busy=true] .project-library-layout{cursor:wait}
 @media(pointer:coarse){.project-library-drag-grip{min-width:30px;padding:10px}.project-library-open{padding:8px}.project-library-folder-button>.project-library-folder-grip{width:30px;min-height:30px}}

@@ -7,7 +7,7 @@ import re
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.5'
+VERSION = '0.4.6'
 FIXED = (
     'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore', '.gitattributes',
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
@@ -19,7 +19,7 @@ FIXED = (
     'tools/canvas-editor/font-url-plugin.mjs', 'tools/canvas-editor/local-assets.js', 'tools/canvas-editor/scene-tracker.js', 'tools/canvas-editor/animation-gate.js',
     'tools/markdown-editor/package.json', 'tools/markdown-editor/package-lock.json', 'tools/markdown-editor/build.mjs',
     'frontend/live-markdown-source.mjs', 'frontend/live-markdown.LICENSE.txt', 'frontend/live-markdown.manifest.json',
-    'desktop/make_icon.py', 'desktop/brand.svg', 'desktop/brand.ico',
+    'desktop/make_icon.py', 'desktop/brand.svg', 'desktop/brand.ico', 'desktop/brand.icns',
     'desktop/app.manifest', 'desktop/WebView2-LICENSE.txt',
     'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'THIRD_PARTY_NOTICES.md',

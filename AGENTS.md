@@ -4,13 +4,15 @@
 - Python 3.11+ 标准库 HTTP + SQLite，原生 HTML/CSS/JS；源码运行可使用 Pillow 与 PATH 中的 FFmpeg；公开完整包必须自带锁定来源的运行环境。无 CDN、遥测或启动时自动下载。开发构建可以显式下载锁定的上游档案。
 - 默认应用数据 `%LOCALAPPDATA%\YingXu`，项目在 Windows“文档”目录的 `YingXu\Projects`。`YINGXU_DATA_DIR` 和 `YINGXU_PROJECTS_DIR` 只接受绝对路径；测试必须覆盖到临时目录，禁止在真实用户数据上测试。
 - 桌面仅监听 127.0.0.1:8791，开发后台可用 `--port`。写接口要求同源和会话令牌；保留版本备份、原子替换、冲突检查和有界后台工作队列。
-- 界面用白色内容区、淡灰侧栏、墨色文字、少量绿色强调。删除是可恢复的应用回收站，不永久删除素材。
+- 界面默认黑白，雾白松绿和暖纸书卷为可选浅色配色（appearance_theme: swiss/pine/paper）。使用系统已有字体，工具区与正文独立排版，不下载字库、不加日夜模式；侧栏悬停只做短暂透明度过渡，尊重减少动态效果。删除是可恢复的应用回收站，不永久删除素材。
+- 分类显示名为文本、素材、预演、记录；内部 scripts/shots/previs/references 标识与既有磁盘目录保持不变。侧栏按用途分隔，SKILL 库、AI 协作、回收站位于右上角工作空间菜单，收起菜单须恢复可见焦点。外观改动不得重写 Markdown 或覆盖 Word 原有字体与排版。
+- 侧栏项目列表跟随项目库所选分类（直属项目），选择保存在本地界面配置；切分类不得打开或关闭项目、丢失文稿。项目列表按可用高度自适应：默认两行，850px 高三行，1000px 高四行，更多内部滚动。全局搜索使用独立图标位于范围搜索左侧；分类根目录不重复标题，子文件夹保留祖先导航。各弹窗遮罩必须跟随配色，黑白默认不得残留绿色。
 - 回收站清理默认预览后确认（用户可在设置关闭弹窗，仍必须取得后台预览令牌）：项目内原文件移入 Windows 回收站，外部引用与外部 SKILL 保留源文件。严禁永久删除降级；共享、状态变化、未知目录内容和失败必须保留记录并解释。相关测试仅使用临时合成文件，禁止操作真实回收条目。
 - 验证：`python -B -m unittest discover -s tests -v`、`node --check frontend/app.js`、`node tests/frontend_context_menu.cjs`、`node tests/frontend_drag_drop.cjs`、`node tests/frontend_selection.cjs`。
 - Markdown 编辑器构建：在 `tools/markdown-editor` 执行 `npm ci --ignore-scripts --no-audit --no-fund`，然后 `npm run build`；每步成功后再运行前端测试。版本与完整性由 `package-lock.json` 锁定，输出本地 bundle、依赖清单和许可证，禁止从 CDN 加载。Node.js/npm 只在开发构建与测试时使用，完整包运行不需要 Node.js。
 - Markdown 文本是唯一保存模型，不将排版后的 HTML 回写文稿。超过 500000 字符或混合换行降级源码；中文 composition 期间禁止重建/关闭编辑器，保存草稿需与当前文本一致，并保留原文件 BOM 和换行方式。
 - Windows 桌面离线构建：`python desktop/build.py --sdk-package <已下载官方SDK.nupkg> --output YingXu.exe --test`。构建脚本校验固定 SDK 摘要，不下载依赖。
-- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.5-Windows-x64.zip` 使用隔离临时目录验证。
+- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.6-Windows-x64.zip` 使用隔离临时目录验证。
 - 不提交构建日志、本机配置、个人目录、素材和数据库；打包文件不能包含个人绝对路径。
 
 - 完整包先运行 `python tools/prepare_runtime.py --cache <构建缓存> --download`；运行时清单逐项校验，只能来自 `tools/runtime-lock.json`，禁止复制本机安装环境。大体积 ZIP 放 GitHub Release，不提交 Git 历史。
@@ -27,11 +29,12 @@
 
 - 0.4.0 Word 编辑只挂载最多 40 段，跨页草稿必须保留；不要重引入全量 textarea 与逐项布局读写。检查 `node tests/frontend_docx_editor.cjs`。
 - 0.4.4 Word 预览同样按 40 段挂载；文内查找须覆盖当前草稿和跨页定位。画板 iframe 必须固定宿主保留撤销，隐藏时停用，关闭时销毁；本地字体构建不得放宽 CSP。画板构建在 `tools/canvas-editor` 执行 `pnpm install --frozen-lockfile --ignore-scripts` 后 `node build.mjs`，开发依赖不打入运行环境。容量清理只允许预览 token 中的受控缓存/旧版本，选项变更必须使确认失效。
+- 画布退出/整理标签前先同步 iframe 草稿再判断 dirty；明确放弃后销毁旧实例，防止退出前再次读回。保存中/输入法状态须整轮预检；后续标签取消时恢复已销毁的活动画布。退出成功前不重新创建已放弃的 iframe。回归 `node tests/frontend_canvas_exit.cjs`。
 - SVG/HTML 是独立只读类型，无缩略图任务。SVG 只能净化后作为图片提供，所有媒体直链必须经过同一净化器；HTML 静态片段必须在无 allow-* 的 sandbox iframe 与限制性 CSP 中，原始媒体响应为文本附件。检查 `python -B -m unittest discover -s tests -p test_static_formats_http.py -v` 和 `node tests/frontend_static_formats.cjs`。
 
 - macOS 14+ Apple Silicon 试用版由 `macos_app.py` 使用系统 WebKit。平台分支保留 Finder、废纸篓、安全排他重命名和退出草稿保护；共同界面仍提供文内搜索、版本与容量管理。不得把 Windows 截图、托盘和打开方式注册宣称为 Mac 已实现。
 - macOS 在独立 Python 3.13 环境执行 `python -B macos/prepare_dependencies.py`，只下载 `macos/dependencies-lock.json` 中的已锁定档案并校验大小/SHA-256；开发依赖和安装清单不等于模型。Node 仅测试和构建 Markdown，不随应用运行。
-- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.5-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
+- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.6-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
 
 - README 下载链接必须按实际已发布资产更新，不因源码合并提前切换版本，保留 0.4.4 和更早更新记录。
 - 来源登记仅管理扫描配置；外部 SKILL 始终只读，关闭/移除位置保留源文件与项目绑定。映序本地不可关闭，内置位置不可移除；自定义最多 16 个具体本地目录，拒绝网络共享、链接、磁盘根和整个用户目录。同物理文件多来源去重，身份复用必须重新检查当前路径，禁止凭历史 inode 猜测。

@@ -29,7 +29,8 @@ def main():
     media.chmod(0o755)
     output = work / 'dist'
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed', '--onedir',
-            '--name', 'YingXu', '--osx-bundle-identifier', 'io.github.turnsolesama.yingxu.preview',
+            '--name', 'YingXu', '--icon', str(ROOT / 'desktop/brand.icns'),
+            '--osx-bundle-identifier', 'io.github.turnsolesama.yingxu.preview',
             '--distpath', str(output), '--workpath', str(work / 'build'), '--specpath', str(work),
             '--paths', str(ROOT), '--hidden-import', 'macos_smoke', '--hidden-import', 'macos_ui_smoke',
             '--hidden-import', 'webview.platforms.cocoa', '--collect-data', 'webview',
@@ -39,7 +40,7 @@ def main():
     app = output / 'YingXu.app'
     info = app / 'Contents/Info.plist'
     values = plistlib.loads(info.read_bytes())
-    values.update(CFBundleShortVersionString=__version__, CFBundleVersion='40501',
+    values.update(CFBundleShortVersionString=__version__, CFBundleVersion='40601',
                   LSMinimumSystemVersion='14.0', NSHighResolutionCapable=True,
                   NSDocumentsFolderUsageDescription='选择和管理您明确指定的视频创作项目与素材。')
     info.write_bytes(plistlib.dumps(values))

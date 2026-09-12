@@ -23,4 +23,21 @@ test('invalid external ids never turn into a path read',async()=>{const s=setup(
 test('exit handshake rejects exit during a confirmation and permits it after draft preparation',async()=>{const s=setup();s.nodes.set('#appDialog',{open:true});await s.handleDesktopMessage({action:'prepare-exit',requestId:'one'});assert.equal(s.messages[0].allow,false);s.nodes.get('#appDialog').open=false;await s.handleDesktopMessage({action:'prepare-exit',requestId:'two'});assert.equal(s.messages[1].allow,true);assert.equal(s.messages[1].requestId,'two');});
 test('concurrent external-open messages queue behind the current modal without replacing its confirmation',async()=>{const s=setup();s.nodes.set('#appDialog',{open:true});const one=s.handleDesktopMessage({action:'external-open',entries:[{id:'a'.repeat(32)}]});const two=s.handleDesktopMessage({action:'external-open',entries:[{id:'b'.repeat(32)}]});assert.equal(s.calls.length,0);assert.equal(s.state.externalQueue.length,2);s.nodes.get('#appDialog').open=false;await Promise.all([one,two]);assert.equal(s.state.tabs.length,2);assert.deepEqual(s.calls.map(c=>c.url),['/api/external/'+'a'.repeat(32),'/api/external/'+'b'.repeat(32)]);});
 test('dirty-property confirmation for one external file completes before the next request starts',async()=>{const s=setup();vm.runInContext(`globalThis.releaseGuard=null;globalThis.guardCalls=0;guardProperties=async()=>{guardCalls++;if(guardCalls===1)await new Promise(resolve=>releaseGuard=resolve);return true;};`,s.context);const one=s.handleDesktopMessage({action:'external-open',entries:[{id:'a'.repeat(32)}]});const two=s.handleDesktopMessage({action:'external-open',entries:[{id:'b'.repeat(32)}]});assert.equal(s.context.guardCalls,1);s.context.releaseGuard();await Promise.all([one,two]);assert.equal(s.context.guardCalls,2);assert.equal(s.state.tabs.length,2);});
-test('sidebar first launch contains at most five unique current/recent live projects',()=>{const s=setup();s.state.projects=Array.from({length:20},(_,i)=>({id:String(i)}));s.state.projectId='10';s.state.projectLibrary={recent_ids:['missing','10','2','2','3','4','5','6']};const ids=vm.runInContext('sidebarProjects().map(p=>p.id)',s.context);assert.deepEqual(Array.from(ids),['10','2','3','4','5']);s.state.projectId='3';s.state.projectLibrary.recent_ids=['3','10','2','4','5','6'];const stable=vm.runInContext('sidebarProjects().map(p=>p.id)',s.context);assert.deepEqual(Array.from(stable),['10','2','3','4','5']);});
+test('sidebar all-projects view does not truncate projects by recency',()=>{const s=setup();s.state.projects=Array.from({length:20},(_,i)=>({id:String(i)}));s.state.projectId='10';s.state.projectLibrary={recent_ids:['10','2','3']};const ids=vm.runInContext('sidebarProjects().map(p=>p.id)',s.context);assert.equal(ids.length,20);s.state.projectId='3';s.state.projectLibrary.recent_ids=['3','10','2'];const stable=vm.runInContext('sidebarProjects().map(p=>p.id)',s.context);assert.deepEqual(Array.from(stable),Array.from(ids));});
+
+test('appearance uses black and white for old settings and changes only after successful save',async()=>{
+  const s=setup();s.context.document.documentElement={dataset:{}};
+  vm.runInContext('applyAppearance()',s.context);assert.equal(s.context.document.documentElement.dataset.appearance,'swiss');
+  s.state.bootstrap.settings.appearance_theme='pine';vm.runInContext('applyAppearance()',s.context);
+  await s.settingsDialog();assert.match(s.dialogs[0].body,/name="appearance_theme"/);assert.equal(s.context.document.documentElement.dataset.appearance,'pine');
+  await s.dialogs[0].onSubmit({appearance_theme:'paper',default_view:'grid',default_sort:'updated'});
+  assert.equal(s.calls[1].options.body.appearance_theme,'paper');assert.equal(s.context.document.documentElement.dataset.appearance,'paper');
+  vm.runInContext("api=async()=>{throw new Error('save failed');}",s.context);
+  await assert.rejects(s.dialogs[0].onSubmit({appearance_theme:'swiss',default_view:'grid',default_sort:'updated'}),/save failed/);
+  assert.equal(s.context.document.documentElement.dataset.appearance,'paper');
+});
+
+test('renamed sections retain their stored category keys and icons',()=>{
+  const s=setup();const categories=JSON.parse(vm.runInContext('JSON.stringify(categoryDefs)',s.context));
+  for(const [key,label,icon] of [['scripts','文本','script'],['shots','素材','film'],['previs','预演','video'],['references','记录','folder']])assert.deepEqual(categories.find(c=>c.key===key),{key,label,icon});
+});

@@ -1,5 +1,5 @@
 .global-search-dialog{width:min(760px,calc(100vw - 36px));max-width:none;max-height:calc(100vh - 48px);padding:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--text);box-shadow:var(--shadow);overflow:hidden}
-.global-search-dialog::backdrop{background:#24312966;backdrop-filter:blur(2px)}
+.global-search-dialog::backdrop{background:var(--dialog-overlay,#17191c5c);backdrop-filter:blur(2px)}
 .global-search-dialog[open]{display:flex;flex-direction:column}.global-search-header,.global-search-input-wrap,.global-search-status,.global-search-footer{flex-shrink:0}.global-search-results{flex:1 1 auto;min-height:0}.global-search-notice{max-height:90px;overflow:auto;flex-shrink:0}
 .global-search-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:22px 24px 12px}.global-search-header h2{margin:0 0 5px;font-size:20px;font-weight:650}.global-search-header p{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
 .global-search-close{flex-shrink:0;padding:5px 8px;border:0;background:transparent;border-radius:5px;color:var(--muted)}.global-search-close:hover{background:var(--panel-hover)}.global-search-close kbd{margin-left:5px;font-size:10px;color:var(--subtle)}
