@@ -48,7 +48,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Markdown editor bundle build failed' }
       - name: Build offline canvas editor
         # The publication-only retry reuses the committed, verified canvas bundle.
-        if: github.event_name != 'push' || github.event.head_commit.message != 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'
+        if: "github.event_name != 'push' || github.event.head_commit.message != 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'"
         working-directory: tools/canvas-editor
         run: |
           $ErrorActionPreference = 'Stop'
