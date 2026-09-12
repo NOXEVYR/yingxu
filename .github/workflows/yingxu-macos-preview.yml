@@ -17,6 +17,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    # A Windows publication retry must not rebuild the already verified Mac ZIP.
+    if: github.event_name != 'push' || github.event.head_commit.message != 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'
     runs-on: macos-14
     timeout-minutes: 35
     env:

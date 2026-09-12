@@ -47,6 +47,8 @@ jobs:
           npm run build
           if ($LASTEXITCODE) { throw 'Markdown editor bundle build failed' }
       - name: Build offline canvas editor
+        # The publication-only retry reuses the committed, verified canvas bundle.
+        if: github.event_name != 'push' || github.event.head_commit.message != 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'
         working-directory: tools/canvas-editor
         run: |
           $ErrorActionPreference = 'Stop'
@@ -82,8 +84,8 @@ jobs:
       - name: Upload draft, fetch and verify assets, then publish
         env:
           GH_TOKEN: ${{ github.token }}
-          ICON_REPAIR_PUSH: "${{ github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' && 'true' || 'false' }}"
-          REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]')) && 'true' || 'false' }}"
+          ICON_REPAIR_PUSH: "${{ github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && (github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' || github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]') && 'true' || 'false' }}"
+          REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && (github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' || github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'))) && 'true' || 'false' }}"
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = 'yingxu-v0.4.6'

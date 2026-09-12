@@ -20,6 +20,34 @@ def sha(data):
 
 
 class IconPublicationTests(unittest.TestCase):
+    def test_api_uses_utf8_for_chinese_and_empty_delete_response(self):
+        actual_check_output = publish.subprocess.check_output
+        payload = json.dumps({'name': '映序落'}, ensure_ascii=False).encode('utf-8')
+        def utf8_child(command, **kwargs):
+            self.assertEqual(kwargs.get('encoding'), 'utf-8')
+            return actual_check_output([publish.sys.executable, '-c',
+                'import sys;sys.stdout.buffer.write('+repr(payload)+')'], **kwargs)
+        with patch.object(publish.subprocess, 'check_output', side_effect=utf8_child):
+            self.assertEqual(publish.github_api('synthetic'), {'name': '映序落'})
+        with patch.object(publish.subprocess, 'check_output', return_value=''):
+            self.assertIsNone(publish.github_api('synthetic', '--method', 'DELETE'))
+
+    def test_gh_uses_utf8(self):
+        with patch.object(publish.subprocess, 'run') as run:
+            publish.gh('release', 'view', 'synthetic')
+            self.assertEqual(run.call_args.kwargs.get('encoding'), 'utf-8')
+
+    def test_windows_retry_marker_is_platform_scoped(self):
+        environment = {'GITHUB_REPOSITORY': publish.REPO, 'REPLACE_ICONS': 'true',
+                       'GITHUB_EVENT_NAME': 'push', 'ICON_REPAIR_PUSH': 'true',
+                       'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': 'synthetic'}
+        with patch.dict(os.environ, environment), patch.object(publish, 'github_api',
+                return_value={'commit': {'message': publish.ICON_REPAIR_WINDOWS_COMMIT}}):
+            with patch.object(publish.sys, 'platform', 'win32'):
+                self.assertTrue(publish.icon_replacement_requested())
+            with patch.object(publish.sys, 'platform', 'darwin'):
+                self.assertFalse(publish.icon_replacement_requested())
+
     def exercise(self, scenario):
         names = ['fixture.zip', 'fixture-manifest.json', 'fixture-SHA256.txt', 'fixture-verification.json']
         with tempfile.TemporaryDirectory(prefix='yingxu-publish-test-') as temporary:

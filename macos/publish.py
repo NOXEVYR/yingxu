@@ -17,12 +17,13 @@ REPO='turnsolesama/yingxu'
 TAG='yingxu-v0.4.6-mac.1'
 NAME='YingXu-v0.4.6-mac.1-macOS-arm64'
 ICON_REPAIR_COMMIT='fix: replace 0.4.6 icons [viewfinder-v1]'
+ICON_REPAIR_WINDOWS_COMMIT=ICON_REPAIR_COMMIT+' [windows-only]'
 
 def gh(*args,check=True):
-    return subprocess.run(['gh',*args,'--repo',REPO],check=check,capture_output=True,text=True)
+    return subprocess.run(['gh',*args,'--repo',REPO],check=check,capture_output=True,encoding='utf-8')
 
 def github_api(path,*args):
-    output=subprocess.check_output(['gh','api',f'repos/{REPO}/{path}',*args],text=True)
+    output=subprocess.check_output(['gh','api',f'repos/{REPO}/{path}',*args],encoding='utf-8')
     return json.loads(output) if output.strip() else None
 
 def icon_replacement_requested():
@@ -34,7 +35,8 @@ def icon_replacement_requested():
     # Verify the immutable source commit through GitHub, with exact comparison.
     commit=os.environ.get('GITHUB_SHA')
     if not commit:return False
-    return github_api('commits/'+commit)['commit']['message']==ICON_REPAIR_COMMIT
+    message=github_api('commits/'+commit)['commit']['message']
+    return message==ICON_REPAIR_COMMIT or (sys.platform=='win32' and message==ICON_REPAIR_WINDOWS_COMMIT)
 
 def digest(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
