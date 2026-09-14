@@ -12,11 +12,21 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.7](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.7/YingXu-v0.4.7-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7)
+**[下载 Windows x64 完整包 · v0.4.8](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.8/YingXu-v0.4.8-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.7-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.8-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.8 已发布：启动提速与创作交互改进。** Windows 与 macOS 安装包分别完成构建、隔离验证和上传后完整下载回检，保留原有功能与历史版本。
+
+- Windows 减少空端口连接等待，后台与 WebView2 并行初始化；SKILL 扫描移到后台，项目和分类信息同时读取，工作台更早可用。实际启动时间取决于本机环境和项目规模。
+- 新项目直接归入项目库当前选中的分类，并立即出现在左侧；创建成功后的刷新重试不会重复建项目。
+- 图片预览支持按住鼠标中键拖动位置；弹窗标题和关闭按钮固定在滚动内容外。
+- Markdown 实时预览支持表格，可从表格定位回源码编辑，保留原始文稿和输入法状态。
+- Windows 截图新增矩形、箭头、Shift 画直线、马赛克与桌面置顶，工具栏采用图标和色板。macOS 试用版仍不提供截图及原生拖出。
+
+[Windows 0.4.7 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7) · [macOS 0.4.7-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7-mac.1)
 
 **0.4.7 已发布：** 基于 0.4.6 完成以下六项交互修复。Windows 正式包与 macOS 0.4.7-mac.1 试用包均已完成最终 ZIP 验收和上传后完整下载核对，上方入口已同步。
 
