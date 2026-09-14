@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -113,7 +114,7 @@ def _read(path):
 
 
 class SkillLibrary:
-    def __init__(self, store):
+    def __init__(self, store, *, scan=True):
         self.store = store
         self.lock = threading.RLock()
         self.root = _check_no_links(Path(store.data_root) / "skills")
@@ -156,7 +157,38 @@ class SkillLibrary:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN purged INTEGER NOT NULL DEFAULT 0')
             if 'recycle_started' not in columns:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN recycle_started INTEGER NOT NULL DEFAULT 0')
-        self.refresh()
+        self._startup_lock = threading.Lock()
+        self._startup_future = None
+        self._startup_error = ''
+        # Capture the home and registered locations before returning to callers.
+        # Startup work must never re-read a different ambient home directory.
+        self._catalogue()
+        if scan:self.refresh()
+
+    def start_initial_refresh(self, pool):
+        """Queue exactly one initial scan on the application's drained work pool.
+
+        Only catalogue consumers wait for this scan; health, bootstrap and project
+        requests can be served immediately. Queries continue to read the index.
+        """
+        with self._startup_lock:
+            if self._startup_future is not None:return self._startup_future
+            started = threading.Event()
+            def initialize():
+                with self.lock:
+                    # Establish the source lock before signalling readiness, so
+                    # an immediate SKILL request cannot observe a half catalogue.
+                    started.set()
+                    try:return self.refresh()
+                    except Exception:
+                        self._startup_error='技能启动扫描未完成，保留已有索引；可点击扫描本机 SKILL 重试。'
+                        for location in self.locations.values():
+                            if location['enabled']:location['status']='error'
+                        logging.getLogger(__name__).exception('Initial SKILL discovery failed')
+                        raise
+            self._startup_future = pool.submit(initialize)
+        started.wait()
+        return self._startup_future
 
     def _item(self, row, bound=False):
         result = dict(row)
@@ -262,7 +294,7 @@ class SkillLibrary:
             matched=set().union(*(counts.get(member,set()) for member in members))
             displayed.append(dict(id=key,label=value['label'],count=len(matched),builtin=False,hidden=False,source_ids=members))
         return {'sources':sources,'groups':displayed,
-                'all_total':len(visible),'errors':[],'truncated':any(s['status']=='truncated' for s in sources)}
+                'all_total':len(visible),'errors':[self._startup_error] if self._startup_error else [],'truncated':any(s['status']=='truncated' for s in sources)}
 
     @_synchronized
     def add_filter_label(self,data):
@@ -424,6 +456,7 @@ class SkillLibrary:
                 for row in db.execute('SELECT id,source FROM yx_skills WHERE available=1').fetchall():
                     if row['source'] not in enabled:
                         db.execute('UPDATE yx_skills SET source=?,editable=0 WHERE id=?',(alternatives[row['id']],row['id']))
+            self._startup_error=''
             result=self.list()
             result.update(scanned=len(records),skipped=skipped,errors=errors,truncated=truncated)
             return result

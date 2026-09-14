@@ -68,7 +68,7 @@ class PortablePathsTests(unittest.TestCase):
         for identity, expected in [(instance_id(module.DATA), True), ('other-directory', False), (None, False)]:
             import json
             raw = json.dumps(dict(app='yingxu', ok=True, instance_id=identity)).encode()
-            with patch.object(module.http.client, 'HTTPConnection') as connection:
+            with patch.object(module, 'listening_port', return_value=None), patch.object(module.http.client, 'HTTPConnection') as connection:
                 response = connection.return_value.getresponse.return_value
                 response.status = 200
                 response.read.return_value = raw

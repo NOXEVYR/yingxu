@@ -60,6 +60,24 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request('PUT',entry['content_url'],{'content':'write'})[0],404)
         self.assertEqual(path.read_bytes(),b'0123456789'); self.assertEqual(self.app.store.list_projects(),[])
 
+    def test_create_project_in_selected_category_is_atomic_and_invalid_target_creates_nothing(self):
+        status,raw,_=self.request('POST','/api/project-folders',{'name':'Selected category'})
+        self.assertEqual(status,201);folder=json.loads(raw)
+        status,raw,_=self.request('POST','/api/projects',{'name':'Classified project','folder_id':folder['id']})
+        self.assertEqual(status,201,raw);project=json.loads(raw)
+        status,raw,_=self.request('GET','/api/project-library')
+        self.assertEqual(status,200)
+        created=next(row for row in json.loads(raw)['projects'] if row['id']==project['id'])
+        self.assertEqual(created['folder_id'],folder['id'])
+        before=set(self.app.store.project_root.iterdir())
+        status,raw,_=self.request('POST','/api/projects',{'name':'Rejected project','folder_id':'missing-category'})
+        self.assertEqual(status,404,raw)
+        self.assertEqual(set(self.app.store.project_root.iterdir()),before)
+        self.assertEqual(len(self.app.store.list_projects()),1)
+        for data in ({'name':'No category'},{'name':'Explicitly no category','folder_id':None}):
+            status,raw,_=self.request('POST','/api/projects',data)
+            self.assertEqual(status,201,raw)
+
     def test_project_library_routes_only_change_logical_organisation(self):
         project=self.app.store.create_project('归类合成项目'); root=Path(project['root'])
         before=sorted(str(path.relative_to(root)) for path in root.rglob('*'))

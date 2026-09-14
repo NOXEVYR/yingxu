@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -66,6 +69,7 @@ namespace YingXu.Desktop
                 typeof(Program).GetMethod("PrepareLibraries",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,null);
                 Application.EnableVisualStyles();
                 if(args.Length==3 && args[1]=="--zoom-integration") RunZoomIntegration(args[2]);
+                else if(args.Length==3 && args[1]=="--startup-integration") RunStartupIntegration(args[2]);
                 else Run();
                 Console.WriteLine("Desktop lifecycle tests passed: " + count);
                 return 0;
@@ -80,9 +84,103 @@ namespace YingXu.Desktop
                 // Native WebView interop assemblies can remain mapped until this
                 // process exits. The explicit integration runner cleans its own
                 // printed fixture path only after observing process completion.
-                if(args.Length==3 && args[1]=="--zoom-integration") Console.WriteLine("ZOOM_FIXTURE_CLEANUP_AFTER_EXIT="+resolved);
+                if(args.Length==3 && (args[1]=="--zoom-integration" || args[1]=="--startup-integration")) Console.WriteLine("ZOOM_FIXTURE_CLEANUP_AFTER_EXIT="+resolved);
                 else Directory.Delete(resolved,true);
             }
+        }
+        private static void PumpStartup(Task work)
+        {
+            DateTime deadline=DateTime.UtcNow.AddSeconds(25);
+            while(!work.IsCompleted && DateTime.UtcNow<deadline) { Application.DoEvents();Thread.Sleep(10); }
+            if(!work.IsCompleted) throw new TimeoutException("Isolated startup integration timed out");
+            work.GetAwaiter().GetResult();
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void RunStartupIntegration(string browserFolder)
+        {
+            string source=Hub.Root;
+            string fixture=Path.Combine(Hub.Data,"app");
+            Directory.CreateDirectory(Path.Combine(fixture,"yingxu"));
+            File.Copy(Path.Combine(source,"launcher.pyw"),Path.Combine(fixture,"launcher.pyw"));
+            foreach(string name in new[]{"__init__.py","paths.py"})
+                File.Copy(Path.Combine(source,"yingxu",name),Path.Combine(fixture,"yingxu",name));
+            File.WriteAllText(Path.Combine(fixture,"server.py"),
+                "import json,sys,threading,time\nfrom pathlib import Path\nfrom http.server import BaseHTTPRequestHandler,HTTPServer\n"+
+                "from yingxu.paths import instance_id,default_data_root\n"+
+                "class Handler(BaseHTTPRequestHandler):\n"+
+                " def do_GET(self):\n"+
+                "  health=self.path=='/api/health'\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.8',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
+                " def log_message(self,*args): pass\n"+
+                "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
+                "def stop():\n"+
+                " deadline=time.monotonic()+30\n"+
+                " while time.monotonic()<deadline and not Path('stop-fixture').exists():time.sleep(.05)\n"+
+                " server.shutdown()\n"+
+                "threading.Thread(target=stop,daemon=True).start()\nserver.serve_forever();server.server_close()\n");
+            var probe=new TcpListener(IPAddress.Loopback,0);probe.Start();Hub.Port=((IPEndPoint)probe.LocalEndpoint).Port;probe.Stop();
+            Hub.Root=fixture;Hub.Url="http://127.0.0.1:"+Hub.Port+"/";
+            Environment.SetEnvironmentVariable("YINGXU_PROJECTS_DIR",Path.Combine(Hub.Data,"projects"));
+            Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",Path.GetFullPath(browserFolder));
+            Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER",Path.Combine(Hub.Cache,"WebView2"));
+            Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS","--disable-background-networking --no-first-run");
+            CoreWebView2Environment.SetLoaderDllFolderPath(Program.LoaderFolder);
+            try
+            {
+                using(var window=new StudioWindow(false))
+                {
+                    ((NotifyIcon)Field(window,"tray")).Visible=false;
+                    try { PumpStartup(CheckStartup(window)); }
+                    finally { Field(window,"exitApproved",true);window.Close(); }
+                }
+                // Exercise a close while browser/environment initialization is still
+                // asynchronous. Completion must not navigate a disposed controller.
+                using(var window=new StudioWindow(false))
+                {
+                    ((NotifyIcon)Field(window,"tray")).Visible=false;
+                    var work=(Task)Call(window,"InitializeAsync");
+                    Field(window,"exitApproved",true);window.Close();
+                    PumpStartup(work);
+                    Check(!(bool)Field(window,"loaded"),"close during startup does not navigate or revive the window");
+                }
+            }
+            finally
+            {
+                File.WriteAllText(Path.Combine(fixture,"stop-fixture"),"");
+                string record=Path.Combine(Hub.Data,"server.pid.json");
+                if(File.Exists(record))
+                {
+                    var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(record));
+                    try { using(var process=Process.GetProcessById((int)data["pid"])) Check(process.WaitForExit(5000),"owned synthetic startup backend exits"); }
+                    catch(ArgumentException) { }
+                }
+            }
+        }
+        private static async Task CheckStartup(StudioWindow window)
+        {
+            var elapsed=Stopwatch.StartNew();
+            await (Task)Call(window,"InitializeAsync");
+            var web=(WebView2)Field(window,"web");
+            Check(web!=null && web.CoreWebView2!=null,"startup initializes a real WebView controller");
+            Check(Hub.Healthy(Hub.Port),"navigation waits for validated isolated backend");
+            for(int i=0;i<200 && !(bool)Field(window,"loaded");i++)await Task.Delay(25);
+            Check((bool)Field(window,"loaded"),"new startup path completes real HTTP navigation");
+            string body=await web.CoreWebView2.ExecuteScriptAsync("document.getElementById('fixture').textContent");
+            Check(body=="\"YingXu startup fixture\"","isolated HTML fixture renders through production startup path");
+            Check(!web.CoreWebView2.Settings.AreHostObjectsAllowed && !web.CoreWebView2.Settings.AreDevToolsEnabled,
+                "parallel startup preserves WebView restrictions");
+            Check(!window.Visible,"startup integration never opens the user-facing window");
+            string log=File.ReadAllText(Path.Combine(Hub.Data,"desktop.log"));
+            int service=log.IndexOf("startup_stage=service_ready"),browser=log.IndexOf("startup_stage=browser_ready"),navigate=log.IndexOf("startup_stage=navigate");
+            Check(service>=0 && browser>=0 && navigate>service && navigate>browser,"both startup branches finish before navigation");
+            foreach(string line in log.Split('\n'))if(line.Contains("startup_stage="))Console.WriteLine("STARTUP_INTEGRATION "+line.Trim());
+            Console.WriteLine("STARTUP_INTEGRATION total_ms="+elapsed.ElapsedMilliseconds);
+            var exited=new TaskCompletionSource<bool>();
+            web.CoreWebView2.Environment.BrowserProcessExited+=(sender,args)=>exited.TrySetResult(true);
+            Field(window,"exitApproved",true);window.Close();
+            for(int i=0;i<200 && !exited.Task.IsCompleted;i++)await Task.Delay(25);
+            Check(exited.Task.IsCompleted,"startup fixture browser exits after approved close");
         }
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void RunZoomIntegration(string browserFolder)

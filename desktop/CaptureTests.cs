@@ -218,6 +218,145 @@ namespace YingXu.Desktop
                 Check(received=="quick","capture locks configured mode before asynchronous context handshake");
             }
         }
+        private static void ExtendedAnnotation(string previewPath=null)
+        {
+            using(var image=Picture(640,480))using(var selector=new CaptureSelector(image,new Rectangle(0,0,640,480)))
+            {
+                Drag(selector,new Point(40,60),new Point(540,360));
+                var toolbar=(FlowLayoutPanel)selector.Controls[0];
+                Check(toolbar.Controls.Count==15&&toolbar.Controls[0].AccessibleName.Contains("Shift")&&toolbar.Controls[1].AccessibleName=="矩形"&&toolbar.Controls[2].AccessibleName=="箭头"&&toolbar.Controls[3].AccessibleName.Contains("马赛克"),"drawing tools are individual accessible buttons, not hidden in a menu");
+                Check(((CaptureToolButton)toolbar.Controls[4]).Swatch==selector.DrawingColor&&((CaptureToolButton)toolbar.Controls[9]).Swatch==Color.White,"annotation colors are visible swatches");
+                typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[1],new object[]{EventArgs.Empty});Check(selector.DrawingTool=="rectangle","rectangle icon selects its drawing tool");
+                typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[7],new object[]{EventArgs.Empty});Check(selector.DrawingColor==((CaptureToolButton)toolbar.Controls[7]).Swatch,"color swatch directly selects drawing color");
+                Check(toolbar.Controls[13].Text==""&&toolbar.Controls[14].Text==""&&toolbar.Controls[13].AccessibleName.StartsWith("确认")&&toolbar.Controls[14].AccessibleName.StartsWith("取消"),"confirm and cancel use drawn icons with accessible names");
+                selector.DrawingTool="pen";selector.DrawingColor=Color.Blue;selector.DrawingWidth=4;
+                Fire(selector,"OnKeyDown",new KeyEventArgs(Keys.ShiftKey));
+                Fire(selector,"OnMouseDown",new MouseEventArgs(MouseButtons.Left,1,100,100,0));
+                Fire(selector,"OnMouseMove",new MouseEventArgs(MouseButtons.Left,0,150,200,0));
+                Fire(selector,"OnMouseMove",new MouseEventArgs(MouseButtons.Left,0,180,80,0));
+                Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,240,100,0));
+                Fire(selector,"OnKeyUp",new KeyEventArgs(Keys.ShiftKey));
+                typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[10],new object[]{EventArgs.Empty});
+                Check(selector.DrawingWidth==8&&((CaptureToolButton)toolbar.Controls[10]).StrokeWidth==8,"width preview button changes the actual brush width");
+                selector.Confirm(true);
+                using(var result=selector.CreateResult())
+                {
+                    Check(result.GetPixel(140,40).B>200&&result.GetPixel(110,140).ToArgb()==image.GetPixel(150,200).ToArgb(),"Shift pen creates a straight segment despite a curved cursor path");
+                    Check(selector.PinRequested,"pin button confirmation records the requested output action");
+                    using(var pin=new CapturePinWindow(result,new Point(30,40),new Rectangle(0,0,640,480)))
+                    {
+                        Check(pin.TopMost&&!pin.ShowInTaskbar&&pin.FormBorderStyle==FormBorderStyle.SizableToolWindow,"desktop pin is topmost with a closeable resizeable tool window");
+                        Point before=pin.Location;
+                        typeof(CapturePinWindow).GetMethod("OnMouseDown",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(pin,new object[]{new MouseEventArgs(MouseButtons.Left,1,20,20,0)});
+                        typeof(CapturePinWindow).GetMethod("OnMouseMove",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(pin,new object[]{new MouseEventArgs(MouseButtons.Left,0,30,35,0)});
+                        typeof(CapturePinWindow).GetMethod("OnMouseUp",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(pin,new object[]{new MouseEventArgs(MouseButtons.Left,1,30,35,0)});
+                        Check(pin.Location==new Point(before.X+10,before.Y+15)&&!pin.Capture,"dragging a pin moves the window and releases pointer capture");
+                        Bitmap owned=(Bitmap)typeof(CapturePinWindow).GetField("image",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(pin);
+                        result.SetPixel(140,40,Color.Magenta);
+                        Check(owned.GetPixel(140,40).B>200&&owned.GetPixel(140,40).R<50,"pin owns independent pixels after result changes");
+                        pin.Dispose();bool released=false;try{owned.GetPixel(0,0);}catch(ArgumentException){released=true;}
+                        Check(released,"closing a pin releases its owned bitmap");
+                    }
+                }
+            }
+            foreach(bool undoMosaic in new[]{false,true})
+            using(var image=Picture(320,240))using(var selector=new CaptureSelector(image,new Rectangle(0,0,320,240)))
+            {
+                for(int y=0;y<240;y++)for(int x=0;x<320;x++)image.SetPixel(x,y,(x+y)%2==0?Color.Black:Color.White);
+                Drag(selector,new Point(20,30),new Point(280,200));selector.DrawingTool="mosaic";
+                Drag(selector,new Point(50,60),new Point(150,160));Check(selector.StrokeCount==1,"mosaic is one undoable annotation");
+                if(undoMosaic)selector.UndoStroke();
+                selector.Confirm();using(var result=selector.CreateResult())
+                {
+                    Color first=result.GetPixel(44,44),second=result.GetPixel(45,44);
+                    Check(undoMosaic?first.ToArgb()!=second.ToArgb():first.ToArgb()==second.ToArgb(),undoMosaic?"undo mosaic restores exact original detail":"mosaic removes fine pixel detail in the final bitmap");
+                    Check(result.GetPixel(5,5).ToArgb()==image.GetPixel(25,35).ToArgb(),"mosaic preserves pixels outside the drawn rectangle");
+                    byte[] png=CapturePlatform.Encode(result);using(var stream=new MemoryStream(png))using(var decoded=new Bitmap(stream))Check(decoded.GetPixel(44,44).ToArgb()==first.ToArgb(),"encoded output contains the mosaic pixels");
+                }
+                Check(image.GetPixel(64,74).ToArgb()!=image.GetPixel(65,74).ToArgb(),"mosaic never changes the frozen source image");
+            }
+            using(var image=Picture(240,320))using(var selector=new CaptureSelector(image,new Rectangle(0,0,240,320)))
+            using(var painted=new Bitmap(240,320))
+            {
+                Drag(selector,new Point(10,20),new Point(230,240));selector.DrawToBitmap(painted,new Rectangle(0,0,240,320));
+                var toolbar=(FlowLayoutPanel)selector.Controls[0];bool inside=true;
+                foreach(Control control in toolbar.Controls)inside&=toolbar.ClientRectangle.Contains(control.Bounds);
+                Check(inside&&selector.ClientRectangle.Contains(toolbar.Bounds),"small-screen toolbar wraps all tools including confirm and cancel inside the screen");
+                Fire(selector,"OnKeyDown",new KeyEventArgs(Keys.Escape));Check(!selector.PinRequested&&selector.CreateResult()==null,"cancel cannot request a desktop pin");
+            }
+            using(var image=Picture())
+            {
+                var pin=new CapturePinWindow(image,new Point(0,0),new Rectangle(0,0,640,480));
+                var tracked=(List<CapturePinWindow>)typeof(CapturePinWindow).GetField("pins",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null);
+                tracked.Add(pin);CapturePinWindow.CloseAll();
+                Check(pin.IsDisposed&&tracked.Count==0,"application-exit cleanup disposes all tracked pins");
+            }
+            using(var image=Picture(1060,730))using(var selector=new CaptureSelector(image,new Rectangle(0,0,1060,730),"annotate",1.5f))
+            {
+                Drag(selector,new Point(80,100),new Point(970,550));var toolbar=(CaptureToolbar)selector.Controls[0];
+                Check(toolbar.Controls[0].Width==60&&toolbar.Controls[0].Height==60,"150-percent DPI scales icon hit targets with their artwork");
+                bool inside=selector.ClientRectangle.Contains(toolbar.Bounds);foreach(Control button in toolbar.Controls)inside&=toolbar.ClientRectangle.Contains(button.Bounds);
+                Check(inside,"scaled screenshot toolbar keeps all actions inside the monitor");
+            }
+            using(var image=Picture(640,480))using(var selector=new CaptureSelector(image,new Rectangle(0,0,640,480)))
+            {
+                Drag(selector,new Point(40,50),new Point(540,400));selector.DrawingColor=Color.Blue;
+                Fire(selector,"OnKeyDown",new KeyEventArgs(Keys.ShiftKey));Fire(selector,"OnDeactivate",EventArgs.Empty);
+                Fire(selector,"OnMouseDown",new MouseEventArgs(MouseButtons.Left,1,100,100,0));
+                Fire(selector,"OnMouseMove",new MouseEventArgs(MouseButtons.Left,0,150,200,0));Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,240,100,0));
+                selector.Confirm();using(var result=selector.CreateResult())Check(result.GetPixel(110,150).B>200,"losing focus clears Shift so a later brush stroke remains freehand");
+            }
+            if(previewPath!=null)PreviewAnnotation(previewPath);
+        }
+        private static void PreviewAnnotation(string path)
+        {
+            using(var image=new Bitmap(1060,730))
+            {
+                using(var g=Graphics.FromImage(image))
+                using(var title=new Font("Microsoft YaHei UI",25,FontStyle.Bold,GraphicsUnit.Pixel))
+                using(var body=new Font("Microsoft YaHei UI",13,FontStyle.Regular,GraphicsUnit.Pixel))
+                using(var ink=new SolidBrush(Color.FromArgb(48,53,62)))
+                using(var muted=new SolidBrush(Color.FromArgb(127,134,145)))
+                using(var paper=new SolidBrush(Color.FromArgb(247,248,250)))
+                {
+                    g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.FromArgb(231,234,239));
+                    using(var card=CaptureVisuals.Rounded(new RectangleF(100,102,860,510),18))g.FillPath(Brushes.White,card);
+                    g.DrawString("创作工作台",title,ink,142,142);g.DrawString("项目素材 / 视觉参考",body,muted,144,188);
+                    using(var line=new Pen(Color.FromArgb(232,235,239)))g.DrawLine(line,144,222,916,222);
+                    string[] labels={"构图与光影","角色设计","制作信息"};
+                    for(int i=0;i<3;i++)
+                    {
+                        int x=145+i*258;using(var tile=CaptureVisuals.Rounded(new RectangleF(x,246,230,238),12))g.FillPath(paper,tile);
+                        using(var grad=new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(x+12,258,206,146),Color.FromArgb(208-i*12,215-i*8,226),Color.FromArgb(101+i*15,118+i*12,141),45))
+                        using(var art=CaptureVisuals.Rounded(new RectangleF(x+12,258,206,146),8))g.FillPath(grad,art);
+                        using(var glow=new SolidBrush(Color.FromArgb(80,255,255,255)))g.FillEllipse(glow,x+40,276,110,110);
+                        using(var mountain=new SolidBrush(Color.FromArgb(79+i*10,92+i*8,112)))g.FillPolygon(mountain,new[]{new Point(x+12,404),new Point(x+81,317),new Point(x+136,365),new Point(x+177,324),new Point(x+218,404)});
+                        g.DrawString(labels[i],body,ink,x+16,423);g.DrawString("待整理  ·  本地素材",body,muted,x+16,450);
+                    }
+                    g.DrawString("素材备注",body,ink,145,523);g.DrawString("scene_reference_001  /  internal_notes",body,muted,145,550);
+                }
+                using(var selector=new CaptureSelector(image,new Rectangle(0,0,image.Width,image.Height)))
+                {
+                    Drag(selector,new Point(122,122),new Point(938,590));selector.DrawingTool="rectangle";selector.DrawingWidth=3;
+                    Drag(selector,new Point(136,235),new Point(385,494));selector.DrawingTool="arrow";
+                    Drag(selector,new Point(640,185),new Point(397,252));selector.DrawingTool="mosaic";selector.DrawingWidth=4;
+                    Drag(selector,new Point(144,545),new Point(408,570));selector.DrawingTool="arrow";
+                    var toolbar=(CaptureToolbar)selector.Controls[0];
+                    typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[2],new object[]{EventArgs.Empty});
+                    using(var preview=new Bitmap(image.Width,image.Height))
+                    {
+                        selector.DrawToBitmap(preview,new Rectangle(Point.Empty,preview.Size));Point location=toolbar.Location;Color backdrop=preview.GetPixel(location.X,location.Y);toolbar.Parent=null;toolbar.BackColor=backdrop;
+                        try
+                        {
+                            using(var rendered=new Bitmap(toolbar.Width,toolbar.Height))
+                            {toolbar.DrawToBitmap(rendered,new Rectangle(Point.Empty,rendered.Size));using(var g=Graphics.FromImage(preview))g.DrawImageUnscaled(rendered,location);}
+                        }
+                        finally {toolbar.BackColor=Color.Transparent;toolbar.Parent=selector;toolbar.Location=location;}
+                        preview.Save(path,System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                }
+            }
+        }
         [STAThread]
         private static int Main(string[] args)
         {
@@ -227,7 +366,7 @@ namespace YingXu.Desktop
                 Uri url;if(!Uri.TryCreate(args[1],UriKind.Absolute,out url)||url.Scheme!="http"||url.Host!="127.0.0.1")throw new ArgumentException("Fixture must use loopback HTTP");
                 Hub.Url=url.AbsoluteUri;using(var image=Picture(128,64))Console.WriteLine(Json.Serialize(DesktopApi.UploadCapture(CapturePlatform.Encode(image),args[2])));return 0;
             }
-            GeometryAndHotkeys();SelectorEvents();Workflow().GetAwaiter().GetResult();AnnotationWorkflow().GetAwaiter().GetResult();UploadProtocol().GetAwaiter().GetResult();
+            GeometryAndHotkeys();SelectorEvents();Workflow().GetAwaiter().GetResult();AnnotationWorkflow().GetAwaiter().GetResult();ExtendedAnnotation(args.Length==2&&args[0]=="--preview"?args[1]:null);UploadProtocol().GetAwaiter().GetResult();
             var timer=Stopwatch.StartNew();long bytes;
             using(var image=Picture(3840,2160)){using(var region=CapturePlatform.Crop(image,new Rectangle(100,100,1920,1080)))bytes=CapturePlatform.Encode(region).Length;}
             Console.WriteLine("synthetic_4k_crop_png_ms="+timer.ElapsedMilliseconds+" png_bytes="+bytes+" full_frame_bytes="+(3840L*2160*4));

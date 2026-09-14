@@ -26,6 +26,34 @@ test('real Chromium reports image size, follows fit resize, and disconnects obse
       changeImageZoom('zoom-in');check('plus starts at current fit percentage',label()==='图片 63%');
       changeImageZoom('zoom-out');check('minus reverses plus',label()==='图片 50%');
       for(let i=0;i<20;i++)changeImageZoom('zoom-in');check('upper limit reports 400%',label()==='图片 400%');
+      const stage=img.closest('.media-stage');
+      const pointer=(target,type,options={})=>{const event=new PointerEvent(type,{pointerId:7,button:1,buttons:4,clientX:220,clientY:180,bubbles:true,cancelable:true,...options});target.dispatchEvent(event);return event;};
+      stage.scrollLeft=200;stage.scrollTop=180;
+      const start=pointer(img,'pointerdown');
+      pointer(document,'pointermove',{clientX:170,clientY:140});
+      check('middle drag pans both axes without changing zoom',start.defaultPrevented&&stage.scrollLeft===250&&stage.scrollTop===220&&label()==='图片 400%');
+      pointer(document,'pointermove',{clientX:210,clientY:170});
+      check('middle drag reverses in both axes',stage.scrollLeft===210&&stage.scrollTop===190);
+      pointer(document,'pointerup',{buttons:0});
+      pointer(document,'pointermove',{clientX:100,clientY:80});
+      check('release ends panning',stage.scrollLeft===210&&stage.scrollTop===190&&!stage.classList.contains('image-panning'));
+      for(const button of [0,2]){const event=pointer(img,'pointerdown',{button,buttons:button===0?1:2});check('other mouse button is preserved '+button,!event.defaultPrevented&&!stage.classList.contains('image-panning'));}
+      check('left image transfer remains native',img.draggable);
+      for(const type of ['mousedown','auxclick']){const event=new MouseEvent(type,{button:1,bubbles:true,cancelable:true});img.dispatchEvent(event);check('native middle autoscroll is blocked '+type,event.defaultPrevented);}
+      for(const reason of ['pointercancel','lostpointercapture','blur','missing-button','left-still-held','switch-tab']){
+        pointer(img,'pointerdown');const before=[stage.scrollLeft,stage.scrollTop];
+        if(reason==='blur')window.dispatchEvent(new Event('blur'));
+        else if(reason==='missing-button')pointer(document,'pointermove',{buttons:0});
+        else if(reason==='left-still-held')pointer(document,'pointermove',{buttons:1});
+        else if(reason==='switch-tab'){state.activeKey='another';pointer(document,'pointermove');state.activeKey=tab.key;}
+        else pointer(reason==='lostpointercapture'?stage:document,reason);
+        pointer(document,'pointermove',{clientX:100,clientY:80});
+        check('pan ends safely on '+reason,stage.scrollLeft===before[0]&&stage.scrollTop===before[1]&&!stage.classList.contains('image-panning'));
+      }
+      pointer(img,'pointerdown');stopImageZoomTracking();
+      const stopped=[stage.scrollLeft,stage.scrollTop];pointer(document,'pointermove',{clientX:100,clientY:80});
+      check('unmount releases pan and listeners',imagePreviewCleanup===null&&!stage.classList.contains('image-panning')&&stage.scrollLeft===stopped[0]&&stage.scrollTop===stopped[1]&&!pointer(img,'pointerdown').defaultPrevented);
+      trackImageZoom(tab,img);
       for(let i=0;i<30;i++)changeImageZoom('zoom-out');check('lower limit reports 25%',label()==='图片 25%');
       changeImageZoom('zoom-fit');check('fit returns to actual 50%',label()==='图片 50%'&&!img.classList.contains('zoomed'));
       document.querySelector('.media-stage').style.width='250px';await tick();updateImageZoomLabel(img);check('narrow fit reports 25%',label()==='图片 25%');
@@ -42,5 +70,5 @@ test('real Chromium reports image size, follows fit resize, and disconnects obse
   const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--virtual-time-budget=3000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
   const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1500));
   const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
-  assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,13);for(const row of result)assert.equal(row.ok,true,row.name);
+  assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,28);for(const row of result)assert.equal(row.ok,true,row.name);
 });

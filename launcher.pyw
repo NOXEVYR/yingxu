@@ -19,7 +19,44 @@ DATA = default_data_root()
 PROJECTS = default_project_root()
 
 
+def listening_port(port):
+    """Windows listener-table hint; None means use the ordinary socket probe.
+
+    A missing listener otherwise costs about one second of loopback SYN retries.
+    Never use a positive hint as health/identity proof. A server that races this
+    snapshot still has to pass the launch mutex, health check and exclusive bind.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        get_table = ctypes.WinDLL("iphlpapi", use_last_error=True).GetTcpTable
+        get_table.argtypes = (ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL)
+        get_table.restype = wintypes.DWORD
+        size = wintypes.DWORD(0)
+        result = get_table(None, ctypes.byref(size), False)
+        if result != 122 or not 4 <= size.value <= 16 * 1024 * 1024:
+            return None
+        # Table size can change between calls. Fall back rather than infer absence.
+        buffer = ctypes.create_string_buffer(size.value)
+        if get_table(buffer, ctypes.byref(size), False) != 0:
+            return None
+        raw = buffer.raw
+        count = int.from_bytes(raw[:4], "little")
+        if 4 + count * 20 > len(raw):
+            return None
+        for offset in range(4, 4 + count * 20, 20):
+            state = int.from_bytes(raw[offset:offset + 4], "little")
+            local_port = int.from_bytes(raw[offset + 8:offset + 10], "big")
+            if state == 2 and local_port == port:
+                return True
+        return False
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 def health(port):
+    if listening_port(port) is False:
+        return None
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
     try:
         connection.request("GET", "/api/health")
@@ -38,6 +75,8 @@ def health(port):
 
 
 def port_busy(port):
+    if listening_port(port) is False:
+        return False
     with socket.socket() as sock:
         sock.settimeout(0.5)
         return sock.connect_ex(("127.0.0.1", port)) == 0

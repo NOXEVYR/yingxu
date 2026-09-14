@@ -18,8 +18,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.7.0")]
-[assembly: AssemblyFileVersion("0.4.7.0")]
+[assembly: AssemblyVersion("0.4.8.0")]
+[assembly: AssemblyFileVersion("0.4.8.0")]
 
 namespace YingXu.Desktop
 {
@@ -150,6 +150,7 @@ namespace YingXu.Desktop
         private readonly RegisteredWaitHandle activation;
         private readonly CancellationTokenSource closing = new CancellationTokenSource();
         private bool loaded;
+        private readonly Stopwatch startup = Stopwatch.StartNew();
         private bool draggingFile;
         private bool nativeDragReleased;
         private string preparedDragKey;
@@ -427,7 +428,7 @@ namespace YingXu.Desktop
                 if (message.Count != 2 || !message.TryGetValue("path",out folder) || !(folder is string) || !Path.IsPathRooted((string)folder)) return false;
                 BeginInvoke((Action)(() => FocusFolder((string)folder))); return true;
             }
-            if (action == "desktop-ready") { pageReady = true; pageFailed = false; exitUnresponsive = false; ReloadSettings(); if(capture!=null)capture.Flush(); FlushSettings(); DrainFiles(); return true; }
+            if (action == "desktop-ready") { Hub.Log("startup_stage=app_ready elapsed_ms=" + startup.ElapsedMilliseconds); pageReady = true; pageFailed = false; exitUnresponsive = false; ReloadSettings(); if(capture!=null)capture.Flush(); FlushSettings(); DrainFiles(); return true; }
             if (action == "capture-request" && message.Count==1) { BeginInvoke((Action)StartCapture); return true; }
             if (action == "capture-context") { if(capture!=null)capture.Receive(message); return true; }
             if (action == "settings-changed") { ReloadSettings(); return true; }
@@ -503,95 +504,21 @@ namespace YingXu.Desktop
         {
             try
             {
-                string serviceStatus = await Task.Run(() => Hub.EnsureService());
+                // Backend startup and the browser process/profile are independent.
+                // Observe both tasks even when one fails; never navigate until both
+                // the validated service and the restricted WebView are ready.
+                var service = Task.Run(() =>
+                {
+                    string result = Hub.EnsureService();
+                    Hub.Log("startup_stage=service_ready elapsed_ms=" + startup.ElapsedMilliseconds + " status=" + result);
+                    return result;
+                });
+                var browser = InitializeBrowserAsync();
+                await Task.WhenAll(service, browser);
                 if (closing.IsCancellationRequested) return;
-                Hub.Log("service_" + serviceStatus + " port=" + Hub.Port);
-                loading.Text = "映序\n\n正在加载工作台…";
-                web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
-                Controls.Add(web);
-                web.QueryContinueDrag += delegate(object sender, QueryContinueDragEventArgs e)
-                {
-                    nativeDragReleased = !e.EscapePressed && (e.KeyState & 1) == 0;
-                };
-                var options = new CoreWebView2EnvironmentOptions();
-                options.Language = "zh-CN";
-                string bundledBrowser = Hub.BundledBrowserFolder();
-                string browserFolder = bundledBrowser;
-                if (Environment.GetEnvironmentVariable("YINGXU_WEBVIEW2_MODE") != "bundled")
-                {
-                    try
-                    {
-                        string installed = CoreWebView2Environment.GetAvailableBrowserVersionString();
-                        if (bundledBrowser == null || CoreWebView2Environment.CompareBrowserVersions(installed,
-                            CoreWebView2Environment.GetAvailableBrowserVersionString(bundledBrowser)) >= 0) browserFolder = null;
-                    }
-                    catch (WebView2RuntimeNotFoundException) { }
-                }
-                if (browserFolder != null) await Task.Run(() => Hub.PrepareBrowserFolder(browserFolder));
-                Hub.Log("browser_source=" + (browserFolder == null ? "system" : "bundled"));
-                var environment = await CoreWebView2Environment.CreateAsync(browserFolder, Path.Combine(Hub.Cache, "WebView2"), options);
-                if (closing.IsCancellationRequested) return;
-                await web.EnsureCoreWebView2Async(environment);
-                if (closing.IsCancellationRequested) return;
-                web.ZoomFactorChanged+=delegate { UpdateZoomStatus(); };
-                UpdateZoomStatus();
-                var core = web.CoreWebView2;
-                core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Light;
-                core.Settings.IsStatusBarEnabled = false;
-                core.Settings.AreDefaultContextMenusEnabled = false;
-                core.Settings.AreBrowserAcceleratorKeysEnabled = false;
-                core.Settings.AreDevToolsEnabled = false;
-                core.Settings.AreHostObjectsAllowed = false;
-                core.Settings.IsWebMessageEnabled = true;
-                core.Settings.IsPasswordAutosaveEnabled = false;
-                core.Settings.IsGeneralAutofillEnabled = false;
-                core.WebMessageReceived += ReceiveDragRequest;
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopFocus = true;");
-                core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
-                {
-                    if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; return; }
-                    e.Cancel = true;
-                    status.Text = "已阻止打开外部地址；映序只显示本地创作工作台。";
-                };
-                core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e)
-                {
-                    e.Handled = true;
-                    status.Text = "已阻止打开外部地址；映序只显示本地创作工作台。";
-                };
-                core.PermissionRequested += delegate(object sender, CoreWebView2PermissionRequestedEventArgs e)
-                {
-                    // Copying model paths works with the ordinary user-gesture clipboard API.
-                    // This app does not require camera, mic, location or clipboard-read access.
-                    e.State = CoreWebView2PermissionState.Deny;
-                };
-                core.DownloadStarting += delegate(object sender, CoreWebView2DownloadStartingEventArgs e)
-                {
-                    e.Cancel = true;
-                    MessageBox.Show(this, "此工作台不提供网页下载。请使用导入功能引用已有素材。", "映序", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                };
-                core.ProcessFailed += delegate
-                {
-                    if (!closing.IsCancellationRequested) ShowFailure("页面运行环境意外退出。请关闭窗口后重新打开 映序。");
-                };
-                core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
-                {
-                    if (closing.IsCancellationRequested) return;
-                    if (!e.IsSuccess)
-                    {
-                        if (e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
-                            ShowFailure("工作台页面加载失败，请重新打开 映序。错误：" + e.WebErrorStatus);
-                        return;
-                    }
-                    loading.Visible = false;
-                    web.BringToFront();
-                    if (!loaded)
-                    {
-                        loaded = true;
-                        Hub.Log("window_ready runtime=" + environment.BrowserVersionString + " console=" + (GetConsoleWindow() != IntPtr.Zero));
-                        web.Focus();
-                    }
-                };
-                core.Navigate(Hub.Url);
+                Hub.Log("service_" + service.Result + " port=" + Hub.Port);
+                Hub.Log("startup_stage=navigate elapsed_ms=" + startup.ElapsedMilliseconds);
+                web.CoreWebView2.Navigate(Hub.Url);
             }
             catch (Exception e)
             {
@@ -600,6 +527,97 @@ namespace YingXu.Desktop
                 ShowFailure(e is WebView2RuntimeNotFoundException ?
                     "未找到 Microsoft Edge WebView2 运行环境。请安装微软官方 WebView2 Runtime 后再打开。" : e.Message);
             }
+        }
+
+        private async Task InitializeBrowserAsync()
+        {
+            loading.Text = "映序\n\n正在加载工作台…";
+            web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
+            Controls.Add(web);
+            web.QueryContinueDrag += delegate(object sender, QueryContinueDragEventArgs e)
+            {
+                nativeDragReleased = !e.EscapePressed && (e.KeyState & 1) == 0;
+            };
+            var options = new CoreWebView2EnvironmentOptions();
+            options.Language = "zh-CN";
+            string bundledBrowser = Hub.BundledBrowserFolder();
+            string browserFolder = bundledBrowser;
+            if (Environment.GetEnvironmentVariable("YINGXU_WEBVIEW2_MODE") != "bundled")
+            {
+                try
+                {
+                    string installed = CoreWebView2Environment.GetAvailableBrowserVersionString();
+                    if (bundledBrowser == null || CoreWebView2Environment.CompareBrowserVersions(installed,
+                        CoreWebView2Environment.GetAvailableBrowserVersionString(bundledBrowser)) >= 0) browserFolder = null;
+                }
+                catch (WebView2RuntimeNotFoundException) { }
+            }
+            if (browserFolder != null) await Task.Run(() => Hub.PrepareBrowserFolder(browserFolder));
+            Hub.Log("browser_source=" + (browserFolder == null ? "system" : "bundled"));
+            var environment = await CoreWebView2Environment.CreateAsync(browserFolder, Path.Combine(Hub.Cache, "WebView2"), options);
+            if (closing.IsCancellationRequested) return;
+            await web.EnsureCoreWebView2Async(environment);
+            if (closing.IsCancellationRequested) return;
+            web.ZoomFactorChanged+=delegate { UpdateZoomStatus(); };
+            UpdateZoomStatus();
+            var core = web.CoreWebView2;
+            core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Light;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            core.Settings.AreDevToolsEnabled = false;
+            core.Settings.AreHostObjectsAllowed = false;
+            core.Settings.IsWebMessageEnabled = true;
+            core.Settings.IsPasswordAutosaveEnabled = false;
+            core.Settings.IsGeneralAutofillEnabled = false;
+            core.WebMessageReceived += ReceiveDragRequest;
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopFocus = true;");
+            core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
+            {
+                if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; return; }
+                e.Cancel = true;
+                status.Text = "已阻止打开外部地址；映序只显示本地创作工作台。";
+            };
+            core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e)
+            {
+                e.Handled = true;
+                status.Text = "已阻止打开外部地址；映序只显示本地创作工作台。";
+            };
+            core.PermissionRequested += delegate(object sender, CoreWebView2PermissionRequestedEventArgs e)
+            {
+                // Copying model paths works with the ordinary user-gesture clipboard API.
+                // This app does not require camera, mic, location or clipboard-read access.
+                e.State = CoreWebView2PermissionState.Deny;
+            };
+            core.DownloadStarting += delegate(object sender, CoreWebView2DownloadStartingEventArgs e)
+            {
+                e.Cancel = true;
+                MessageBox.Show(this, "此工作台不提供网页下载。请使用导入功能引用已有素材。", "映序", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            };
+            core.ProcessFailed += delegate
+            {
+                if (!closing.IsCancellationRequested) ShowFailure("页面运行环境意外退出。请关闭窗口后重新打开 映序。");
+            };
+            core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
+            {
+                if (closing.IsCancellationRequested) return;
+                if (!e.IsSuccess)
+                {
+                    if (e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
+                        ShowFailure("工作台页面加载失败，请重新打开 映序。错误：" + e.WebErrorStatus);
+                    return;
+                }
+                loading.Visible = false;
+                web.BringToFront();
+                if (!loaded)
+                {
+                    loaded = true;
+                    Hub.Log("startup_stage=navigation_complete elapsed_ms=" + startup.ElapsedMilliseconds);
+                    Hub.Log("window_ready runtime=" + environment.BrowserVersionString + " console=" + (GetConsoleWindow() != IntPtr.Zero));
+                    web.Focus();
+                }
+            };
+            Hub.Log("startup_stage=browser_ready elapsed_ms=" + startup.ElapsedMilliseconds);
         }
 
         private void ShowFailure(string message)

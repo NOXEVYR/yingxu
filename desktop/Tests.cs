@@ -32,6 +32,7 @@ namespace YingXu.Desktop
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            Check(Hub.HasTcpListener(port) == true, "listener hint sees bound fixture");
             var respond = Task.Run(() =>
             {
                 using (var client = listener.AcceptTcpClient())
@@ -59,6 +60,10 @@ namespace YingXu.Desktop
             probe.Start();
             Hub.Port = ((IPEndPoint)probe.LocalEndpoint).Port;
             probe.Stop();
+            Check(Hub.HasTcpListener(Hub.Port) == false, "unused fixture port has no listener");
+            var absent = Stopwatch.StartNew();
+            Check(!Hub.Healthy(Hub.Port), "unused fixture port cannot be healthy");
+            Console.WriteLine("STARTUP_PROFILE absent_health_ms=" + absent.ElapsedMilliseconds);
             Hub.Url = "http://127.0.0.1:" + Hub.Port + "/";
             File.Copy(Path.Combine(sourceRoot, "launcher.pyw"), Path.Combine(folder, "launcher.pyw"), true);
             Directory.CreateDirectory(Path.Combine(folder, "yingxu"));
@@ -70,12 +75,14 @@ namespace YingXu.Desktop
                 "Path('logs/console.txt').write_text(str(ctypes.windll.kernel32.GetConsoleWindow()))\n" +
                 "class Handler(BaseHTTPRequestHandler):\n" +
                 " def do_GET(self):\n" +
-                "  body=json.dumps(dict(app='yingxu',ok=True,version='0.4.7',instance_id=instance_id(default_data_root()))).encode()\n" +
+                "  body=json.dumps(dict(app='yingxu',ok=True,version='0.4.8',instance_id=instance_id(default_data_root()))).encode()\n" +
                 "  self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n" +
                 " def log_message(self,*args): pass\n" +
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n" +
                 "threading.Timer(4,server.shutdown).start()\nserver.serve_forever()\nserver.server_close()\n");
+            var startup = Stopwatch.StartNew();
             Check(Hub.EnsureService() == "started", "cold startup in isolated Unicode path");
+            Console.WriteLine("STARTUP_PROFILE synthetic_service_ms=" + startup.ElapsedMilliseconds);
             string pidRecord = Path.Combine(Hub.Data, "server.pid.json");
             string before = File.ReadAllText(pidRecord);
             Check(Hub.EnsureService() == "reused" && File.ReadAllText(pidRecord) == before, "existing service reused with same PID");
@@ -215,7 +222,7 @@ namespace YingXu.Desktop
                 Directory.CreateDirectory(Path.Combine(folder, "frontend"));
                 File.WriteAllText(Path.Combine(folder, "frontend", "index.html"), "");
                 Check(Hub.IsAppRoot(folder), "complete app folder recognized");
-                HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.7\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", true);
+                HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.8\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", true);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.4\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.3.2\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.2.1\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);

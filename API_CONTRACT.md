@@ -7,7 +7,7 @@ Base http://127.0.0.1:8791。JSON；错误 {error:"中文信息"} 配相应状�
 Categories: scripts 剧本与文档 / shots 分镜 / characters 角色 / scenes 场景 / props 道具 / previs 白模预演 / generated 生成素材 / delivery 成片交付 / references 参考资料。Statuses: 待开始, 进行中, 待审核, 已完成。
 
 GET /api/projects -> {projects:[{id,name,description,color,root,created,updated,counts:{total,shots,completed,documents}}]}
-POST /api/projects {name,description} -> project object，创建标准目录。
+POST /api/projects {name,description,folder_id?:null|ID} -> project object，创建标准目录。0.4.8 起可同时指定项目库的逻辑分类；省略或 null 为未分类。项目与分类归属在同一事务保存，分类不存在返回 404，不降级为未分类；此分类不改变项目根目录的位置。
 GET /api/items?project=ID&category=KEY&q=QUERY&status=STATUS&kind=KIND&limit=60&offset=0&sort=updated|name|order -> {items,total,limit,offset,categories:[{key,label,count}],elapsed_ms}。q 支持普通中文文本、tag:夜景、type:video、status:已完成、category:scenes，多个条件 AND。服务端优先分页；前端每页最大60，不无限累积DOM。
 Item object: {id,project_id,name,category,kind,ext,path,size,mtime,status,tags:[...],notes,metadata:{...},sort_order,created,updated,thumbnail_url,media_url}. kinds markdown,text,docx,image,video,audio,pdf,model,file。新分镜本体是 category=shots 的 markdown。图片/视频 thumb 用 /api/thumbnail/ID（202 尚未就绪，稍后有限重试）。media_url=/api/media/ID。列表不含全文。
 GET /api/items/ID -> item + {relations:[{id,source_id,target_id,relation,item:relatedItem}],versions:[{id,created,size}],content_preview}

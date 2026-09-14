@@ -14,8 +14,8 @@ sys.path.insert(0,str(ROOT/'macos'))
 from verify_release import verify
 
 REPO='turnsolesama/yingxu'
-TAG='yingxu-v0.4.7-mac.1'
-NAME='YingXu-v0.4.7-mac.1-macOS-arm64'
+TAG='yingxu-v0.4.8-mac.1'
+NAME='YingXu-v0.4.8-mac.1-macOS-arm64'
 ICON_REPAIR_COMMIT='fix: replace 0.4.6 icons [viewfinder-v1]'
 ICON_REPAIR_WINDOWS_COMMIT=ICON_REPAIR_COMMIT+' [windows-only]'
 
@@ -174,7 +174,7 @@ def main():
     assert os.environ['GITHUB_REPOSITORY']==REPO
     commit=os.environ['GITHUB_SHA']
     artifacts=ROOT/'releases/macos-preview'
-    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.7-mac.1-verification.json']
+    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.8-mac.1-verification.json']
     manifest=json.loads((artifacts/names[1]).read_text())
     assert manifest['source_commit']==commit
     existing=gh('release','view',TAG,'--json','isDraft,targetCommitish',check=False)
@@ -187,16 +187,15 @@ def main():
             return
         if release['isDraft'] and release['targetCommitish']!=commit:
             raise RuntimeError('Existing draft belongs to another source commit')
-    notes='''映序 0.4.7 macOS 试用版（0.4.7-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
+    notes='''映序 0.4.8 macOS 试用版（0.4.8-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
 
 ## 本次更新
 
-- 图片预览内按 Ctrl（macOS 可按 ⌘）加滚轮只调整图片大小，保留工具栏和界面缩放。
-- 文件夹导航显示包含当前文件夹的完整层级，点击祖先可返回对应位置。
-- 设置中的勾选颜色跟随当前配色，与同页按钮保持一致。
-- SKILL 库支持增加和删除来源标签；标签调整保存在映序，不删除外部技能源文件。
-- 工作空间入口旁增加返回按钮，回到先前工作台并恢复原来的浏览位置。
-- 画板属性面板使用紧凑宽度，限制高度并在面板内滚动，避免遮住整个画面和拉长滑条。
+- SKILL 首次扫描移到后台，项目与分类信息并行读取，让工作台更早可用；保留扫描预算、失败提示和原有功能。
+- 新项目继承项目库当前选中的分类，项目与归属一起保存；创建成功后刷新失败可重试显示，不会重复创建项目。
+- 图片预览支持按住鼠标中键拖动位置，保留原有缩放操作。
+- 弹窗标题和关闭按钮固定在滚动内容外，长列表中仍可直接关闭。
+- Markdown 实时预览支持表格，表格单元可定位回源码编辑，保留原始文稿与输入法状态。
 
 ## 安装与边界
 
@@ -215,7 +214,7 @@ def main():
         root=Path(temporary);note=root/'notes.md';write_notes(note,notes)
         if existing.returncode:
             gh('release','create',TAG,*[str(artifacts/n) for n in names],
-               '--target',commit,'--title','映序 0.4.7 · 预览、导航与画板交互修复 · macOS M 系列试用版',
+               '--target',commit,'--title','映序 0.4.8 · 启动提速与创作交互改进 · macOS M 系列试用版',
                '--notes-file',str(note),'--draft','--prerelease')
         else:
             gh('release','edit',TAG,'--notes-file',str(note),'--prerelease')
@@ -229,21 +228,22 @@ def main():
         gh('release','edit',TAG,'--draft=false','--prerelease','--latest=false')
         print('macOS preview downloaded, extracted, verified, and published.',flush=True)
         portal=root/'downloads.md'
-        write_notes(portal,'''映序 0.4.7 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
+        write_notes(portal,'''映序 0.4.8 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
 
 ## 当前下载
 
 - [Windows 完整包发布列表](https://github.com/turnsolesama/yingxu/releases)（以已发布附件为准）
-- [macOS M 系列 0.4.7-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7-mac.1)
+- [macOS M 系列 0.4.8-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)
 
-## 0.4.7 更新
+## 0.4.8 更新
 
-- 图片预览内按 Ctrl（macOS 可按 ⌘）加滚轮只调整图片大小，保留工具栏和界面缩放。
-- 文件夹导航显示包含当前文件夹的完整层级，点击祖先可返回对应位置。
-- 设置中的勾选颜色跟随当前配色，与同页按钮保持一致。
-- SKILL 库支持增加和删除来源标签；标签调整保存在映序，不删除外部技能源文件。
-- 工作空间入口旁增加返回按钮，回到先前工作台并恢复原来的浏览位置。
-- 画板属性面板使用紧凑宽度，限制高度并在面板内滚动，避免遮住整个画面和拉长滑条。
+- Windows 启动先快速检查空端口，后台服务与 WebView2 并行初始化，减少重复连接等待；服务身份、版本和退出检查保持有效。
+- SKILL 首次扫描移到后台，项目与分类信息并行读取，让工作台更早可用；保留扫描预算、失败提示和原有功能。
+- 新项目继承项目库当前选中的分类，项目与归属一起保存；创建成功后刷新失败可重试显示，不会重复创建项目。
+- 图片预览支持按住鼠标中键拖动位置，保留原有缩放操作。
+- 弹窗标题和关闭按钮固定在滚动内容外，长列表中仍可直接关闭。
+- Markdown 实时预览支持表格，表格单元可定位回源码编辑，保留原始文稿与输入法状态。
+- Windows 截图提供矩形、箭头、Shift 画直线、马赛克和桌面置顶；工具栏改用图标与色板，支持撤销、确认和取消。
 
 详情见[更新记录](https://github.com/turnsolesama/yingxu#readme)。
 
@@ -251,7 +251,7 @@ Mac 包适用于 macOS 14+ Apple Silicon，未公证，暂不支持 Intel、全�
 
 [旧 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3) · [迁移说明](https://github.com/turnsolesama/yingxu/blob/main/MIGRATION.md)
 ''')
-        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.7 · Windows 与 macOS 下载','--notes-file',str(portal))
+        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.8 · Windows 与 macOS 下载','--notes-file',str(portal))
 
 if __name__=='__main__':
     if len(sys.argv)==3 and sys.argv[1]=='--replace-windows-icons':replace_windows_icons(sys.argv[2])

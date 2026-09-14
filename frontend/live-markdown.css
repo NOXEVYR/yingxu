@@ -24,3 +24,10 @@
 .yx-markdown-editor.yx-markdown-source .cm-scroller{font-family:Consolas,"Cascadia Code","Microsoft YaHei",monospace;font-size:13px;line-height:1.85}
 .yx-markdown-editor .yx-md-image{display:inline-flex;vertical-align:middle;max-width:100%;min-width:36px;min-height:24px;margin:8px 0;overflow:hidden;border:1px solid var(--line,var(--panel-3));border-radius:6px;background:var(--panel);cursor:pointer}.yx-markdown-editor .yx-md-image img{display:block;max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain}.yx-markdown-editor .yx-md-image:focus-visible{outline:2px solid var(--accent,var(--accent));outline-offset:2px}.yx-markdown-editor .yx-md-image-error{padding:8px 12px;color:var(--muted,var(--muted));font-size:12px;white-space:normal}
 @media(max-width:1090px){.yx-markdown-editor .cm-content{padding:20px 18px 70px}.yx-markdown-editor .yx-md-heading-1{font-size:25px}.yx-markdown-editor .yx-md-heading-2{font-size:21px}}
+.yx-markdown-editor .yx-md-table{contain:inline-size;box-sizing:border-box;min-width:0;max-width:100%;overflow-x:auto;margin:12px 0;white-space:normal;cursor:text;border:1px solid var(--line,#d2d7da);border-radius:6px;background:var(--panel,#fff)}
+.yx-markdown-editor .yx-md-table:focus-visible{outline:2px solid var(--accent,#303438);outline-offset:2px}
+.yx-markdown-editor .yx-md-table table{border-collapse:collapse;width:100%;font:inherit;line-height:1.65}
+.yx-markdown-editor .yx-md-table th,.yx-markdown-editor .yx-md-table td{min-width:100px;max-width:420px;padding:9px 12px;border-right:1px solid var(--line,#d2d7da);border-bottom:1px solid var(--line,#d2d7da);overflow-wrap:anywhere;vertical-align:top}
+.yx-markdown-editor .yx-md-table th{font-weight:650;background:var(--panel-2,#f1f2f3)}
+.yx-markdown-editor .yx-md-table tr:last-child td{border-bottom:0}.yx-markdown-editor .yx-md-table th:last-child,.yx-markdown-editor .yx-md-table td:last-child{border-right:0}
+.yx-markdown-editor .yx-md-table code{font-family:Consolas,"Cascadia Code",monospace;background:var(--panel-2,#f1f2f3);padding:1px 3px;border-radius:3px}

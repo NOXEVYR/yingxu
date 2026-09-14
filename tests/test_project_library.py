@@ -17,6 +17,58 @@ class ProjectLibraryTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_create_directly_in_category_is_persisted_and_invalid_category_leaves_no_directory(self):
+        folder=self.library.create_folder({'name':'Selected category'})
+        created=self.store.create_project('New project',folder_id=folder['id'])
+        row=next(row for row in self.library.snapshot()['projects'] if row['id']==created['id'])
+        self.assertEqual(row['folder_id'],folder['id'])
+        self.assertTrue(Path(created['root']).is_dir())
+        before=set(self.store.project_root.iterdir())
+        for invalid in ('deleted-category','',[],42):
+            with self.subTest(folder_id=invalid),self.assertRaises(UserError):
+                self.store.create_project('Rejected project',folder_id=invalid)
+        self.assertEqual(set(self.store.project_root.iterdir()),before)
+        self.assertEqual(len(self.store.list_projects()),2)
+        with self.assertRaises(UserError):self.library.delete_folder(folder['id'])
+
+    def test_concurrent_category_deletion_cannot_detach_new_project(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        import threading
+        folder=self.library.create_folder({'name':'Race category'})
+        entered=threading.Event();release=threading.Event();deleting=threading.Event()
+        original=Path.mkdir
+        def mkdir(path,*args,**kwargs):
+            if path.parent==self.store.project_root and path.name.startswith('Race project_'):
+                entered.set()
+                if not release.wait(10):raise AssertionError('creation was never released')
+            return original(path,*args,**kwargs)
+        def delete():
+            deleting.set();return self.library.delete_folder(folder['id'])
+        with patch.object(Path,'mkdir',mkdir),ThreadPoolExecutor(max_workers=2) as workers:
+            creation=workers.submit(self.store.create_project,'Race project',folder_id=folder['id'])
+            try:
+                self.assertTrue(entered.wait(5))
+                deletion=workers.submit(delete)
+                self.assertTrue(deleting.wait(5));self.assertFalse(deletion.done())
+            finally:release.set()
+            project=creation.result(timeout=10)
+            with self.assertRaises(UserError):deletion.result(timeout=10)
+        row=next(row for row in self.library.snapshot()['projects'] if row['id']==project['id'])
+        self.assertEqual(row['folder_id'],folder['id'])
+
+    def test_creation_failure_rolls_back_membership_project_and_new_directories(self):
+        import sqlite3
+        folder=self.library.create_folder({'name':'Selected category'})
+        before=set(self.store.project_root.iterdir())
+        with self.store.connection() as db:
+            db.execute("CREATE TRIGGER synthetic_creation_failure BEFORE INSERT ON project_library_entries BEGIN SELECT RAISE(ABORT,'synthetic failure'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.create_project('Failed project',folder_id=folder['id'])
+        self.assertEqual(set(self.store.project_root.iterdir()),before)
+        self.assertEqual(len(self.store.list_projects()),1)
+        self.assertFalse(self.library.snapshot()['projects'][0]['folder_id'])
+
     def test_existing_projects_unclassified_and_metadata_retained(self):
         result = self.library.snapshot()
         self.assertEqual(result['total'], 1)

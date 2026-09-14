@@ -42,7 +42,7 @@ class Application:
         from yingxu.context import ContextExporter
         from yingxu.organize import Organize
         self.organize=Organize(self.store)
-        self.skills=SkillLibrary(self.store)
+        self.skills=SkillLibrary(self.store,scan=False)
         self.context=ContextExporter(self.store,self.skills)
         self.jobs=Jobs(self.store,self.context.request)
         self.thumbnails=Thumbnails(self.store)
@@ -62,6 +62,7 @@ class Application:
         self.markdown_assets=MarkdownAssets(self.store)
         from yingxu.maintenance import Maintenance
         self.maintenance=Maintenance(self.store)
+        self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
         """Drain accepted writes before stopping the context export worker."""
@@ -517,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
                 external_save=re.fullmatch(r'/api/external/([a-f0-9]{32})/content',path)
                 if external_save:return self.json(self.app.external.save(external_save[1],data))
                 if path=='/api/projects':
-                    project=self.app.store.create_project(data.get('name',''),data.get('description',''));self.app.context.request(project['id']);return self.json(project,201)
+                    project=self.app.store.create_project(data.get('name',''),data.get('description',''),folder_id=data.get('folder_id'));self.app.context.request(project['id']);return self.json(project,201)
                 if path=='/api/items/batch-properties':
                     result=self.app.store.batch_properties(data)
                     self.app.context.request(data['project_id']);return self.json(result)

@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -230,8 +231,23 @@ namespace YingXu.Desktop
             return result.Append('\\', slashes * 2).Append('"').ToString();
         }
 
+        internal static bool? HasTcpListener(int port)
+        {
+            // An absent loopback listener makes connect wait for Windows TCP retries.
+            // This is only a negative hint: existing listeners still need HTTP identity
+            // checks, and unavailable listener tables fall back to the original probe.
+            try
+            {
+                foreach (var endpoint in IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners())
+                    if (endpoint.Port == port) return true;
+                return false;
+            }
+            catch { return null; }
+        }
+
         internal static bool Healthy(int port)
         {
+            if (HasTcpListener(port) == false) return false;
             try
             {
                 var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/api/health");
@@ -251,7 +267,7 @@ namespace YingXu.Desktop
                     return health != null && health.TryGetValue("app", out name) && (name as string) == "yingxu" &&
                            health.TryGetValue("ok", out ok) && ok is bool && (bool)ok &&
                            health.TryGetValue("instance_id", out identity) && (identity as string) == InstanceId() &&
-                           health.TryGetValue("version", out version) && (version as string) == "0.4.7";
+                           health.TryGetValue("version", out version) && (version as string) == "0.4.8";
                 }
             }
             catch { return false; }

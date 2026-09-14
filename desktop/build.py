@@ -85,17 +85,18 @@ def main():
                 str(DESKTOP / "LifecycleTests.cs")], check=True)
             subprocess.run([str(lifecycle),str(ROOT)],check=True,timeout=30)
             if (ROOT / 'runtime/webview2/msedgewebview2.exe').is_file():
-                zoom = subprocess.run([str(lifecycle), str(ROOT), '--zoom-integration',
-                    str(ROOT / 'runtime/webview2')], capture_output=True, text=True, encoding='utf-8', timeout=30)
-                print(zoom.stdout, end='')
-                if zoom.stderr: print(zoom.stderr, end='')
-                for line in zoom.stdout.splitlines():
-                    if not line.startswith('ZOOM_FIXTURE_CLEANUP_AFTER_EXIT='): continue
-                    fixture = Path(line.split('=', 1)[1]).resolve()
-                    if fixture.parent != Path(tempfile.gettempdir()).resolve() or not fixture.name.startswith('yingxu-lifecycle-') or fixture.is_symlink():
-                        raise ValueError('Invalid zoom fixture cleanup path')
-                    shutil.rmtree(fixture)
-                zoom.check_returncode()
+                for mode in ('--zoom-integration', '--startup-integration'):
+                    integration = subprocess.run([str(lifecycle), str(ROOT), mode,
+                        str(ROOT / 'runtime/webview2')], capture_output=True, text=True, encoding='utf-8', timeout=60)
+                    print(integration.stdout, end='')
+                    if integration.stderr: print(integration.stderr, end='')
+                    for line in integration.stdout.splitlines():
+                        if not line.startswith('ZOOM_FIXTURE_CLEANUP_AFTER_EXIT='): continue
+                        fixture = Path(line.split('=', 1)[1]).resolve()
+                        if fixture.parent != Path(tempfile.gettempdir()).resolve() or not fixture.name.startswith('yingxu-lifecycle-') or fixture.is_symlink():
+                            raise ValueError('Invalid integration fixture cleanup path')
+                        shutil.rmtree(fixture)
+                    integration.check_returncode()
         shutil.copy2(exe, output)
     result = {"exe": output.name, "bytes": output.stat().st_size,
               "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),

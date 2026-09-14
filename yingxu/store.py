@@ -217,19 +217,49 @@ class Store:
                 row['counts'] = {k: int(v or 0) for k, v in dict(counts).items()}
         return rows
 
-    def create_project(self, name, description=''):
+    def create_project(self, name, description='', *, folder_id=None):
         name = safe_name(name)
         if len(str(description)) > 4000:
             raise UserError('项目简介最多4000字。')
+        if folder_id is not None and (not isinstance(folder_id,str) or not folder_id):
+            raise UserError('请选择有效的项目分类。')
         pid = uid()
         root = self.project_root / (name + '_' + pid[:6])
-        root.mkdir()
-        for folder in [v[1] for v in CATEGORIES.values()] + ['30_Workflows']:
-            (root / folder).mkdir(parents=True, exist_ok=True)
-        (root / 'README_项目.md').write_text(f'# {name}\n\n{description}\n\n此项目由映序管理，文件可独立使用。\n', encoding='utf-8')
-        with self.lock, self.connection() as db:
-            db.execute('INSERT INTO projects(id,name,description,root,created,updated) VALUES(?,?,?,?,?,?)', (pid,name,str(description),str(root),now(),now()))
-            db.execute('INSERT INTO sources VALUES(?,?,?,?,?)', (uid(),pid,str(root),'references',0))
+        made_dirs=[];readme=None
+        with self.lock:
+            try:
+                with self.connection() as db:
+                    # Reserve the write transaction before checking the category:
+                    # a concurrent deletion cannot orphan the newly created project.
+                    db.execute('BEGIN IMMEDIATE')
+                    if folder_id is not None:
+                        if not db.execute('SELECT 1 FROM project_library_folders WHERE id=?',(folder_id,)).fetchone():
+                            raise UserError('项目分类不存在，请刷新后重试。',404)
+                    root.mkdir();made_dirs.append(root)
+                    for folder in [v[1] for v in CATEGORIES.values()] + ['30_Workflows']:
+                        current=root
+                        for component in Path(folder).parts:
+                            current=current/component
+                            if current in made_dirs:continue
+                            current.mkdir();made_dirs.append(current)
+                    target=root/'README_项目.md'
+                    with target.open('x',encoding='utf-8') as handle:
+                        readme=target
+                        handle.write(f'# {name}\n\n{description}\n\n此项目由映序管理，文件可独立使用。\n')
+                    db.execute('INSERT INTO projects(id,name,description,root,created,updated) VALUES(?,?,?,?,?,?)', (pid,name,str(description),str(root),now(),now()))
+                    db.execute('INSERT INTO sources VALUES(?,?,?,?,?)', (uid(),pid,str(root),'references',0))
+                    if folder_id is not None:
+                        db.execute('INSERT INTO project_library_entries(project_id,folder_id) VALUES(?,?)',(pid,folder_id))
+            except BaseException:
+                # Only the file and empty directories created by this attempt.
+                # Unknown files are retained; never recursively remove a project.
+                if readme is not None:
+                    try:readme.unlink(missing_ok=True)
+                    except OSError:pass
+                for directory in reversed(made_dirs):
+                    try:directory.rmdir()
+                    except OSError:pass
+                raise
         return self.get_project(pid)
 
     @staticmethod

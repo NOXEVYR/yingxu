@@ -221,8 +221,17 @@ namespace YingXu.Desktop
                 using (var screen = new Bitmap(bounds.Width,bounds.Height,PixelFormat.Format32bppRgb))
                 {
                     using (var graphics = Graphics.FromImage(screen)) graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size,CopyPixelOperation.SourceCopy);
-                    using (var selector = new CaptureSelector(screen,bounds,mode))
-                        return selector.ShowDialog() == DialogResult.OK ? selector.CreateResult() : null;
+                    using (var selector = new CaptureSelector(screen,bounds,mode,UiScale(bounds)))
+                    {
+                        if(selector.ShowDialog()!=DialogResult.OK)return null;
+                        Bitmap result=selector.CreateResult();
+                        if(result!=null && selector.PinRequested)
+                        {
+                            try { CapturePinWindow.Open(result,new Point(bounds.X+selector.Area.X,bounds.Y+selector.Area.Y),bounds); }
+                            catch { result.Dispose();throw; }
+                        }
+                        return result;
+                    }
                 }
             }
             finally { if (foreground != IntPtr.Zero && IsWindow(foreground)) SetForegroundWindow(foreground); }
@@ -230,6 +239,16 @@ namespace YingXu.Desktop
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr handle);
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr handle);
+        private static float UiScale(Rectangle bounds)
+        {
+            try {var area=new NativeArea {Left=bounds.Left,Top=bounds.Top,Right=bounds.Right,Bottom=bounds.Bottom};uint x,y;
+                if(GetDpiForMonitor(MonitorFromRect(ref area,2),0,out x,out y)==0)return Math.Max(1,Math.Min(2.5f,x/96f));}
+            catch(DllNotFoundException){}catch(EntryPointNotFoundException){}
+            return 1;
+        }
+        [StructLayout(LayoutKind.Sequential)] private struct NativeArea {internal int Left,Top,Right,Bottom;}
+        [DllImport("user32.dll")] private static extern IntPtr MonitorFromRect(ref NativeArea area,uint flags);
+        [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor,int kind,out uint x,out uint y);
     }
     internal sealed class CaptureStroke
     {
@@ -237,9 +256,26 @@ namespace YingXu.Desktop
         internal Color Color;
         internal float Width;
         internal readonly List<Point> Points = new List<Point>();
-        internal void Draw(Graphics graphics)
+        internal void Draw(Graphics graphics,Bitmap pixels=null,Point origin=default(Point))
         {
             if (Points.Count==0) return;
+            if(Tool=="mosaic")
+            {
+                if(pixels==null||Points.Count<2)return;
+                Point first=Points[0],last=Points[Points.Count-1];
+                var area=Rectangle.Intersect(new Rectangle(Point.Empty,pixels.Size),Rectangle.FromLTRB(Math.Min(first.X,last.X)-origin.X,Math.Min(first.Y,last.Y)-origin.Y,Math.Max(first.X,last.X)-origin.X+1,Math.Max(first.Y,last.Y)-origin.Y+1));
+                if(area.Width<1||area.Height<1)return;
+                int block=Math.Max(8,(int)Width*3);
+                using(var reduced=new Bitmap(Math.Max(1,(area.Width+block-1)/block),Math.Max(1,(area.Height+block-1)/block)))
+                {
+                    // Only allocate the reduced tiles, never a full-screen copy on mouse move.
+                    using(var small=Graphics.FromImage(reduced)) { small.InterpolationMode=InterpolationMode.HighQualityBilinear;small.DrawImage(pixels,new Rectangle(Point.Empty,reduced.Size),area.X,area.Y,area.Width,area.Height,GraphicsUnit.Pixel); }
+                    var saved=graphics.Save();
+                    try {graphics.InterpolationMode=InterpolationMode.NearestNeighbor;graphics.PixelOffsetMode=PixelOffsetMode.Half;graphics.DrawImage(reduced,new Rectangle(area.X+origin.X,area.Y+origin.Y,area.Width,area.Height),0,0,reduced.Width,reduced.Height,GraphicsUnit.Pixel);}
+                    finally {graphics.Restore(saved);}
+                }
+                return;
+            }
             using(var pen=new Pen(Color,Width))
             {
                 pen.StartCap=LineCap.Round; pen.EndCap=LineCap.Round; pen.LineJoin=LineJoin.Round;
@@ -258,83 +294,302 @@ namespace YingXu.Desktop
             }
         }
     }
+    // Each pin owns a copy; closing the selector or clipboard upload cannot invalidate it.
+    internal sealed class CapturePinWindow : Form
+    {
+        private Bitmap image;
+        private Point dragOrigin;
+        private Point windowOrigin;
+        private bool dragging;
+        private static readonly List<CapturePinWindow> pins=new List<CapturePinWindow>();
+        static CapturePinWindow() { Application.ApplicationExit+=(s,e)=>CloseAll(); }
+        internal CapturePinWindow(Bitmap source,Point location,Rectangle desktop)
+        {
+            image=(Bitmap)source.Clone();TopMost=true;ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.SizableToolWindow;
+            Text="映序贴图 · 拖动移动 · Esc 关闭";AccessibleName="置顶截图";StartPosition=FormStartPosition.Manual;
+            DoubleBuffered=true;KeyPreview=true;BackColor=Color.FromArgb(32,34,36);MinimumSize=new Size(96,72);
+            double scale=Math.Min(1,Math.Min(Math.Min(800,Math.Max(96,desktop.Width-40))/(double)source.Width,Math.Min(600,Math.Max(72,desktop.Height-80))/(double)source.Height));
+            ClientSize=new Size(Math.Max(64,(int)(source.Width*scale)),Math.Max(40,(int)(source.Height*scale)));
+            Location=new Point(Math.Max(desktop.Left,Math.Min(location.X,desktop.Right-Width)),Math.Max(desktop.Top,Math.Min(location.Y,desktop.Bottom-Height)));
+            Cursor=Cursors.SizeAll;ResizeRedraw=true;
+        }
+        internal static void Open(Bitmap source,Point location,Rectangle desktop)
+        {
+            if(pins.Count>=8)throw new InvalidOperationException("最多同时置顶 8 张截图，请先关闭不需要的贴图。");
+            var pin=new CapturePinWindow(source,location,desktop);
+            try {pins.Add(pin);pin.Show();}
+            catch {pin.Dispose();throw;}
+        }
+        internal static void CloseAll() { foreach(var pin in pins.ToArray()) {pin.Close();pin.Dispose();} }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);if(image==null)return;
+            double scale=Math.Min(ClientSize.Width/(double)image.Width,ClientSize.Height/(double)image.Height);
+            var size=new Size(Math.Max(1,(int)(image.Width*scale)),Math.Max(1,(int)(image.Height*scale)));
+            e.Graphics.DrawImage(image,new Rectangle((ClientSize.Width-size.Width)/2,(ClientSize.Height-size.Height)/2,size.Width,size.Height));
+        }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);if(e.Button!=MouseButtons.Left)return;
+            dragOrigin=PointToScreen(e.Location);windowOrigin=Location;dragging=true;Capture=true;
+        }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);if(!dragging)return;Point current=PointToScreen(e.Location);
+            Location=new Point(windowOrigin.X+current.X-dragOrigin.X,windowOrigin.Y+current.Y-dragOrigin.Y);
+        }
+        protected override void OnMouseUp(MouseEventArgs e) {base.OnMouseUp(e);if(e.Button==MouseButtons.Left){dragging=false;Capture=false;}}
+        protected override void OnMouseCaptureChanged(EventArgs e) {if(!Capture)dragging=false;base.OnMouseCaptureChanged(e);}
+        protected override bool ProcessCmdKey(ref Message message,Keys keyData) {if(keyData==Keys.Escape){Close();return true;}return base.ProcessCmdKey(ref message,keyData);}
+        protected override void Dispose(bool disposing)
+        {
+            if(disposing){pins.Remove(this);if(image!=null){image.Dispose();image=null;}}
+            base.Dispose(disposing);
+        }
+    }
+    internal static class CaptureVisuals
+    {
+        internal static readonly Color Ink=Color.FromArgb(35,38,42);
+        internal static GraphicsPath Rounded(RectangleF bounds,float radius)
+        {
+            float d=Math.Min(radius*2,Math.Min(bounds.Width,bounds.Height));var path=new GraphicsPath();
+            path.AddArc(bounds.Left,bounds.Top,d,d,180,90);path.AddArc(bounds.Right-d,bounds.Top,d,d,270,90);
+            path.AddArc(bounds.Right-d,bounds.Bottom-d,d,d,0,90);path.AddArc(bounds.Left,bounds.Bottom-d,d,d,90,90);path.CloseFigure();return path;
+        }
+    }
+    internal sealed class CaptureToolbar : FlowLayoutPanel
+    {
+        internal CaptureToolbar()
+        {
+            SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor,true);
+            BackColor=Color.Transparent;Padding=new Padding(14,12,14,14);
+        }
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            base.OnPaintBackground(e);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
+            for(int i=4;i>=1;i--)using(var shadow=CaptureVisuals.Rounded(new RectangleF(5-i,6-i,Width-10+i*2,Height-11+i*2),14))using(var shade=new SolidBrush(Color.FromArgb(6,0,0,0)))e.Graphics.FillPath(shade,shadow);
+            using(var panel=CaptureVisuals.Rounded(new RectangleF(3,2,Width-7,Height-8),13))
+            using(var fill=new SolidBrush(Color.FromArgb(252,252,253)))using(var edge=new Pen(Color.FromArgb(224,227,231)))
+            {e.Graphics.FillPath(fill,panel);e.Graphics.DrawPath(edge,panel);}
+            using(var pen=new Pen(Color.FromArgb(225,227,231)))foreach(Control item in Controls)
+                if(item.Margin.Left>=12&&item.Left>Padding.Left+12)e.Graphics.DrawLine(pen,item.Left-8,item.Top+9,item.Left-8,item.Bottom-9);
+        }
+    }
+    internal sealed class CaptureToolButton : Button
+    {
+        internal string Icon;
+        internal Color? Swatch;
+        internal bool Chosen;
+        internal bool Primary;
+        internal float StrokeWidth;
+        internal float UiScale=1;
+        private bool hover;
+        internal CaptureToolButton()
+        {
+            SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor,true);
+            BackColor=Color.Transparent;UseVisualStyleBackColor=false;FlatStyle=FlatStyle.Flat;FlatAppearance.BorderSize=0;Size=new Size(40,40);Margin=new Padding(2);
+            AccessibleRole=AccessibleRole.PushButton;Cursor=Cursors.Hand;
+        }
+        protected override void OnMouseEnter(EventArgs e) {hover=true;Invalidate();base.OnMouseEnter(e);}
+        protected override void OnMouseLeave(EventArgs e) {hover=false;Invalidate();base.OnMouseLeave(e);}
+        protected override void OnGotFocus(EventArgs e) {Invalidate();base.OnGotFocus(e);}
+        protected override void OnLostFocus(EventArgs e) {Invalidate();base.OnLostFocus(e);}
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;var original=e.Graphics.Save();e.Graphics.ScaleTransform(UiScale,UiScale);
+            float width=Width/UiScale,height=Height/UiScale;
+            if(Primary||Chosen||hover)
+                using(var shape=CaptureVisuals.Rounded(new RectangleF(1,1,width-3,height-3),8))using(var fill=new SolidBrush(Primary?CaptureVisuals.Ink:Chosen?Color.FromArgb(229,232,237):Color.FromArgb(241,243,246)))e.Graphics.FillPath(fill,shape);
+            if(Swatch.HasValue)
+            {
+                var circle=new RectangleF((width-17)/2f,(height-17)/2f,17,17);
+                using(var fill=new SolidBrush(Swatch.Value))e.Graphics.FillEllipse(fill,circle);
+                using(var edge=new Pen(Color.FromArgb(35,0,0,0)))e.Graphics.DrawEllipse(edge,circle);
+                if(Chosen)using(var ring=new Pen(CaptureVisuals.Ink,1.5f))e.Graphics.DrawEllipse(ring,circle.X-3,circle.Y-3,circle.Width+6,circle.Height+6);
+            }
+            else if(Icon=="width")
+            {
+                Color ink=Enabled?CaptureVisuals.Ink:Color.Gray;
+                using(var pen=new Pen(ink,Math.Max(1.5f,Math.Min(StrokeWidth,8)))){pen.StartCap=LineCap.Round;pen.EndCap=LineCap.Round;e.Graphics.DrawLine(pen,10,height/2,30,height/2);}
+                using(var pen=new Pen(Color.FromArgb(125,131,140),1.4f))e.Graphics.DrawLines(pen,new[]{new PointF(38,height/2-2),new PointF(41,height/2+1),new PointF(44,height/2-2)});
+            }
+            else
+            {
+                var saved=e.Graphics.Save();e.Graphics.TranslateTransform((width-34)/2f,(height-32)/2f);
+                CaptureSelector.DrawIcon(e.Graphics,Icon,!Enabled?Color.FromArgb(178,183,190):Primary?Color.White:CaptureVisuals.Ink);e.Graphics.Restore(saved);
+            }
+            if(Focused&&ShowFocusCues)using(var outline=CaptureVisuals.Rounded(new RectangleF(2,2,width-5,height-5),7))using(var pen=new Pen(Color.FromArgb(111,119,131))){pen.DashStyle=DashStyle.Dot;e.Graphics.DrawPath(pen,outline);}
+            e.Graphics.Restore(original);
+        }
+    }
     internal sealed class CaptureSelector : Form
     {
         private readonly Bitmap screen;
         private readonly bool quick;
         private readonly FlowLayoutPanel toolbar;
         private readonly Button undo;
+        private readonly ToolTip tips=new ToolTip();
+        private readonly List<Button> toolButtons=new List<Button>();
+        private readonly List<Button> colorButtons=new List<Button>();
         private readonly List<CaptureStroke> strokes=new List<CaptureStroke>();
+        private Bitmap committed;
         private CaptureStroke pending;
         private Point first;
         private bool selecting;
+        private bool shiftHeld;
+        private readonly float uiScale;
+        internal bool PinRequested { get; private set; }
         internal bool Annotating { get; private set; }
         internal string DrawingTool = "pen";
-        internal Color DrawingColor = Color.Red;
+        internal Color DrawingColor = Color.FromArgb(238,74,79);
         internal float DrawingWidth = 4;
         internal int StrokeCount { get { return strokes.Count; } }
         internal Rectangle Area { get; private set; }
-        internal CaptureSelector(Bitmap image,Rectangle bounds,string mode = "annotate")
+        internal CaptureSelector(Bitmap image,Rectangle bounds,string mode = "annotate",float scale=1)
         {
+            uiScale=Math.Max(1,Math.Min(2.5f,scale));
             screen=image; quick=mode=="quick"; AutoScaleMode=AutoScaleMode.None; FormBorderStyle=FormBorderStyle.None;
             StartPosition=FormStartPosition.Manual; Bounds=bounds; TopMost=true; ShowInTaskbar=false;
             DoubleBuffered=true; KeyPreview=true; Cursor=Cursors.Cross; Text="映序截图 · 拖动选择区域，Esc 取消";
-            toolbar=new FlowLayoutPanel { Visible=false,BackColor=Color.White,Padding=new Padding(6),Size=new Size(Math.Min(520,bounds.Width),48),WrapContents=false,Cursor=Cursors.Default };
-            var tool=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=86,AccessibleName="标注工具" };
-            tool.Items.AddRange(new object[]{"画笔","箭头","矩形"});tool.SelectedIndex=0;
-            tool.SelectedIndexChanged+=(s,e)=>DrawingTool=new[]{"pen","arrow","rectangle"}[tool.SelectedIndex];
-            var colors=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=76,AccessibleName="标注颜色" };
-            colors.Items.AddRange(new object[]{"红色","黄色","绿色","蓝色","黑色","白色"});colors.SelectedIndex=0;
-            colors.SelectedIndexChanged+=(s,e)=>DrawingColor=new[]{Color.Red,Color.Yellow,Color.LimeGreen,Color.DodgerBlue,Color.Black,Color.White}[colors.SelectedIndex];
-            var width=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=74,AccessibleName="画笔粗细" };
-            width.Items.AddRange(new object[]{"2 像素","4 像素","8 像素","12 像素"});width.SelectedIndex=1;
-            width.SelectedIndexChanged+=(s,e)=>DrawingWidth=new[]{2,4,8,12}[width.SelectedIndex];
-            undo=new Button { Text="撤销",Width=65,Height=28,Enabled=false };undo.Click+=(s,e)=>UndoStroke();
-            var confirm=new Button { Text="确认",Width=65,Height=28 };confirm.Click+=(s,e)=>Confirm();
-            var cancel=new Button { Text="取消",Width=65,Height=28 };cancel.Click+=(s,e)=>CancelCapture();
-            toolbar.Controls.AddRange(new Control[]{tool,colors,width,undo,confirm,cancel});Controls.Add(toolbar);
+            toolbar=new CaptureToolbar { Visible=false,Size=new Size(Math.Min(640,bounds.Width),66),WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default };
+            string[] names={"画笔（按住 Shift 画直线）","矩形","箭头","马赛克（拖动框选区域）"};
+            string[] tools={"pen","rectangle","arrow","mosaic"};
+            for(int i=0;i<tools.Length;i++)
+            {
+                string id=tools[i];var button=IconButton(id,names[i]);button.Tag=id;toolButtons.Add(button);
+                button.Click+=(s,e)=>{DrawingTool=id;RefreshChoices();};toolbar.Controls.Add(button);
+            }
+            Color[] palette={Color.FromArgb(238,74,79),Color.FromArgb(242,184,65),Color.FromArgb(71,164,110),Color.FromArgb(69,132,221),CaptureVisuals.Ink,Color.White};
+            string[] colorNames={"红色","黄色","绿色","蓝色","黑色","白色"};
+            for(int i=0;i<palette.Length;i++)
+            {
+                Color color=palette[i];var button=new CaptureToolButton {Width=26,AccessibleName=colorNames[i],Tag=color,Swatch=color};
+                if(i==0)button.Margin=new Padding(14,2,2,2);tips.SetToolTip(button,colorNames[i]);colorButtons.Add(button);
+                button.Click+=(s,e)=>{DrawingColor=color;RefreshChoices();};toolbar.Controls.Add(button);
+            }
+            var width=new CaptureToolButton {Width=52,Icon="width",AccessibleName="画笔粗细：4 像素，点击切换",StrokeWidth=DrawingWidth,Margin=new Padding(14,2,2,2)};
+            tips.SetToolTip(width,"画笔粗细：4 像素，点击切换");width.Click+=(s,e)=>{int[] values={2,4,8,12};int index=Array.IndexOf(values,(int)DrawingWidth);DrawingWidth=values[(index+1)%values.Length];width.StrokeWidth=DrawingWidth;width.AccessibleName="画笔粗细："+DrawingWidth+" 像素，点击切换";tips.SetToolTip(width,width.AccessibleName);width.Invalidate();};
+            undo=IconButton("undo","撤销（Ctrl+Z）");undo.Enabled=false;undo.Click+=(s,e)=>UndoStroke();
+            undo.Margin=new Padding(14,2,2,2);
+            var pin=IconButton("pin","确认并置顶到桌面（同时复制并保存到项目）");pin.Click+=(s,e)=>Confirm(true);
+            var confirm=IconButton("confirm","确认（复制并保存到项目）");((CaptureToolButton)confirm).Primary=true;confirm.Click+=(s,e)=>Confirm();
+            var cancel=IconButton("cancel","取消（Esc）");cancel.Click+=(s,e)=>CancelCapture();
+            toolbar.Controls.AddRange(new Control[]{width,undo,pin,confirm,cancel});Controls.Add(toolbar);RefreshChoices();
+            if(uiScale!=1)
+            {
+                toolbar.MaximumSize=Size.Empty;toolbar.Scale(new SizeF(uiScale,uiScale));toolbar.MaximumSize=new Size(bounds.Width,0);
+                foreach(CaptureToolButton button in toolbar.Controls)button.UiScale=uiScale;
+            }
         }
+        private Button IconButton(string icon,string name)
+        {
+            var button=new CaptureToolButton {AccessibleName=name,Icon=icon};tips.SetToolTip(button,name);return button;
+        }
+        internal static void DrawIcon(Graphics graphics,string icon,Color color)
+        {
+            graphics.SmoothingMode=SmoothingMode.AntiAlias;
+            using(var pen=new Pen(color,1.7f))
+            {
+                pen.StartCap=LineCap.Round;pen.EndCap=LineCap.Round;
+                if(icon=="rectangle")graphics.DrawRectangle(pen,8,8,17,15);
+                else if(icon=="arrow") {graphics.DrawLine(pen,8,24,25,7);graphics.DrawLines(pen,new[]{new Point(16,7),new Point(25,7),new Point(25,16)});}
+                else if(icon=="pen") {graphics.DrawLine(pen,10,23,23,9);graphics.DrawLine(pen,8,25,12,24);graphics.DrawLine(pen,20,8,24,12);}
+                else if(icon=="mosaic") {for(int y=0;y<3;y++)for(int x=0;x<3;x++)using(var brush=new SolidBrush((x+y)%2==0?color:Color.Silver))graphics.FillRectangle(brush,8+x*6,7+y*6,6,6);}
+                else if(icon=="confirm")graphics.DrawLines(pen,new[]{new Point(8,16),new Point(14,22),new Point(25,9)});
+                else if(icon=="cancel") {graphics.DrawLine(pen,10,9,24,23);graphics.DrawLine(pen,24,9,10,23);}
+                else if(icon=="undo") {graphics.DrawArc(pen,10,10,16,14,210,230);graphics.DrawLines(pen,new[]{new Point(8,9),new Point(8,16),new Point(15,16)});}
+                else if(icon=="pin") {graphics.DrawRectangle(pen,12,7,10,5);graphics.DrawLines(pen,new[]{new Point(13,12),new Point(10,20),new Point(24,20),new Point(21,12)});graphics.DrawLine(pen,17,20,17,27);}
+            }
+        }
+        private void RefreshChoices()
+        {
+            foreach(CaptureToolButton button in toolButtons){button.Chosen=(string)button.Tag==DrawingTool;button.Invalidate();}
+            foreach(CaptureToolButton button in colorButtons){button.Chosen=((Color)button.Tag).ToArgb()==DrawingColor.ToArgb();button.Invalidate();}
+        }
+        private void ClearCommitted() {if(committed!=null){committed.Dispose();committed=null;}}
         internal void UndoStroke()
         {
             if(pending!=null){pending=null;Capture=false;}
-            else if(strokes.Count>0)strokes.RemoveAt(strokes.Count-1);
+            else if(strokes.Count>0){strokes.RemoveAt(strokes.Count-1);ClearCommitted();}
             undo.Enabled=strokes.Count>0;Invalidate();
         }
-        internal void Confirm() { if(!Annotating||pending!=null)return;DialogResult=DialogResult.OK;Close(); }
-        private void CancelCapture() { pending=null;DialogResult=DialogResult.Cancel;Close(); }
+        internal void Confirm(bool pin=false) { if(!Annotating||pending!=null)return;PinRequested=pin;DialogResult=DialogResult.OK;Close(); }
+        private void CancelCapture() { pending=null;PinRequested=false;DialogResult=DialogResult.Cancel;Close(); }
         internal Bitmap CreateResult()
         {
             if(DialogResult!=DialogResult.OK)return null;
-            Bitmap output=CapturePlatform.Crop(screen,Area);if(output==null)return null;
-            try { using(var graphics=Graphics.FromImage(output)) { graphics.TranslateTransform(-Area.X,-Area.Y);DrawStrokes(graphics,false); }return output; }
-            catch {output.Dispose();throw;}
+            if(quick)return CapturePlatform.Crop(screen,Area);
+            // Return independent ownership: a pin, upload and selector never share a disposable bitmap.
+            return (Bitmap)CommittedImage().Clone();
         }
-        private void DrawStrokes(Graphics graphics,bool includePending)
+        private Bitmap CommittedImage()
         {
-            var saved=graphics.Save();
-            try {graphics.SetClip(Area);graphics.SmoothingMode=SmoothingMode.AntiAlias;foreach(var stroke in strokes)stroke.Draw(graphics);if(includePending&&pending!=null)pending.Draw(graphics);}
-            finally {graphics.Restore(saved);}
+            if(committed!=null)return committed;
+            committed=CapturePlatform.Crop(screen,Area);
+            try {foreach(var stroke in strokes)RenderStroke(committed,stroke);return committed;}
+            catch {ClearCommitted();throw;}
+        }
+        private void RenderStroke(Bitmap pixels,CaptureStroke stroke)
+        {
+            using(var graphics=Graphics.FromImage(pixels))
+            {
+                graphics.TranslateTransform(-Area.X,-Area.Y);graphics.SetClip(Area);graphics.SmoothingMode=SmoothingMode.AntiAlias;
+                stroke.Draw(graphics,pixels,Area.Location);
+            }
         }
         private Point Clamp(Point point) { return new Point(Math.Max(Area.Left,Math.Min(Area.Right-1,point.X)),Math.Max(Area.Top,Math.Min(Area.Bottom-1,point.Y))); }
         private void Extend(Point point)
         {
             point=Clamp(point);
-            if(pending.Tool!="pen" && pending.Points.Count>1)pending.Points[1]=point;
+            bool straight=pending.Tool=="pen" && (shiftHeld||(ModifierKeys&Keys.Shift)!=0);
+            if(straight && pending.Points.Count>2)pending.Points.RemoveRange(1,pending.Points.Count-1);
+            if((pending.Tool!="pen"||straight) && pending.Points.Count>1)pending.Points[1]=point;
             else if(pending.Points.Count<4096 && pending.Points[pending.Points.Count-1]!=point)pending.Points.Add(point);
         }
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.DrawImageUnscaled(screen,0,0);
-            if(Annotating)DrawStrokes(e.Graphics,true);
+            if(Annotating)
+            {
+                Bitmap pixels=CommittedImage();e.Graphics.DrawImageUnscaled(pixels,Area.Location);
+                if(pending!=null)
+                {
+                    var saved=e.Graphics.Save();
+                    try {e.Graphics.SetClip(Area);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;pending.Draw(e.Graphics,pixels,Area.Location);}
+                    finally {e.Graphics.Restore(saved);}
+                }
+            }
             using (var shade=new SolidBrush(Color.FromArgb(100,0,0,0)))
             using (var outside=new Region(ClientRectangle))
             {
                 if (Area.Width>0 && Area.Height>0) outside.Exclude(Area);
                 e.Graphics.FillRegion(shade,outside);
             }
+            e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
+            e.Graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             if (Area.Width>0 && Area.Height>0)
-                using (var pen=new Pen(Color.FromArgb(135,208,154),2)) e.Graphics.DrawRectangle(pen,Area.X,Area.Y,Math.Max(0,Area.Width-1),Math.Max(0,Area.Height-1));
-            TextRenderer.DrawText(e.Graphics,Annotating ? "标注后点击确认 · Esc / 右键取消" : "拖动选择当前屏幕区域 · Esc / 右键取消",Font,new Point(18,18),Color.White,Color.FromArgb(35,45,38));
+            {
+                using(var pen=new Pen(Color.FromArgb(230,235,240),1))e.Graphics.DrawRectangle(pen,Area.X,Area.Y,Math.Max(0,Area.Width-1),Math.Max(0,Area.Height-1));
+                foreach(var point in new[]{Area.Location,new Point(Area.Right-1,Area.Top),new Point(Area.Left,Area.Bottom-1),new Point(Area.Right-1,Area.Bottom-1)})
+                    using(var fill=new SolidBrush(Color.White))using(var edge=new Pen(Color.FromArgb(101,109,122)))
+                    {e.Graphics.FillRectangle(fill,point.X-3,point.Y-3,6,6);e.Graphics.DrawRectangle(edge,point.X-3,point.Y-3,6,6);}
+                DrawBadge(e.Graphics,Area.Width+" × "+Area.Height+" px",new Point(Math.Max(8,Area.Left),Math.Max(8,Area.Top-(int)(36*uiScale))),false);
+            }
+            string hint=Annotating?"Shift 画直线    ·    Ctrl+Z 撤销    ·    Esc 取消":"拖动选择截图区域    ·    Esc 取消";
+            if(ClientSize.Width<400*uiScale)hint=Annotating?"Shift 直线   ·   Esc 取消":"拖动截图   ·   Esc 取消";
+            DrawBadge(e.Graphics,hint,new Point(8,(int)(20*uiScale)),true);
+        }
+        private void DrawBadge(Graphics graphics,string text,Point location,bool help)
+        {
+            using(var font=new Font("Microsoft YaHei UI",(help?12:11)*uiScale,FontStyle.Regular,GraphicsUnit.Pixel))
+            {
+                SizeF textSize=graphics.MeasureString(text,font);float width=Math.Min(ClientSize.Width-16,textSize.Width+28*uiScale),height=(help?38:28)*uiScale;
+                if(help)location.X=(int)((ClientSize.Width-width)/2);
+                else location.X=Math.Max(8,Math.Min(location.X,(int)(ClientSize.Width-width-8)));
+                using(var box=CaptureVisuals.Rounded(new RectangleF(location.X,location.Y,width,height),(help?11:7)*uiScale))
+                using(var fill=new SolidBrush(Color.FromArgb(237,35,38,42)))graphics.FillPath(fill,box);
+                using(var ink=new SolidBrush(Color.FromArgb(238,240,243)))graphics.DrawString(text,font,ink,location.X+14*uiScale,location.Y+(height-textSize.Height)/2);
+            }
         }
         protected override void OnMouseDown(MouseEventArgs e)
         {
@@ -355,22 +610,26 @@ namespace YingXu.Desktop
         protected override void OnMouseUp(MouseEventArgs e)
         {
             if(e.Button!=MouseButtons.Left)return;
-            if(pending!=null){Extend(e.Location);strokes.Add(pending);pending=null;Capture=false;undo.Enabled=true;Invalidate();return;}
+            if(pending!=null){Extend(e.Location);RenderStroke(CommittedImage(),pending);strokes.Add(pending);pending=null;Capture=false;undo.Enabled=true;Invalidate();return;}
             if (!selecting) return;
             Area=CapturePlatform.Selection(first,e.Location,screen.Size); selecting=false; Capture=false;
             if (Area.Width<2 || Area.Height<2) { Area=Rectangle.Empty; Invalidate(); return; }
             if(quick){DialogResult=DialogResult.OK;Close();return;}
             Annotating=true;
+            toolbar.PerformLayout();
             int top=Area.Bottom+10;if(top+toolbar.Height>ClientSize.Height)top=Math.Max(0,Area.Top-toolbar.Height-10);
             toolbar.Location=new Point(Math.Max(0,Math.Min(Area.Left,ClientSize.Width-toolbar.Width)),top);
             toolbar.Visible=true;toolbar.BringToFront();Invalidate();
         }
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.KeyCode==Keys.Escape) { e.Handled=true;CancelCapture(); }
+            if(e.KeyCode==Keys.ShiftKey){shiftHeld=true;if(pending!=null&&pending.Tool=="pen"){Extend(pending.Points[pending.Points.Count-1]);Invalidate();}}
+            else if (e.KeyCode==Keys.Escape) { e.Handled=true;CancelCapture(); }
             else if(e.Control&&e.KeyCode==Keys.Z&&Annotating){e.Handled=true;UndoStroke();}
             base.OnKeyDown(e);
         }
+        protected override void OnKeyUp(KeyEventArgs e) {if(e.KeyCode==Keys.ShiftKey)shiftHeld=false;base.OnKeyUp(e);}
+        protected override void OnDeactivate(EventArgs e) {shiftHeld=false;base.OnDeactivate(e);}
         protected override void OnMouseCaptureChanged(EventArgs e)
         {
             if(!Capture && pending!=null){pending=null;Invalidate();}
@@ -383,6 +642,11 @@ namespace YingXu.Desktop
             if(keyData==Keys.Escape){CancelCapture();return true;}
             if(keyData==(Keys.Control|Keys.Z)&&Annotating){UndoStroke();return true;}
             return base.ProcessCmdKey(ref message,keyData);
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if(disposing){ClearCommitted();tips.Dispose();}
+            base.Dispose(disposing);
         }
     }
 }

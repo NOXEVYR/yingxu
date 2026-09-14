@@ -291,8 +291,10 @@ function renderHero() {
 }
 
 async function refreshProjects({preserveLocation = false} = {}) {
-  const previousProject = state.projectId; const result = await api('/api/projects'); state.projects = result.projects || [];
-  if (state.bootstrap?.capabilities?.project_library) state.projectLibrary = await api('/api/project-library');
+  const previousProject = state.projectId;
+  const [result,library] = await Promise.all([api('/api/projects'),state.bootstrap?.capabilities?.project_library ? api('/api/project-library') : Promise.resolve(null)]);
+  state.projects = result.projects || [];
+  if (library) state.projectLibrary = library;
   if (!preserveLocation && (!state.projectId || !state.projects.some(project => String(project.id) === String(state.projectId)))) {
     const saved = storage.get('yingxu:project'); state.projectId = state.projects.find(project => String(project.id) === saved)?.id || state.projects[0]?.id || null;
   }
@@ -802,6 +804,7 @@ function renderWorkspace() {
   renderEditorToolbar(tab); renderEditorBody(tab); renderEditorStatus(tab);
 }
 let imageZoomObserver = null;
+let imagePreviewCleanup = null;
 function stopPreviewMedia(release = false) {
   for (const media of $$('#editorContent video,#editorContent audio')) {
     try { media.pause(); } catch (_) { }
@@ -812,7 +815,7 @@ function stopPreviewMedia(release = false) {
     }
   }
 }
-function stopImageZoomTracking() { imageZoomObserver?.disconnect(); imageZoomObserver = null; }
+function stopImageZoomTracking() { imagePreviewCleanup?.(); imagePreviewCleanup = null; imageZoomObserver?.disconnect(); imageZoomObserver = null; }
 function imageZoomRatio(image) {
   if (!image?.naturalWidth || !image.naturalHeight) return 0;
   const bounds = image.getBoundingClientRect();
@@ -824,9 +827,45 @@ function updateImageZoomLabel(image = $('#mainImage')) {
   label.textContent = ratio > 0 ? `图片 ${Math.round(ratio * 100)}%` : '图片 —';
 }
 function trackImageZoom(tab, image) {
-  image.closest('.media-stage')?.addEventListener('wheel',imagePreviewWheel,{passive:false});
+  stopImageZoomTracking();
+  const stage = image.closest('.media-stage');
+  const listeners = new AbortController();
+  let pan = null;
+  const endPan = () => {
+    const previous = pan; pan = null;
+    stage?.classList.remove('image-panning');
+    if (previous && stage?.hasPointerCapture(previous.id)) stage.releasePointerCapture(previous.id);
+  };
+  const movePan = event => {
+    if (!pan || event.pointerId !== pan.id) return;
+    if (!(event.buttons & 4) || activeTab() !== tab || $('#mainImage') !== image) { endPan(); return; }
+    event.preventDefault(); event.stopPropagation();
+    stage.scrollLeft -= event.clientX - pan.x; stage.scrollTop -= event.clientY - pan.y;
+    pan.x = event.clientX; pan.y = event.clientY;
+  };
+  const finishPan = event => { if (pan && event.pointerId === pan.id) endPan(); };
+  if (stage) {
+    stage.addEventListener('wheel',imagePreviewWheel,{passive:false,signal:listeners.signal});
+    stage.addEventListener('pointerdown',event => {
+      if (event.button !== 1 || activeTab() !== tab || $('#mainImage') !== image) return;
+      event.preventDefault(); event.stopPropagation(); endPan();
+      pan = {id:event.pointerId,x:event.clientX,y:event.clientY};
+      stage.classList.add('image-panning');
+      try { stage.setPointerCapture(event.pointerId); } catch (_) { /* Document listeners also cover hosts without capture. */ }
+    },{signal:listeners.signal});
+    // Cancel native middle-click autoscroll without changing left-button image drag.
+    for (const type of ['mousedown','auxclick']) stage.addEventListener(type,event => {
+      if (event.button === 1) { event.preventDefault(); event.stopPropagation(); }
+    },{signal:listeners.signal});
+    stage.addEventListener('lostpointercapture',finishPan,{signal:listeners.signal});
+    document.addEventListener('pointermove',movePan,{capture:true,passive:false,signal:listeners.signal});
+    document.addEventListener('pointerup',finishPan,{capture:true,signal:listeners.signal});
+    document.addEventListener('pointercancel',finishPan,{capture:true,signal:listeners.signal});
+    window.addEventListener('blur',endPan,{signal:listeners.signal});
+  }
+  imagePreviewCleanup = () => { endPan(); listeners.abort(); };
   const update = () => { if (activeTab() === tab && $('#mainImage') === image) updateImageZoomLabel(image); };
-  image.addEventListener('load',update,{once:true});
+  image.addEventListener('load',update,{once:true,signal:listeners.signal});
   if (typeof ResizeObserver !== 'undefined') { imageZoomObserver = new ResizeObserver(update); imageZoomObserver.observe(image); }
   update();
 }
@@ -1064,12 +1103,29 @@ function showDialog({title,subtitle='',body='',submit='确定',wide=false,onSubm
     catch(error) { if (sequence === state.modalSequence) { $('#dialogError').textContent = error.message; $('#dialogError').hidden = false; } }
     finally { if (sequence === state.modalSequence) { state.modalBusy = false; if (submitButton) submitButton.disabled = false; } }
   };
-  $$('[data-dialog-cancel]').forEach(button => button.addEventListener('click',() => { if (!state.modalBusy) dialog.close(); })); dialog.showModal(); return dialog;
+  $$('[data-dialog-cancel]').forEach(button => button.addEventListener('click',() => { if (!state.modalBusy) dialog.close(); })); dialog.showModal(); $('#dialogForm').scrollTop = 0; return dialog;
 }
 function choose(title,subtitle,choices) { return new Promise(resolve => { const dialog = showDialog({title,subtitle,actions:choices.map(choice => `<button type="button" class="button button-${choice.style || 'secondary'}" data-choice="${choice.key}">${choice.label}</button>`).join('')}); let resolved = false; $$('[data-choice]',dialog).forEach(button => button.addEventListener('click',() => { resolved = true; dialog.close(); resolve(button.dataset.choice); })); dialog.addEventListener('close',() => { if (!resolved) resolve(null); },{once:true}); }); }
 async function newProjectDialog() {
   if (!await guardProperties()) return;
-  showDialog({title:'建立一个创作项目',subtitle:'映序会为剧本、分镜与素材建立清晰的本地目录。',submit:'创建项目',body:'<div class="field"><label for="projectName">项目名称</label><input id="projectName" name="name" placeholder="例如：雨巷来信 · 第一季" maxlength="80" required autofocus></div><div class="field"><label for="projectDescription">一句话介绍这个故事</label><textarea id="projectDescription" name="description" placeholder="创作主题、风格，或这个项目想要表达的内容…" maxlength="2000"></textarea></div><p class="dialog-hint">项目文件保存在本机。创建后可以直接编写文档，也可以引用已有素材目录。</p>',onSubmit:async form => { const data = new FormData(form); const project = await api('/api/projects',{method:'POST',body:{name:String(data.get('name')).trim(),description:String(data.get('description')).trim()}}); await refreshProjects(); state.projectId = project.id; state.section = 'assets'; state.category = 'all'; state.offset = 0; await selectProject(project.id); toast('项目已建立，可以开始写下第一幕。'); }});
+  const folder = sidebarProjectFolder(), folderId = folder === '*' || folder === '' ? null : folder;
+  const folderName = folderId ? state.projectLibrary?.folders?.find(value => String(value.id) === folderId)?.name || '当前分类' : '未分类';
+  let createdProject = null;
+  showDialog({title:'建立一个创作项目',subtitle:`创建到项目分类「${folderName}」。映序会为剧本、分镜与素材建立本地目录。`,submit:'创建项目',body:'<div class="field"><label for="projectName">项目名称</label><input id="projectName" name="name" placeholder="例如：雨巷来信 · 第一季" maxlength="80" required autofocus></div><div class="field"><label for="projectDescription">一句话介绍这个故事</label><textarea id="projectDescription" name="description" placeholder="创作主题、风格，或这个项目想要表达的内容…" maxlength="2000"></textarea></div><p class="dialog-hint">项目文件保存在本机。创建后可以直接编写文档，也可以引用已有素材目录。</p>',onSubmit:async form => {
+    if (!createdProject) {
+      const data = new FormData(form);
+      createdProject = await api('/api/projects',{method:'POST',body:{name:String(data.get('name')).trim(),description:String(data.get('description')).trim(),folder_id:folderId}});
+      $('#projectName').value = createdProject.name; $('#projectName').readOnly = true;
+      $('#projectDescription').value = createdProject.description || ''; $('#projectDescription').readOnly = true;
+    }
+    try {
+      await refreshProjects(); state.projectId = createdProject.id; state.section = 'assets'; state.category = 'all'; state.offset = 0;
+      await selectProject(createdProject.id); toast('项目已建立，可以开始写下第一幕。');
+    } catch(error) {
+      const submit = $('#dialogActions button[type="submit"]'); if (submit) submit.textContent = '重试显示项目';
+      throw new Error(`项目已创建，但暂时无法显示。请重试显示项目。${error.message || ''}`);
+    }
+  }});
 }
 async function newItemDialog(category,options = {}) {
   if (!await guardProperties()) return;
@@ -1605,7 +1661,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.7-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.7 · ${escapeHtml(state.bootstrap?.version === '0.4.7' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.8-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.8 · ${escapeHtml(state.bootstrap?.version === '0.4.8' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);

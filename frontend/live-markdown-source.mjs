@@ -1,5 +1,5 @@
 /* Offline CodeMirror live preview. Markdown source is the only document model. */
-import {Annotation,Compartment,EditorSelection,EditorState,Facet,StateEffect,Text} from '@codemirror/state';
+import {Annotation,Compartment,EditorSelection,EditorState,Facet,StateEffect,StateField,Text} from '@codemirror/state';
 import {Decoration,EditorView,ViewPlugin,WidgetType,keymap,drawSelection,highlightActiveLine} from '@codemirror/view';
 import {defaultKeymap,history,historyKeymap,indentWithTab,isolateHistory,undo,redo} from '@codemirror/commands';
 import {syntaxTree,indentOnInput} from '@codemirror/language';
@@ -12,6 +12,7 @@ const localImageResolver = Facet.define({combine:values => values[0] || null});
 const documentLinkHandler = Facet.define({combine:values => values[0] || null});
 const repaint = StateEffect.define();
 const replacement = Annotation.define();
+const tableFocus = StateEffect.define(), tableFreeze = StateEffect.define();
 
 function newlineKind(value) {
   const kinds = new Set(value.match(/\r\n|\r|\n/g) || []);
@@ -148,6 +149,128 @@ const untouched = new Set(['FencedCode','CodeBlock','HTMLBlock','CommentBlock','
 const inlineClasses = {StrongEmphasis:'yx-md-strong',Emphasis:'yx-md-emphasis',Strikethrough:'yx-md-strike',InlineCode:'yx-md-code'};
 const hiddenMarks = new Set(['HeaderMark','EmphasisMark','StrikethroughMark','CodeMark','QuoteMark','ListMark','TaskMarker']);
 
+// Tables change vertical layout, so their block replacements come directly
+// from editor state, never from a viewport-dependent ViewPlugin.
+function tableRows(state,node) {
+  const rows = [], align = [];
+  for (let row = node.firstChild; row; row = row.nextSibling) {
+    if (row.name === 'TableDelimiter') {
+      const values = state.doc.sliceString(row.from,row.to).trim().replace(/^\|/,'').replace(/\|$/,'').split('|');
+      for (const value of values) align.push(/^\s*:/.test(value) ? /:\s*$/.test(value) ? 'center' : 'left' : /:\s*$/.test(value) ? 'right' : 'left');
+    } else if (row.name === 'TableHeader' || row.name === 'TableRow') {
+      const cells = [];
+      for (let cell = row.firstChild; cell; cell = cell.nextSibling) if (cell.name === 'TableCell') cells.push(cell);
+      rows.push({header:row.name === 'TableHeader',cells});
+    }
+  }
+  return {rows,align};
+}
+function tableInlineParts(state,node) {
+  const text = (from,to) => state.doc.sliceString(from,to).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g,'$1');
+  const tags = {StrongEmphasis:'strong',Emphasis:'em',Strikethrough:'s',InlineCode:'code'};
+  const visit = part => {
+    if (['EmphasisMark','StrikethroughMark','CodeMark','LinkMark'].includes(part.name)) return [];
+    if (part.name === 'URL' && ['Link','Image'].includes(part.parent?.name)) return [];
+    if (part.name === 'InlineCode') {
+      let value = state.doc.sliceString(part.firstChild.to,part.lastChild.from).replace(/\\\|/g,'|');
+      if (/^ .* $/.test(value) && /[^ ]/.test(value)) value = value.slice(1,-1);
+      return [{tag:'code',content:[value]}];
+    }
+    if (!part.firstChild) return [text(part.from,part.to)];
+    const content = []; let position = part.from;
+    for (let child = part.firstChild; child; child = child.nextSibling) {
+      if (child.from > position) content.push(text(position,child.from));
+      content.push(...visit(child)); position = child.to;
+    }
+    if (position < part.to) content.push(text(position,part.to));
+    return tags[part.name] ? [{tag:tags[part.name],content}] : content;
+  };
+  return visit(node);
+}
+function appendTableInline(doc,parent,parts) {
+  for (const part of parts) {
+    if (typeof part === 'string') parent.appendChild(doc.createTextNode(part));
+    else { const child = doc.createElement(part.tag); appendTableInline(doc,child,part.content); parent.appendChild(child); }
+  }
+}
+class TableWidget extends WidgetType {
+  constructor(state,node) {
+    super(); this.from = node.from; this.source = state.doc.sliceString(node.from,node.to);
+    const parsed = tableRows(state,node); this.align = parsed.align;
+    this.rows = parsed.rows.map(row => ({header:row.header,cells:row.cells.map(cell => ({from:cell.from,to:cell.to,parts:tableInlineParts(state,cell)}))}));
+  }
+  eq(other) { return this.source === other.source && this.from === other.from; }
+  get estimatedHeight() { return Math.max(80,this.source.split('\n').length*40); }
+  toDOM(view) {
+    const doc = view.dom.ownerDocument,wrap = doc.createElement('div'),table = doc.createElement('table');
+    wrap.className = 'yx-md-table'; wrap.contentEditable = 'false'; wrap.tabIndex = 0;
+    wrap.setAttribute('role','group'); wrap.setAttribute('aria-label','Markdown 表格，按 Enter 编辑源码');
+    wrap.title = '点击单元格编辑 Markdown；按 Tab 可离开表格';
+    const {rows,align} = {rows:this.rows,align:this.align},columns = rows[0]?.cells.length || 0;
+    let body;
+    for (const row of rows) {
+      const section = row.header ? doc.createElement('thead') : body || (body = doc.createElement('tbody'));
+      if (!section.parentNode) table.appendChild(section);
+      const tr = doc.createElement('tr'); section.appendChild(tr);
+      for (let index = 0; index < columns; index++) {
+        const cell = row.cells[index],element = doc.createElement(row.header ? 'th' : 'td');
+        element.style.textAlign = align[index] || 'left';
+        element.dataset.sourcePosition = String(cell?.from ?? row.cells.at(-1)?.to ?? this.from);
+        if (cell) appendTableInline(doc,element,cell.parts);
+        tr.appendChild(element);
+      }
+    }
+    const edit = event => {
+      if (event.type === 'mousedown' && event.button !== 0 || event.type === 'keydown' && !['Enter',' '].includes(event.key)) return;
+      if (view.composing || view.compositionStarted || view.plugin(previewPlugin)?.frozen) return;
+      event.preventDefault();
+      const position = Number(event.target.closest?.('[data-source-position]')?.dataset.sourcePosition ?? this.from+1);
+      view.focus();
+      view.dispatch({selection:{anchor:Math.min(position,view.state.doc.length)},effects:tableFocus.of(true),scrollIntoView:true});
+    };
+    wrap.addEventListener('mousedown',edit); wrap.addEventListener('keydown',edit);
+    wrap.appendChild(table); return wrap;
+  }
+  ignoreEvent(event) { return ['mousedown','keydown'].includes(event.type); }
+}
+const tableModelCache = new WeakMap();
+function tableDecorations(state,focused) {
+  if (state.facet(liveMode) !== 'live' || state.doc.length > MAX_LENGTH) return Decoration.none;
+  const decorations = [],tree = syntaxTree(state);
+  let models = tableModelCache.get(state.doc);
+  if (models?.tree !== tree) {
+    models = {tree,tables:[]};
+    const yamlEnd = frontmatterEnd(state);
+    tree.iterate({enter(node) {
+      if (node.from <= yamlEnd && node.name !== 'Document') return false;
+      if (node.name !== 'Table') return;
+      models.tables.push({from:node.from,to:node.to,widget:new TableWidget(state,node.node)});
+      return false;
+    }});
+    tableModelCache.set(state.doc,models);
+  }
+  for (const table of models.tables) if (!focused || !state.selection.ranges.some(range => range.from <= table.to && range.to >= table.from)) {
+    decorations.push(Decoration.replace({widget:table.widget,block:true,inclusive:false}).range(table.from,table.to));
+  }
+  return Decoration.set(decorations,true);
+}
+const tablePreview = StateField.define({
+  create(state) { return {focused:false,frozen:false,decorations:tableDecorations(state,false)}; },
+  update(value,transaction) {
+    let {focused,frozen} = value;
+    for (const effect of transaction.effects) {
+      if (effect.is(tableFocus)) focused = effect.value;
+      if (effect.is(tableFreeze)) frozen = effect.value;
+    }
+    if (frozen || transaction.isUserEvent('input.type.compose')) return {focused,frozen,decorations:value.decorations.map(transaction.changes)};
+    if (transaction.docChanged || transaction.selection || focused !== value.focused || frozen !== value.frozen ||
+      transaction.startState.facet(liveMode) !== transaction.state.facet(liveMode) || syntaxTree(transaction.startState) !== syntaxTree(transaction.state) ||
+      transaction.effects.some(effect => effect.is(repaint))) return {focused,frozen,decorations:tableDecorations(transaction.state,focused)};
+    return value;
+  },
+  provide:field => EditorView.decorations.from(field,value => value.decorations)
+});
+
 function previewDecorations(state,visibleRanges = [{from:0,to:state.doc.length}],hasFocus = true) {
   if (state.facet(liveMode) !== 'live' || state.doc.length > MAX_LENGTH) return Decoration.none;
   const decorations = [], lineClasses = new Set(), marked = new Set(), yamlEnd = frontmatterEnd(state);
@@ -230,7 +353,7 @@ class LivePreviewPlugin {
       if (this.ended) return;
       if (this.view.composing || this.view.compositionStarted) { this.finishComposition(); return; }
       this.frozen = false;
-      this.view.dispatch({effects:repaint.of(null)});
+      this.view.dispatch({effects:[tableFreeze.of(false),repaint.of(null)]});
     },25);
   }
   destroy() { this.ended = true; clearTimeout(this.timer); }
@@ -238,7 +361,7 @@ class LivePreviewPlugin {
 const previewPlugin = ViewPlugin.fromClass(LivePreviewPlugin, {
   decorations:plugin => plugin.decorations,
   eventHandlers:{
-    compositionstart() { this.frozen = true; clearTimeout(this.timer); return false; },
+    compositionstart() { this.frozen = true; clearTimeout(this.timer); this.view.dispatch({effects:tableFreeze.of(true)}); return false; },
     compositionend() { this.finishComposition(); return false; }
   }
 });
@@ -330,7 +453,7 @@ function buildEditorState(value,mode,label,onChange,imageResolver,onLink) {
     EditorView.clipboardInputFilter.of((text,state) => text.replace(/\r\n|\r|\n/g,state.lineBreak)),
     EditorView.lineWrapping, EditorView.contentAttributes.of({'aria-label':label,spellcheck:'false'}),
     EditorView.editorAttributes.compute([liveMode],state => ({class:'yx-markdown-editor'+(state.facet(liveMode) === 'source' ? ' yx-markdown-source' : '')})),
-    previewPlugin,
+    tablePreview, EditorView.focusChangeEffect.of((_state,focused) => tableFocus.of(focused)), previewPlugin,
     EditorView.updateListener.of(update => {
       if (update.docChanged && onChange) onChange(update.state.sliceDoc(),{origin:update.transactions.some(transaction => transaction.annotation(replacement)) ? 'setValue' : 'input'});
     })
