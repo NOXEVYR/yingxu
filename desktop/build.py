@@ -11,12 +11,33 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import zipfile
 
 SDK_VERSION = "1.0.4191.47"
 SDK_SHA256 = "f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0"
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "desktop"
+
+
+def cleanup_integration_fixture(value):
+    fixture = Path(value).resolve()
+    if fixture.parent != Path(tempfile.gettempdir()).resolve() or not fixture.name.startswith('yingxu-lifecycle-') or fixture.is_symlink():
+        raise ValueError('Invalid integration fixture cleanup path')
+    # The host has exited, but its WebView subprocess may still release handles.
+    # Retry only sharing violations, for at most five seconds; never kill browsers.
+    for attempt in range(26):
+        try:
+            shutil.rmtree(fixture)
+            return
+        except FileNotFoundError:
+            if not fixture.exists():
+                return
+            raise
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in (32, 33) or attempt == 25:
+                raise
+            time.sleep(0.2)
 
 
 def main():
@@ -92,10 +113,7 @@ def main():
                     if integration.stderr: print(integration.stderr, end='')
                     for line in integration.stdout.splitlines():
                         if not line.startswith('ZOOM_FIXTURE_CLEANUP_AFTER_EXIT='): continue
-                        fixture = Path(line.split('=', 1)[1]).resolve()
-                        if fixture.parent != Path(tempfile.gettempdir()).resolve() or not fixture.name.startswith('yingxu-lifecycle-') or fixture.is_symlink():
-                            raise ValueError('Invalid integration fixture cleanup path')
-                        shutil.rmtree(fixture)
+                        cleanup_integration_fixture(line.split('=', 1)[1])
                     integration.check_returncode()
         shutil.copy2(exe, output)
     result = {"exe": output.name, "bytes": output.stat().st_size,

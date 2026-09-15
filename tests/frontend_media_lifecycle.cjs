@@ -75,7 +75,15 @@ test('real Chromium releases closed/switched media and pauses native/page visibi
   addEventListener('unhandledrejection',event=>void report('result',{error:String(event.reason),stage}).catch(()=>{}));
   (async()=>{
     const results=[],check=(name,ok)=>{advance(name);results.push({name,ok});if(!ok)throw new Error(name);};
-    const tick=()=>new Promise(resolve=>setTimeout(resolve,50));
+    const mediaState=node=>({paused:node.paused,src:node.getAttribute('src'),autoplay:node.hasAttribute('autoplay'),readyState:node.readyState,networkState:node.networkState,sources:[...node.querySelectorAll('source')].map(source=>source.getAttribute('src'))});
+    // Browser media teardown completes asynchronously on its media task queue.
+    // Wait for the same asserted state with a deadline, not a machine-speed delay.
+    const waitForMedia=async(name,node,ready)=>{
+      try{await bounded(name,async()=>{const deadline=Date.now()+8000;while(!ready()){
+        if(Date.now()>=deadline)throw new Error('Media release deadline exceeded');
+        await new Promise(resolve=>setTimeout(resolve,20));
+      }});}catch(error){throw new Error(String(error)+'; actual media state: '+JSON.stringify(mediaState(node)));}
+    };
     const makeTab=(id,kind='audio')=>({key:'external:'+id,id,source:'external',item:{id,name:'合成媒体',kind,size:480044,media_url:'silent.wav'},mode:'preview',dirty:false,detailReady:true});
     let playback=0;
     const play=async node=>{node.muted=true;await bounded('playback '+(++playback),()=>node.play());check('synthetic media actually starts',!node.paused&&node.readyState>=2);};
@@ -93,19 +101,19 @@ test('real Chromium releases closed/switched media and pauses native/page visibi
     check('becoming visible does not automatically resume playback',media.paused);
     await play(media);document.dispatchEvent(new Event('visibilitychange'));
     check('visible visibility event does not interrupt active playback',!media.paused);
-    await bounded('close final tab',()=>closeTab(tab.key));await tick();
+    await bounded('close final tab',()=>closeTab(tab.key));await waitForMedia('final tab media release',media,()=>media.paused&&!media.hasAttribute('src')&&media.readyState===0&&media.networkState===0);
     check('closing final tab pauses and releases detached media',media.paused&&!media.hasAttribute('src')&&media.readyState===0&&media.networkState===0);
     check('closing final tab clears editor and hides workspace',!$('#editorContent').childElementCount&&$('#editor').hidden&&state.tabs.length===0);
     const videoTab=makeTab('video','video');state.tabs=[videoTab];state.activeKey=videoTab.key;renderWorkspace();
     const oldVideo=$('#editorContent video');let videoPauses=0;
     const nativeVideoPause=oldVideo.pause.bind(oldVideo);oldVideo.pause=()=>{videoPauses++;nativeVideoPause();};
     check('video fixture uses actual media element and source',oldVideo instanceof HTMLVideoElement&&oldVideo.getAttribute('src')==='silent.wav');
-    const next=makeTab('next');state.tabs.push(next);state.activeKey=next.key;renderWorkspace();await tick();
+    const next=makeTab('next');state.tabs.push(next);state.activeKey=next.key;renderWorkspace();await waitForMedia('switched video release',oldVideo,()=>oldVideo.paused&&!oldVideo.hasAttribute('src')&&oldVideo.readyState===0&&oldVideo.networkState===0);
     check('switching tab pauses and releases old video element',videoPauses===1&&oldVideo.paused&&!oldVideo.hasAttribute('src')&&oldVideo.readyState===0&&oldVideo.networkState===0);
-    media=$('#editorContent audio');await play(media);next.loading=true;renderEditorBody(next);await tick();
+    media=$('#editorContent audio');await play(media);next.loading=true;renderEditorBody(next);await waitForMedia('replacement audio release',media,()=>media.paused&&!media.hasAttribute('src')&&media.readyState===0);
     check('loading a replacement clears old audio',media.paused&&!media.hasAttribute('src')&&media.readyState===0&&!!$('#editorContent .editor-loading'));
     $('#editorContent').innerHTML='<audio autoplay><source src="silent.wav" type="audio/wav"></audio>';
-    media=$('#editorContent audio');stopPreviewMedia(true);await tick();
+    media=$('#editorContent audio');stopPreviewMedia(true);await waitForMedia('nested source release',media,()=>media.paused&&!media.hasAttribute('autoplay')&&!media.querySelector('source').hasAttribute('src')&&media.readyState===0);
     check('nested source and autoplay are released',media.paused&&!media.hasAttribute('autoplay')&&!media.querySelector('source').hasAttribute('src')&&media.readyState===0);
     stopPreviewMedia(true);check('repeated cleanup remains safe',media.paused);
     await report('result',results);
