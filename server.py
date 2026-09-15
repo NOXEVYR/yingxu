@@ -182,12 +182,18 @@ class Application:
         return {'ok':True,'focus_folder':str(path)}
 
     def paste_clipboard(self,data):
+        import io
         from types import SimpleNamespace
-        from yingxu.clipboard_files import read_files
+        from yingxu.clipboard_files import read_files,read_image_png
         pid=data.get('project_id');category=data.get('category','unclassified')
         self.organize.folder_path(pid,category,data.get('folder_id'))
         paths=read_files()
-        if not paths:raise UserError('剪贴板里没有文件。请先在系统文件夹中复制文件，再粘贴到当前分类。')
+        if not paths:
+            image=read_image_png()
+            if image is None:raise UserError('剪贴板里没有图片或文件。请在浏览器中选择“复制图片”（不是复制图片地址），或在系统文件夹中复制文件。')
+            handler=SimpleNamespace(rfile=io.BytesIO(image),headers={'Content-Length':str(len(image))})
+            item=self.receive_upload(handler,{'project':pid,'category':category,'folder_id':data.get('folder_id'),'name':'粘贴图片.png'})
+            return {'items':[item],'job_ids':[],'error':None}
         checked=[]
         for value in paths:
             path=clean_path(value)

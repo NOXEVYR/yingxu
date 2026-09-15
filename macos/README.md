@@ -79,7 +79,7 @@
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.8-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.9-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。
 

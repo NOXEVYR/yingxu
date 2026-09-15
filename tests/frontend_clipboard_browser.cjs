@@ -1,0 +1,51 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
+test('real browser routes synthetic image paste and menu actions without accessing the system clipboard',async t=>{
+  const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p=>p&&fs.existsSync(p));
+  if(!browser){t.skip('Requires existing Chromium');return;}
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-clipboard-browser-'));
+  t.after(()=>{const resolved=path.resolve(temporary);assert.equal(path.dirname(resolved),path.resolve(os.tmpdir()));assert.ok(path.basename(resolved).startsWith('yingxu-clipboard-browser-'));fs.rmSync(resolved,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  const front=path.join(__dirname,'../frontend');
+  fs.writeFileSync(path.join(temporary,'app.js'),fs.readFileSync(path.join(front,'app.js'),'utf8').replace(/boot\(\);\s*$/,''));
+  fs.writeFileSync(path.join(temporary,'runner.js'),`
+  (async()=>{
+    const results=[],check=(name,ok)=>{results.push({name,ok});if(!ok)throw Error(name);},sent=[],native=[];
+    const tick=()=>new Promise(r=>setTimeout(r,20));
+    let releaseRefresh=null;
+    const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{read:async()=>{throw Error('synthetic denied');}}});
+    window.XMLHttpRequest=class{constructor(){this.upload={};}open(method,url){this.url=url;}setRequestHeader(){}send(file){sent.push({file,url:this.url});this.status=201;this.responseText=JSON.stringify({id:'synthetic'});queueMicrotask(()=>this.onload());}};
+    toast=()=>{};report=error=>{throw error;};loadItems=async()=>{};guardProperties=async()=>true;
+    refreshProjects=()=>new Promise(resolve=>releaseRefresh=resolve);
+    api=async(url,options)=>{native.push({url,options});return {items:[{id:'native-image'}]};};
+    Object.assign(state,{projectId:'fixture-project',category:'characters',folderId:'nested',section:'assets',bootstrap:{token:'synthetic'}});wireEvents();
+    const blank=document.querySelector('#resourceViewport');blank.tabIndex=0;blank.focus();
+    const transfer=new DataTransfer();transfer.items.add(new File([png],'image.png',{type:'image/png'}));
+    const paste=new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true});blank.dispatchEvent(paste);await tick();
+    check('real ClipboardEvent uploads exactly one image',paste.defaultPrevented&&sent.length===1&&native.length===0);
+    const params=new URL(sent[0].url,'http://127.0.0.1').searchParams;
+    check('image destination includes project category and folder',params.get('project')==='fixture-project'&&params.get('category')==='characters'&&params.get('folder_id')==='nested');
+    check('original pasted PNG bytes are preserved',Array.from(new Uint8Array(await sent[0].file.arrayBuffer())).join()===Array.from(png).join());
+    check('busy remains held while refreshing after upload',state.uploading&&!!releaseRefresh);
+    blank.dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));await tick();
+    check('second paste while refresh waits does not duplicate upload',sent.length===1);
+    releaseRefresh();await tick();check('refresh completion releases busy',!state.uploading);
+    refreshProjects=async()=>{};
+    const input=document.querySelector('#searchInput');input.focus();const textPaste=new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true});input.dispatchEvent(textPaste);await tick();
+    check('input retains native paste behavior',!textPaste.defaultPrevented&&sent.length===1);
+    blank.focus();showMenu(blank,'location',{project_id:'menu-project',category:'scenes',folder_id:'menu-folder'});
+    document.querySelector('[data-menu-command="paste-files"]').click();await tick();
+    check('actual right-click menu falls back to native image reader',native.length===1&&native[0].url==='/api/clipboard/paste'&&native[0].options.body.project_id==='menu-project'&&native[0].options.body.folder_id==='menu-folder');
+    navigator.clipboard.read=async()=>[{types:['image/png'],getType:async()=>new Blob([png],{type:'image/png'})}];
+    blank.focus();await pasteResourceFiles({project_id:'browser-image',category:'props',folder_id:null});
+    check('browser clipboard image uses upload with PNG filename',sent.length===2&&sent[1].file.name.endsWith('.png')&&native.length===1);
+    document.querySelector('#result').textContent=JSON.stringify(results);
+  })().catch(error=>document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack}));`);
+  const html=fs.readFileSync(path.join(front,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'').replace('</body>','<pre id="result"></pre><script src="app.js"></script><script src="runner.js"></script></body>');
+  fs.writeFileSync(path.join(temporary,'fixture.html'),html);
+  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--virtual-time-budget=3000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
+  const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1200));
+  const results=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
+  assert.ok(Array.isArray(results),JSON.stringify(results));assert.equal(results.length,9);for(const row of results)assert.equal(row.ok,true,row.name);
+});

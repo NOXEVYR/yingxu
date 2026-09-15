@@ -38,7 +38,7 @@ def verify(archive):
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     assert manifest['sha256']==digest and manifest['bytes']==archive.stat().st_size
-    assert manifest['version']=='0.4.8-mac.1' and manifest['source_version']=='0.4.8'
+    assert manifest['version']=='0.4.9-mac.1' and manifest['source_version']=='0.4.9'
     assert manifest['contains_user_data'] is False
     assert archive.with_name(archive.stem+'-SHA256.txt').read_text().split()==[digest,archive.name]
     checks=[]
@@ -74,7 +74,7 @@ def verify(archive):
             assert icon.resolve().is_relative_to((app/'Contents/Resources').resolve())
             assert hashlib.sha256(icon.read_bytes()).hexdigest()==manifest['icon_sha256']
             checks.append('Extracted application viewfinder icon matches repair manifest')
-        assert info['CFBundleShortVersionString']=='0.4.8' and info['CFBundleVersion']=='40801'
+        assert info['CFBundleShortVersionString']=='0.4.9' and info['CFBundleVersion']=='40901'
         assert info['LSMinimumSystemVersion']=='14.0'
         assert subprocess.check_output(['lipo','-archs',str(executable)],text=True).strip()=='arm64'
         subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)

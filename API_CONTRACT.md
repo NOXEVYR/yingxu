@@ -1,5 +1,7 @@
 # 映序 API v1
 
+`POST /api/clipboard/paste {project_id,category,folder_id?}` 仅在用户发起粘贴时读取本机剪贴板，优先复制本地文件；没有文件列表时读取位图、转换为 PNG 并保留透明度，再通过既有上传流程写入指定分类/子目录。同名自动编号，不覆盖原文件。位图最多 4000 万像素、64 MiB；不解释文本路径或图片网址。返回 `{items,job_ids,error}`，沿用同源与会话令牌要求。
+
 本文保留历次契约，0.4.5 新增 SKILL 来源接口；Windows 0.4.5 与 macOS 0.4.5-mac.1 已发布，下载与各平台边界见 [README](README.md)。
 
 Base http://127.0.0.1:8791。JSON；错误 {error:"中文信息"} 配相应状态码。GET /api/bootstrap 返回 {app:"yingxu",version,token,project_root,data_root,categories:[{key,label}],statuses:[...],capabilities:{...}}。写请求头 X-YingXu-Token=token，Content-Type:application/json。

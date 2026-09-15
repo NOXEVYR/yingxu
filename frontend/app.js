@@ -1426,9 +1426,7 @@ function wireEvents() {
   document.addEventListener('paste',event => {
     if (event.defaultPrevented || !resourcePasteAllowed(event.target)) return;
     event.preventDefault();
-    const files = [...(event.clipboardData?.files || [])];
-    if (files.length) uploadFiles(files,state.category === 'all' ? 'unclassified' : state.category,state.folderId);
-    else pasteResourceFiles();
+    pasteResourceFiles(null,event.clipboardData).catch(report);
   });
   document.addEventListener('contextmenu',event => {
     const target = contextMenuTarget(event.target); if (!target) return;
@@ -1599,18 +1597,41 @@ function resourcePasteAllowed(target) {
     !$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() &&
     !target?.closest('input,textarea,select,[contenteditable],#editorContent,#appDialog');
 }
-async function pasteResourceFiles(location = null) {
+async function pasteResourceFiles(location = null, clipboardData = null) {
   if (!resourcePasteAllowed(document.activeElement)) return;
-  const target = location || {project_id:state.projectId,category:state.category,folder_id:state.folderId};
+  const target = {...(location || {project_id:state.projectId,category:state.category,folder_id:state.folderId})};
   const category = target.category === 'all' ? 'unclassified' : target.category;
+  let uploadOwnsBusy = false;
   state.uploading = true;
   try {
+    let files = [...(clipboardData?.files || [])];
+    if (!files.length) files = [...(clipboardData?.items || [])].filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean);
+    // The paste event and the menu do not always expose the same clipboard formats.
+    // Read image data only on this explicit action; file paths stay with the native reader.
+    if (!files.length && globalThis.navigator?.clipboard?.read) {
+      try {
+        const entries = await navigator.clipboard.read();
+        const extensions = {'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','image/bmp':'bmp'};
+        for (const entry of entries) {
+          const type = Object.keys(extensions).find(value => entry.types.includes(value));
+          if (!type) continue;
+          const blob = await entry.getType(type);
+          files.push(new File([blob],`粘贴图片-${Date.now()}-${files.length+1}.${extensions[type]}`,{type}));
+        }
+      } catch { files = []; /* Desktop WebView may deny this API; use its native clipboard below. */ }
+    }
+    if (files.length) {
+      uploadOwnsBusy = true;
+      state.uploading = false; // uploadFiles takes ownership synchronously before its first await.
+      return await uploadFiles(files,category,target.folder_id || null,target.project_id);
+    }
     const result = await api('/api/clipboard/paste',{method:'POST',body:{project_id:target.project_id,category,folder_id:target.folder_id || null}});
     if (result.items.length) toast(`已粘贴 ${result.items.length} 个文件到${categoryLabel(category)}。`);
     for (const id of result.job_ids || []) await monitorJob(id,'正在解压 ZIP');
     if (result.error) report(new Error(result.error));
+    await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems();
   } catch(error) { report(error); }
-  finally { state.uploading = false; await refreshProjects(); if (state.section === 'assets') await loadItems(); }
+  finally { if (!uploadOwnsBusy) state.uploading = false; }
 }
 
 async function uploadFiles(files,category,folderId = null,projectId = state.projectId) {
@@ -1625,7 +1646,7 @@ async function uploadFiles(files,category,folderId = null,projectId = state.proj
     }
     toast(`已将 ${completed} 个文件或 ZIP 导入项目，分类为${categoryLabel(category)}。`);
   } catch(error) { if (cancelled) toast(error.message,'info'); else report(error); }
-  finally { state.uploading = false; tray.hidden = true; await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems(); }
+  finally { tray.hidden = true; try { await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems(); } finally { state.uploading = false; } }
   return items;
 }
 
@@ -1661,7 +1682,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.8-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.8 · ${escapeHtml(state.bootstrap?.version === '0.4.8' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.9-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.9 · ${escapeHtml(state.bootstrap?.version === '0.4.9' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);
