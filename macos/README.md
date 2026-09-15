@@ -3,9 +3,9 @@
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
-当前已发布 **0.4.8-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+当前已发布 **0.4.9-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
 沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）；旧版发布附件保留。
-下载与校验见 [0.4.8-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)。
+下载与校验见 [0.4.9-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
 
 ## 安装
@@ -30,6 +30,16 @@
 - Command+S 保存，Command+F 按焦点查文档正文或当前资源，Command+K 全局搜索；Word 查找可跨分页定位。
 - 同步 0.4.5 的 Markdown 项目文件链接、画板切换与撤销、本地字体、隐藏刷新和重复序列化修复；设置提供版本与缓存/历史占用预览。
 - 关闭窗口前检查未保存文稿；退出会结束本实例的后台服务。
+
+## 0.4.9 已发布
+
+- 复制浏览器图片后，可用 ⌘V 或资源区右键“粘贴”导入当前分类、文件夹；支持浏览器提供的图片文件与系统剪贴板 PNG/TIFF 位图。
+- 系统位图统一保存为 PNG，保留透明度，同名不覆盖；粘贴过程中锁定目标位置并防止重复操作，正文与输入框保持正常粘贴。
+- 仅复制图片地址不会下载图片；读取不到图片时给出对应提示。保留既有功能，无新增模型或运行依赖。
+
+最终包通过 macOS 原生、WebKit 合成检查和上传后下载复验；图片粘贴回归使用合成数据与模拟剪贴板，不表示真实浏览器、系统权限和人工输入法已经逐项验收。另有用户反馈的“本地连接中断”发生在其他电脑，尚未定位，不属于本次已确认修复项。
+
+[macOS 0.4.8-mac.1 历史包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)仍保留。
 
 ## 0.4.8 已发布
 

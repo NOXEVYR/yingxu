@@ -12,11 +12,21 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.8](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.8/YingXu-v0.4.8-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8)
+**[下载 Windows x64 完整包 · v0.4.9](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.9/YingXu-v0.4.9-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.8-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.9-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.9 已发布：浏览器图片粘贴修复。** Windows 正式包与 macOS 0.4.9-mac.1 试用包分别完成构建、隔离验证和上传后完整下载回检。
+
+- 在浏览器中复制图片后，可用 Ctrl+V（macOS 可用 ⌘V）或资源区右键“粘贴”导入当前分类、文件夹。
+- 支持浏览器提供的图片文件和系统剪贴板位图；系统位图保存为 PNG，保留透明度，同名文件不覆盖。仅复制图片地址不会下载图片。
+- 粘贴期间固定目标位置并防止重复操作；文稿与输入框保留原来的文字粘贴行为。沿用 0.4.8 启动优化，无新增模型或运行依赖。
+
+图片粘贴回归使用合成位图、模拟剪贴板与浏览器事件，不能代替每台电脑、每种浏览器的真实剪贴板验收。另有用户反馈的“本地连接中断”发生在其他电脑，尚未定位，不属于本次已确认修复项。
+
+[Windows 0.4.8 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8) · [macOS 0.4.8-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)
 
 **0.4.8 已发布：启动提速与创作交互改进。** Windows 与 macOS 安装包分别完成构建、隔离验证和上传后完整下载回检，保留原有功能与历史版本。
 
