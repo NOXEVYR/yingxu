@@ -2,14 +2,14 @@
 
 `POST /api/clipboard/paste {project_id,category,folder_id?}` 仅在用户发起粘贴时读取本机剪贴板，优先复制本地文件；没有文件列表时读取位图、转换为 PNG 并保留透明度，再通过既有上传流程写入指定分类/子目录。同名自动编号，不覆盖原文件。位图最多 4000 万像素、64 MiB；不解释文本路径或图片网址。返回 `{items,job_ids,error}`，沿用同源与会话令牌要求。
 
-本文保留历次契约，0.4.5 新增 SKILL 来源接口；Windows 0.4.5 与 macOS 0.4.5-mac.1 已发布，下载与各平台边界见 [README](README.md)。
+本文保留历次契约，并追加 0.4.10 项目存放位置与自动迁移接口；各平台实际已发布下载与边界见 [README](README.md)。
 
 Base http://127.0.0.1:8791。JSON；错误 {error:"中文信息"} 配相应状态码。GET /api/bootstrap 返回 {app:"yingxu",version,token,project_root,data_root,categories:[{key,label}],statuses:[...],capabilities:{...}}。写请求头 X-YingXu-Token=token，Content-Type:application/json。
 
 Categories: scripts 剧本与文档 / shots 分镜 / characters 角色 / scenes 场景 / props 道具 / previs 白模预演 / generated 生成素材 / delivery 成片交付 / references 参考资料。Statuses: 待开始, 进行中, 待审核, 已完成。
 
 GET /api/projects -> {projects:[{id,name,description,color,root,created,updated,counts:{total,shots,completed,documents}}]}
-POST /api/projects {name,description,folder_id?:null|ID} -> project object，创建标准目录。0.4.8 起可同时指定项目库的逻辑分类；省略或 null 为未分类。项目与分类归属在同一事务保存，分类不存在返回 404，不降级为未分类；此分类不改变项目根目录的位置。
+POST /api/projects {name,description,folder_id?:null|ID} -> project object，创建标准目录。0.4.8 起可同时指定项目库分类；省略或 null 为未分类。项目与分类归属在同一事务保存，分类不存在返回 404，不降级为未分类。0.4.10 新项目按创建时分类层级落盘，采用 layout_version=1 中文目录；后续逻辑归类或改名不移动已有项目。
 GET /api/items?project=ID&category=KEY&q=QUERY&status=STATUS&kind=KIND&limit=60&offset=0&sort=updated|name|order -> {items,total,limit,offset,categories:[{key,label,count}],elapsed_ms}。q 支持普通中文文本、tag:夜景、type:video、status:已完成、category:scenes，多个条件 AND。服务端优先分页；前端每页最大60，不无限累积DOM。
 Item object: {id,project_id,name,category,kind,ext,path,size,mtime,status,tags:[...],notes,metadata:{...},sort_order,created,updated,thumbnail_url,media_url}. kinds markdown,text,docx,image,video,audio,pdf,model,file。新分镜本体是 category=shots 的 markdown。图片/视频 thumb 用 /api/thumbnail/ID（202 尚未就绪，稍后有限重试）。media_url=/api/media/ID。列表不含全文。
 GET /api/items/ID -> item + {relations:[{id,source_id,target_id,relation,item:relatedItem}],versions:[{id,created,size}],content_preview}
@@ -18,7 +18,7 @@ PATCH /api/items/ID {name?,category?,status?,tags?,notes?,metadata?,sort_order?}
 DELETE /api/items/ID -> {ok:true,batch_id,project_id,kind,count} 移入映序回收站（磁盘文件保留），可恢复。
 GET /api/content/ID -> {format:"markdown"|"text"|"docx"|"binary",content,etag,editable,paragraphs?:[{id,text,editable}],notice?}。
 PUT /api/content/ID {etag,content} 或 DOCX {etag,paragraphs:[{id,text}]} -> 同 GET，保存前备份；冲突409，前端保留编辑内容并提示刷新。
-POST /api/import {project_id,category,paths:[absolutePath,...]} -> {job_id}，引用原文件，扫描异步增量，忽略链接，不复制/移动原资产。新增项目自己文件可编辑，引用文件同样保存时备份且用户明确点击保存才写。GET /api/jobs/ID -> {id,state:"queued"|"running"|"done"|"error",done,skipped,errors:[...],message}。
+POST /api/import {project_id,category,paths:[absolutePath,...],mode?:"copy"|"reference"} -> {job_id}，异步扫描，忽略链接。0.4.10 界面默认传 copy，省略 mode 仍按旧 API 的 reference 行为；详见项目存放位置节。引用文件同样保存时备份且用户明确点击保存才写。GET /api/jobs/ID -> {id,state:"queued"|"running"|"done"|"error",done,skipped,errors:[...],message}。
 POST /api/pick {kind:"files"|"folder"} -> {paths:[...]} 打开 Windows 选择对话框。取消为空。
 POST /api/rescan {project_id} -> {job_id} 重扫已注册源和项目文件，保留分类/标签/状态。
 POST /api/relations {source_id,target_id,relation} -> {id}，同项目；relation 自由中文，如角色/场景/道具/生成版本/白模参考。
@@ -206,3 +206,32 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 | `PATCH /api/skill-source-labels/ID` | 仅 `{hidden:false}`，恢复预设标签；返回来源列表 |
 
 所有写接口拒绝查询参数、未知字段及未知标签；要求现有同源和会话令牌校验。布尔值不接受数字替代。
+
+## 0.4.10：项目存放位置与自动迁移
+
+所有写接口继续要求同源、会话令牌和 JSON 请求体。`bootstrap.capabilities.project_storage` 表示支持项目存放位置设置。
+
+`GET /api/project-storage` 返回 `{root,configured_root,project_count,existing_roots,available,error,affects:"new_projects"}`。`existing_roots` 为全部活动项目的 `{id,name,root}`；已回收的整个项目不在其中。`root` 是当前有效位置，`configured_root` 是持久化偏好。配置磁盘不可用时返回 `available:false` 和具体 `error`，工作台与设置仍可打开；新建项目明确失败，不回退另一目录。
+
+`POST /api/project-storage` 仅接受 `{root:绝对目录}`，验证已有、可写的本机目录后原子保存偏好。保留旧 API 的“仅作用于后续新项目”语义，不迁移既有项目；`affects` 描述此配置接口的边界。**界面仅在没有活动项目时直接调用它；有项目时走下面的全量活动项目迁移，不能先切换根目录再复制。** 普通 `PATCH /api/settings` 拒绝 `project_storage_root`，不能绕过路径验证。已保存的位置优先于环境变量。
+
+| 接口 | 请求与返回 |
+| --- | --- |
+| `POST /api/project-storage/migration/preview` | 仅 `{root,project_ids:[ID,...]}`；返回 `{token,projects,total_bytes,warnings}` |
+| `POST /api/project-storage/migration` | 仅 `{token}`；接受后返回 HTTP 202 和 `{job_id}`，异步执行 |
+| `GET /api/project-storage/migration/jobs/ID` | 返回 `{id,state,message,completed,total,result,error}`，`state` 为 `running`、`done` 或 `error` |
+| `GET /api/project-storage/migration/status` | 返回 `{active_job_id:ID或null}`；后台重启导致旧任务 404 时用于确认当前是否仍有迁移 |
+
+预览必须包含当前**全部活动项目**，1–1000 个不同 ID；与最新项目列表不一致返回 409，要求刷新后重新预览。每个 `projects` 条目含 `id,name,source_root,target_root,files,bytes,external_references`。目标目录按分类层级和名称分配，重名不覆盖；客户端必须展示源/目标及容量，由用户“确认保存并迁移”后才提交 token。预览令牌有效期 10 分钟，执行前仍复查目录、文件身份、内容及索引，变化时拒绝执行。
+
+已接受的 token 在任务记录保留期间重复提交返回同一 `job_id`，用于首个响应丢失时重试，不重复复制。任务记录是进程内有界记录，最多保留 16 个；后台重启或记录过期后查询返回 404，不能据此判断迁移成功或失败。此时读取 `migration/status`：存在活动任务则继续跟踪；没有活动任务则读取实际项目和存放位置，解除前端忙碌并提示核对，必要时重新预览，不能显示假成功。普通网络中断保留令牌/任务 ID 并重试，不启动另一份操作。
+
+`completed/total` 表示已校验文件数/总文件数；阶段说明使用 `message`，提交完成前即使达到总数也不能自行判断成功。`done.result` 含 `migrated,projects,recovery_manifest,database_backup,warnings,originals_retained:true`；完成后另取存放位置快照。`error` 状态显示后台原因，原件保留。没有迁移取消接口。
+
+迁移运行期间 GET/HEAD 仍可读取，其他写请求统一返回 HTTP 409；唯一允许进入的写接口是迁移 POST，用于同 token 幂等重试，不允许同时开启另一任务。开始时也会拒绝未完成的导入/扫描或竞争写操作。界面开始前须处理未保存文稿、画板和属性草稿，不自动保存/丢弃；运行中禁止关闭迁移弹窗及新的写操作。
+
+执行将文件复制到独立暂存目录并逐项校验大小与 SHA-256；受控改写的 Markdown 链接以新内容校验。全部复核通过后才提交索引路径与新存放位置，项目及资源 ID 保持。源目录作为备份保留，外部引用原件与路径不变；不搬迁程序或应用数据目录。失败保留原件、回退未完成的提交；应用数据 `project-migrations/` 保存数据库备份与阶段恢复记录。若在数据库/设置提交间中断，下次启动按数据库全部旧路径或全部新路径恢复一致的设置；遇混杂状态保留两边并报错，不猜测删文件。此恢复不自动续传复制，不能将任务内存记录当作持久恢复日志。
+
+新项目采用 `layout_version:1` 中文物理目录，例如 `个人作品/练习/文本/剧本.md`。旧项目默认补充 `layout_version:0` 并保持路径；仅显式迁移可将目标副本升级到布局 1，受控重写可处理的内部 Markdown 链接，警告通过预览/结果返回。项目库后续改名、重新归类仍不搬动既有文件；同父级已登记的物理分类目录可能继续复用，不承诺每次逻辑名称都映射为同名磁盘路径。
+
+`POST /api/import` 支持 `mode:"copy"|"reference"`：界面默认 copy，省略 mode 则保留旧 reference 契约。copy 将支持的文件/目录复制到所选项目、分类和子目录，保留原件且不覆盖同名；reference 仅登记原位置。ZIP 始终受控解压到项目，不采用引用行为。

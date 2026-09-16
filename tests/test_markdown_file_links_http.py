@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 import zipfile
 
 from server import Application, Server
-from yingxu.store import CATEGORIES
+from yingxu.project_layout import category_paths
 
 
 def synthetic_word():
@@ -65,7 +65,7 @@ class MarkdownFileLinkHttpTests(unittest.TestCase):
         item=self.ok('POST',route,raw=source.read_bytes(),headers={'Content-Type':'application/octet-stream'},expected=201)
         current=self.ok('GET','/api/items/'+item['id'])
         registered=Path(current['path'])
-        expected_parent=Path((project or self.project)['root'])/CATEGORIES['references'][1]
+        expected_parent=Path((project or self.project)['root'])/category_paths(project or self.project)['references']
         self.assertEqual(registered.parent,expected_parent)
         self.assertNotEqual(registered,source);self.assertEqual(registered.read_bytes(),payload)
         self.assertEqual(current['category'],'references');self.assertEqual(current['project_id'],pid)
@@ -135,7 +135,7 @@ class MarkdownFileLinkHttpTests(unittest.TestCase):
         upload='/api/upload?'+urlencode({'project':self.project['id'],'category':'references','name':'未授权上传.txt'})
         for headers in ({'Origin':'https://foreign.invalid'},{'X-YingXu-Token':None}):
             self.ok('POST',upload,raw=b'blocked',headers=headers,expected=403)
-        self.assertFalse((Path(self.project['root'])/CATEGORIES['references'][1]/'未授权上传.txt').exists())
+        self.assertFalse((Path(self.project['root'])/category_paths(self.project)['references']/'未授权上传.txt').exists())
         self.assert_originals()
 
 

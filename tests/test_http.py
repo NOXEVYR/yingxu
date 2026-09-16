@@ -41,6 +41,53 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request('POST','/api/projects',{'name':'blocked'},headers={'X-YingXu-Token':''})[0],403)
         self.assertEqual(self.app.store.list_projects(),[])
 
+    def test_project_storage_location_is_explicit_persistent_and_preserves_existing_project(self):
+        existing=self.app.store.create_project('Existing project')
+        existing_root=Path(existing['root'])
+        destination=self.root/'Selected projects';destination.mkdir()
+        self.assertTrue(self.app.bootstrap()['capabilities']['project_storage'])
+        status,raw,_=self.request('GET','/api/project-storage')
+        self.assertEqual(status,200,raw)
+        self.assertEqual(json.loads(raw)['root'],str(self.root/'projects'))
+        self.assertEqual(self.request('POST','/api/project-storage',{'root':str(destination)},headers={'X-YingXu-Token':''})[0],403)
+        self.assertEqual(self.request('PATCH','/api/settings',{'project_storage_root':str(destination)})[0],400)
+        status,raw,_=self.request('POST','/api/project-storage',{'root':str(destination)})
+        self.assertEqual(status,200,raw)
+        self.assertEqual(json.loads(raw)['root'],str(destination))
+        self.assertEqual(self.app.store.get_project(existing['id'])['root'],str(existing_root))
+        self.assertTrue(existing_root.is_dir())
+        self.assertEqual(self.app.bootstrap()['project_root'],str(destination))
+        self.assertEqual(self.app.settings.get()['project_storage_root'],str(destination))
+        status,raw,_=self.request('POST','/api/projects',{'name':'New project'})
+        self.assertEqual(status,201,raw)
+        self.assertEqual(Path(json.loads(raw)['root']).parent,destination)
+        self.assertEqual(self.request('POST','/api/project-storage',{'root':str(self.root/'missing')})[0],404)
+        self.assertEqual(self.app.store.project_root,destination)
+
+    def test_copy_import_places_script_under_selected_project_category(self):
+        import time
+        selected=self.app.project_library.create_folder({'name':'练习分类'})
+        project=self.app.store.create_project('练习项目',folder_id=selected['id'])
+        source=self.root/'剧本.md';source.write_text('独立原文',encoding='utf-8')
+        payload={'project_id':project['id'],'category':'scripts','folder_id':None,'paths':[str(source)],'mode':'copy'}
+        self.assertEqual(self.request('POST','/api/import',payload,headers={'X-YingXu-Token':''})[0],403)
+        self.assertEqual(self.request('POST','/api/import',{**payload,'mode':'invalid'})[0],400)
+        status,raw,_=self.request('POST','/api/import',payload)
+        self.assertEqual(status,202,raw)
+        job_id=json.loads(raw)['job_id'];deadline=time.monotonic()+10
+        while time.monotonic()<deadline:
+            job=self.app.jobs.get(job_id)
+            if job['state'] in ('done','error'):break
+            time.sleep(.02)
+        self.assertEqual(job['state'],'done',job)
+        self.assertEqual(job['errors'],[])
+        item=self.app.store.list_items(project['id'],category='scripts')['items'][0]
+        expected=self.root/'projects'/'练习分类'/'练习项目'/'文本'/'剧本.md'
+        self.assertEqual(Path(item['path']),expected)
+        self.assertEqual(expected.read_text('utf-8'),'独立原文')
+        self.assertEqual(source.read_text('utf-8'),'独立原文')
+        self.assertNotIn(str(source),[s['path'] for s in self.app.store.sources(project['id'])])
+
     def test_settings_routes_validate_and_external_preview_ranges_never_create_project(self):
         self.assertTrue(json.loads(self.request('GET','/api/settings')[1])['close_to_tray'])
         self.assertEqual(self.request('PATCH','/api/settings',{'close_to_tray':False},headers={'X-YingXu-Token':''})[0],403)

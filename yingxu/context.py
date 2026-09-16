@@ -349,11 +349,12 @@ class ContextExporter:
         """Publish an explicit reversible-deletion status for offline readers."""
         with self._export_lock, self.store.lock:
             with self.store.connection() as db:
-                current=db.execute('SELECT removed FROM projects WHERE id=?',(project['id'],)).fetchone()
+                current=db.execute('SELECT * FROM projects WHERE id=?',(project['id'],)).fetchone()
             if current is None:return
             if not current['removed']:
                 self.request(project['id'])
                 return
+            project = dict(current)
             root, folder = self._folder(project)
             snapshot_id = uuid.uuid4().hex
             generated = timestamp()
@@ -374,9 +375,9 @@ class ContextExporter:
                 db.execute('DELETE FROM context_exports WHERE project_id=?', (project['id'],))
 
     def _export(self, project_id, force):
-        project = self.store.get_project(project_id)
         self._ensure_state(project_id)
         with self._export_lock:
+            project = self.store.get_project(project_id)
             with self.store.connection() as db:
                 state = dict(db.execute('SELECT * FROM context_exports WHERE project_id=?', (project_id,)).fetchone())
             if not force and state['revision'] <= max(state['exported_revision'], state['failed_revision']):
@@ -450,8 +451,8 @@ class ContextExporter:
         return self._export(project_id, force=True)
 
     def get(self, project_id):
-        project = self.store.get_project(project_id)
         with self._export_lock:
+            project = self.store.get_project(project_id)
             _, folder = self._folder(project)
             progress = folder / 'progress.json'
             markdown = folder / 'PROJECT_CONTEXT.md'

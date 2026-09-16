@@ -19,7 +19,7 @@ class OpenFolderTests(unittest.TestCase):
         nested = self.app.organize.create_folder(project['id'], 'characters', '主角', folder['id'])
         cases = [
             ({'project_id': project['id']}, Path(project['root'])),
-            ({'project_id': project['id'], 'category': 'characters'}, Path(project['root']) / '20_Assets/角色'),
+            ({'project_id': project['id'], 'category': 'characters'}, Path(project['root']) / '角色'),
             ({'project_id': project['id'], 'folder_id': nested['id']}, Path(nested['path'])),
         ]
         with patch('server.subprocess.Popen') as launch:

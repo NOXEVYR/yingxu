@@ -14,8 +14,8 @@ sys.path.insert(0,str(ROOT/'macos'))
 from verify_release import verify
 
 REPO='turnsolesama/yingxu'
-TAG='yingxu-v0.4.9-mac.1'
-NAME='YingXu-v0.4.9-mac.1-macOS-arm64'
+TAG='yingxu-v0.4.10-mac.1'
+NAME='YingXu-v0.4.10-mac.1-macOS-arm64'
 ICON_REPAIR_COMMIT='fix: replace 0.4.6 icons [viewfinder-v1]'
 ICON_REPAIR_WINDOWS_COMMIT=ICON_REPAIR_COMMIT+' [windows-only]'
 
@@ -174,7 +174,7 @@ def main():
     assert os.environ['GITHUB_REPOSITORY']==REPO
     commit=os.environ['GITHUB_SHA']
     artifacts=ROOT/'releases/macos-preview'
-    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.9-mac.1-verification.json']
+    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.10-mac.1-verification.json']
     manifest=json.loads((artifacts/names[1]).read_text())
     assert manifest['source_commit']==commit
     existing=gh('release','view',TAG,'--json','isDraft,targetCommitish',check=False)
@@ -187,17 +187,15 @@ def main():
             return
         if release['isDraft'] and release['targetCommitish']!=commit:
             raise RuntimeError('Existing draft belongs to another source commit')
-    notes='''映序 0.4.9 macOS 试用版（0.4.9-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
+    notes='''映序 0.4.10 macOS 试用版（0.4.10-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
 
 ## 本次更新
 
-- 在浏览器中复制图片后，可使用 Ctrl+V（macOS 可用 ⌘V）或资源区右键“粘贴”导入当前分类、文件夹。
-- 支持读取浏览器提供的图片文件与系统剪贴板位图；系统位图保存为 PNG，保留透明度，同名不覆盖。
-- 粘贴期间固定目标位置并防止重复操作；在文稿和输入框中保留原来的文字粘贴行为。
-- “复制图片地址”只含链接时不会当作图片下载；空剪贴板与无法读取图片会给出对应提示。
-- 保留 0.4.8 的启动优化与其他功能，无新增模型或运行依赖。
-
-另有用户反馈的“本地连接中断”发生在其他电脑，尚未定位，不属于本次已确认修复项。
+- 设置可选择项目存放文件夹；保存更改时预览并迁移现有项目，按项目库分类、项目名和资源分类整理实际目录。
+- 复制完成并校验后切换项目位置；原目录保留作备份，迁移期间阻止冲突写入，意外中断后可核对恢复。
+- 剧本等文档保存在对应项目的“文本”文件夹；保留项目、素材及历史记录的身份，更新可识别的 Markdown 相对链接。
+- 导入默认复制到当前项目分类，也可选择引用原文件；外部引用不擅自搬动，迁移预览会说明。
+- 保留既有功能，无新增模型或运行依赖。
 
 ## 安装与边界
 
@@ -216,7 +214,7 @@ def main():
         root=Path(temporary);note=root/'notes.md';write_notes(note,notes)
         if existing.returncode:
             gh('release','create',TAG,*[str(artifacts/n) for n in names],
-               '--target',commit,'--title','映序 0.4.9 · 浏览器图片粘贴修复 · macOS M 系列试用版',
+               '--target',commit,'--title','映序 0.4.10 · 项目存放位置与迁移 · macOS M 系列试用版',
                '--notes-file',str(note),'--draft','--prerelease')
         else:
             gh('release','edit',TAG,'--notes-file',str(note),'--prerelease')
@@ -230,28 +228,22 @@ def main():
         gh('release','edit',TAG,'--draft=false','--prerelease','--latest=false')
         print('macOS preview downloaded, extracted, verified, and published.',flush=True)
         portal=root/'downloads.md'
-        write_notes(portal,'''映序 0.4.9 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
+        write_notes(portal,'''映序 0.4.10 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
 
 ## 当前下载
 
 - [Windows 完整包发布列表](https://github.com/turnsolesama/yingxu/releases)（以已发布附件为准）
-- [macOS M 系列 0.4.9-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)
+- [macOS M 系列 0.4.10-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10-mac.1)
 
-## 0.4.9 更新
+## 0.4.10 更新
 
-- 在浏览器中复制图片后，可使用 Ctrl+V（macOS 可用 ⌘V）或资源区右键“粘贴”导入当前分类、文件夹。
-- 支持读取浏览器提供的图片文件与系统剪贴板位图；系统位图保存为 PNG，保留透明度，同名不覆盖。
-- 粘贴期间固定目标位置并防止重复操作；在文稿和输入框中保留原来的文字粘贴行为。
-- “复制图片地址”只含链接时不会当作图片下载；空剪贴板与无法读取图片会给出对应提示。
-- 保留 0.4.8 的启动优化与其他功能，无新增模型或运行依赖。
-
-详情见[更新记录](https://github.com/turnsolesama/yingxu#readme)。
-
-Mac 包适用于 macOS 14+ Apple Silicon，未公证，暂不支持 Intel、全局截图或菜单栏常驻。各平台独立构建和验证，校验和与具体测试范围见对应发布页。下方 Source code 是源码，不是安装包。
-
-[旧 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3) · [迁移说明](https://github.com/turnsolesama/yingxu/blob/main/MIGRATION.md)
+- 设置可选择项目存放文件夹；保存更改时预览并迁移现有项目，按项目库分类、项目名和资源分类整理实际目录。
+- 复制完成并校验后切换项目位置；原目录保留作备份，迁移期间阻止冲突写入，意外中断后可核对恢复。
+- 剧本等文档保存在对应项目的“文本”文件夹；保留项目、素材及历史记录的身份，更新可识别的 Markdown 相对链接。
+- 导入默认复制到当前项目分类，也可选择引用原文件；外部引用不擅自搬动，迁移预览会说明。
+- 保留既有功能，无新增模型或运行依赖。
 ''')
-        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.9 · Windows 与 macOS 下载','--notes-file',str(portal))
+        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.10 · Windows 与 macOS 下载','--notes-file',str(portal))
 
 if __name__=='__main__':
     if len(sys.argv)==3 and sys.argv[1]=='--replace-windows-icons':replace_windows_icons(sys.argv[2])

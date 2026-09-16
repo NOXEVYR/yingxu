@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 import sqlite3
 
+from .project_layout import category_paths
+
 from .store import CATEGORIES, UserError, clean_path, has_link, now, safe_name, uid
 
 
@@ -41,7 +43,7 @@ class Organize:
     def _folder_result(self,row,project,count=0):
         result=dict(row)
         result.update(path=str(Path(project['root'])/row['relative_path']),
-                      folder_path=row['relative_path'][len(CATEGORIES[row['category']][1])+1:],count=count)
+                      folder_path=row['relative_path'][len(category_paths(project)[row['category']])+1:],count=count)
         return result
 
     def folders(self,project_id,category=''):
@@ -65,7 +67,7 @@ class Organize:
     def folder_path(self,project_id,category,folder_id=None):
         if category not in CATEGORIES:raise UserError('分类不存在。')
         project=self.store.get_project(project_id);root=clean_path(project['root'])
-        if folder_id in ('',None,'root'):target=root/CATEGORIES[category][1]
+        if folder_id in ('',None,'root'):target=root/category_paths(project)[category]
         else:
             with self.store.connection() as db:folder=self._folder(db,folder_id)
             if folder['project_id']!=project_id or folder['category']!=category:raise UserError('目标文件夹不属于这个项目和分类。')
@@ -85,7 +87,7 @@ class Organize:
                     raise UserError('每个项目最多支持 5000 个活动文件夹。')
             parent=self.folder_path(project_id,category,parent_id)
             path=parent/name;root=clean_path(project['root'])
-            if len(path.relative_to(root/CATEGORIES[category][1]).parts)>20:raise UserError('文件夹最多支持 20 层。')
+            if len(path.relative_to(root/category_paths(project)[category]).parts)>20:raise UserError('文件夹最多支持 20 层。')
             if path.exists() or path.is_symlink():raise UserError('这里已有同名文件夹；回收站里的同名文件夹请先恢复。',409)
             fid=uid();created=False
             try:

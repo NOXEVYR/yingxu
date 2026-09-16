@@ -39,7 +39,7 @@ class ProjectLibraryTests(unittest.TestCase):
         entered=threading.Event();release=threading.Event();deleting=threading.Event()
         original=Path.mkdir
         def mkdir(path,*args,**kwargs):
-            if path.parent==self.store.project_root and path.name.startswith('Race project_'):
+            if path.parent==self.store.project_root/'Race category' and path.name=='Race project':
                 entered.set()
                 if not release.wait(10):raise AssertionError('creation was never released')
             return original(path,*args,**kwargs)

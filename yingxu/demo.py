@@ -2,6 +2,7 @@
 from pathlib import Path
 import shutil
 from .runtime import ffmpeg_path
+from .project_layout import category_paths
 import subprocess
 
 
@@ -28,7 +29,7 @@ def create_demo(store):
     add('delivery','交付检查表','# 交付检查表\n\n- [ ] 画面与对白连续性\n- [ ] 角色与道具一致性\n- [ ] 所有镜头已审核\n- [ ] 音频、字幕和画面同步\n- [ ] 导出母版与分享版\n\n将确定采用的成片导入这里。\n',tags=['交付'])
     add('references','使用这份示例','# 这是一份可编辑的示例\n\n1. 左侧选择不同素材分类。\n2. 打开剧本，在编辑区修改文字。\n3. 打开分镜，查看右侧关联角色、场景与道具。\n4. 新建自己的项目，再导入真实素材。\n\n构图图像为几何示意，预演视频为平面构图动画，不是完成的电影或真实三维模型。\n')
     # Diagram-like sample frames drawn from code, not scraped/user images.
-    root=Path(project['root']);folder=root/'40_Runs/白模预演';media=[]
+    root=Path(project['root']);folder=root/category_paths(project)['previs'];media=[]
     try:
         from PIL import Image,ImageDraw
         for i in range(3):

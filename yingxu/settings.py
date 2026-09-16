@@ -20,6 +20,7 @@ DEFAULTS = {
     'capture_enabled': True,
     'capture_hotkey': 'Ctrl+Alt+Shift+S',
     'capture_mode': 'annotate',
+    'project_storage_root': '',
 }
 OPTIONS = {'default_view': {'grid','list','board'}, 'default_sort': {'updated','name','order'},
            'capture_mode': {'quick','annotate'}, 'appearance_theme': {'swiss','pine','paper'}}
@@ -36,7 +37,12 @@ class Settings:
         if not isinstance(values, dict) or any(key not in DEFAULTS for key in values):
             raise UserError('设置中包含未知字段。')
         for key,value in values.items():
-            if key == 'capture_hotkey':
+            if key == 'project_storage_root':
+                if (not isinstance(value, str) or len(value) > 2048 or any(ord(c) < 32 for c in value)
+                        or (value and (value != value.strip() or not Path(value).is_absolute()
+                                      or value.startswith(('\\\\', '//'))))):
+                    raise UserError('项目存放位置必须是本机文件夹的绝对路径。')
+            elif key == 'capture_hotkey':
                 parts = value.split('+') if isinstance(value, str) else []
                 modifiers = parts[:-1]
                 if (not 2 <= len(modifiers) <= 3 or len(set(modifiers)) != len(modifiers)

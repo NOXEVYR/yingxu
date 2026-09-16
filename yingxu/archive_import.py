@@ -9,8 +9,9 @@ import unicodedata
 import zipfile
 import zlib
 
-from .store import CATEGORIES, SAFE_EXTENSIONS, UserError, clean_path, now, safe_name, uid
+from .store import SAFE_EXTENSIONS, UserError, clean_path, now, safe_name, uid
 from .organize import Organize, _rename
+from .project_layout import category_paths
 
 MAX_ARCHIVE = 8 * 1024**3
 MAX_EXPANDED = 32 * 1024**3
@@ -63,11 +64,12 @@ def import_zip(store, path, pid, category, folder_id=None, name=None, progress=l
     organize = Organize(store)
     folder_id = None if folder_id in ('', None, 'root') else folder_id
     parent = organize.folder_path(pid, category, folder_id)
-    project_root = clean_path(store.get_project(pid)['root'])
+    project = store.get_project(pid)
+    project_root = clean_path(project['root'])
     source_path = clean_path(path)
     if not source_path.is_file(): raise UserError('ZIP 来源不存在。')
     base_name = safe_name(Path(name or source_path.name).stem)
-    depth = len(parent.relative_to(project_root/CATEGORIES[category][1]).parts)+1
+    depth = len(parent.relative_to(project_root/category_paths(project)[category]).parts)+1
     try:
         with source_path.open('rb') as source:
             before = os.fstat(source.fileno())

@@ -14,7 +14,8 @@ import secrets
 import sqlite3
 import time
 
-from .store import CATEGORIES, UserError, clean_path, has_link
+from .store import UserError, clean_path, has_link
+from .project_layout import category_paths, extra_directories
 
 
 class GUID(ctypes.Structure):
@@ -270,7 +271,7 @@ class TrashDeletion:
                     known = {_key(p) for p in owned}
                     known_dirs = {_key(directory)}
                     if selected['kind'] == 'project':
-                        for relative in [value[1] for value in CATEGORIES.values()] + ['30_Workflows','.yingxu']:
+                        for relative in list(category_paths(project).values()) + extra_directories(project) + ['.yingxu']:
                             current = Path(project['root']) / relative
                             while _inside(current, directory):
                                 known_dirs.add(_key(current))

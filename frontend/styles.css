@@ -1,5 +1,13 @@
 @charset "UTF-8";
 
+.project-storage-current{margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
+.project-storage-current dt{font-size:12px;color:var(--muted);margin-bottom:5px}.project-storage-current dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.project-storage-picker{display:flex;gap:8px;align-items:center}.project-storage-picker input{flex:1;min-width:0}.project-storage-picker .button{flex:none}
+.project-storage-preview{overflow-wrap:anywhere;white-space:pre-wrap}.project-storage-error{color:var(--danger)!important}
+.project-migration{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}.project-migration h4{font-size:14px;margin:0 0 8px}
+.migration-plan{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}.migration-plan article+article{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}.migration-plan dl{margin:8px 0}.migration-plan dt{font-size:11px;color:var(--muted);margin-top:5px}.migration-plan dd{margin:0;overflow-wrap:anywhere}.project-migration progress{display:block;width:100%;height:8px;accent-color:var(--accent);margin:12px 0}.project-migration progress[hidden]{display:none}
+@media(max-width:640px){.project-storage-picker{flex-wrap:wrap}.project-storage-picker input{flex-basis:100%}}
+
 /* A quiet, light workbench. Media remains dark only inside its preview. */
 :root {
   --bg:#ffffff; --panel:#f6f7f5; --panel-2:#f0f3f0; --panel-3:#e7e9eb;

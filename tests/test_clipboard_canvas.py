@@ -33,7 +33,14 @@ class ClipboardCanvasTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(),b'original\r\n')
 
     def test_old_project_gets_unclassified_on_demand_without_reclassifying(self):
-        root=Path(self.project['root'])/'05_Unclassified';root.rmdir()
+        # Explicitly reconstruct a pre-layout-version project.
+        from yingxu.store import CATEGORIES
+        with self.app.store.connection() as db:
+            db.execute('UPDATE projects SET layout_version=0 WHERE id=?',(self.pid,))
+        for key,(_,relative) in CATEGORIES.items():
+            if key!='unclassified':(Path(self.project['root'])/relative).mkdir(parents=True,exist_ok=True)
+        root=Path(self.project['root'])/'05_Unclassified'
+        self.assertFalse(root.exists())
         original=self.app.store.create_item({'project_id':self.pid,'category':'references','name':'参考'})
         canvas=self.app.store.create_item({'project_id':self.pid,'category':'unclassified','name':'画板','format':'excalidraw'})
         self.assertEqual(canvas['category'],'unclassified');self.assertTrue(root.is_dir())

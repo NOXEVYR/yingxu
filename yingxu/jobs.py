@@ -26,7 +26,9 @@ class Jobs:
         self.jobs={}; self.lock=threading.Lock()
         self.slots=threading.BoundedSemaphore(8)
 
-    def submit(self,pid,category='references',paths=None,folder_id=''):
+    def submit(self,pid,category='references',paths=None,folder_id='',mode='reference'):
+        if mode not in ('reference','copy'):raise UserError('导入方式无效。')
+        if mode=='copy' and paths is None:raise UserError('复制导入需要选择文件或文件夹。')
         self.store.get_project(pid)
         if folder_id!='':
             from .organize import Organize
@@ -39,6 +41,11 @@ class Jobs:
                 if path.is_file() and path.suffix.lower()=='.zip':
                     if path.is_relative_to(self.store.data_root):raise UserError('不能从应用数据目录导入 ZIP。')
                     sources.append({'archive':str(path),'name':path.name})
+                elif mode=='copy':
+                    from .file_import import validate_source
+                    from .organize import Organize
+                    destination=Organize(self.store).folder_path(pid,category,None if folder_id in ('','root') else folder_id)
+                    sources.append({'copy':str(validate_source(self.store,path,destination))})
                 else:sources.append(self.store.register_source(pid,value,category))
         else:sources=self.store.sources(pid)
         return self._enqueue(pid,category,sources,paths is not None,folder_id)
@@ -72,26 +79,36 @@ class Jobs:
         with self.lock:self.jobs[jid].update(fields)
 
     @staticmethod
-    def walk(root,excluded=None):
+    def walk(root,excluded=None,on_error=None,max_entries=None,max_depth=None,on_directory=None):
+        def report(message):
+            if on_error:on_error(message)
         excluded=Path(excluded).resolve() if excluded else None
         if excluded and (root==excluded or root.is_relative_to(excluded)):return
         if root.is_file():yield root;return
-        stack=[root]
+        stack=[(root,0)];visited=0
         ignored={'.git','.yingxu','node_modules','__pycache__','.venv','venv','.obsidian'}
         while stack:
-            folder=stack.pop()
+            folder,depth=stack.pop()
             try:
                 with os.scandir(folder) as entries:
                     for entry in entries:
+                        visited+=1
+                        if max_entries is not None and visited>max_entries:
+                            report('所选文件夹条目过多，已停止扫描剩余内容。');return
                         if entry.name.startswith('.') or entry.name in ignored:continue
                         try:
                             path=Path(entry.path)
                             if excluded and (path==excluded or path.is_relative_to(excluded)):continue
-                            if has_link(path):continue
-                            if entry.is_dir(follow_symlinks=False):stack.append(path)
+                            if has_link(path):
+                                report('已跳过链接或无法读取的条目：'+str(path));continue
+                            if entry.is_dir(follow_symlinks=False):
+                                if max_depth is not None and depth>=max_depth:
+                                    report('文件夹层级过深，已跳过：'+str(path));continue
+                                if on_directory:on_directory(path)
+                                stack.append((path,depth+1))
                             elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in SAFE_EXTENSIONS:yield path
-                        except OSError:continue
-            except OSError:continue
+                        except OSError as error:report('无法读取条目：'+str(path)+'；'+str(error))
+            except OSError as error:report('无法读取文件夹：'+str(folder)+'；'+str(error))
 
     def _run(self,jid,pid,sources,restore_removed=False,category='references',folder_id=''):
         self._update(jid,state='running',message='正在建立素材索引，可继续使用工作台')
@@ -101,6 +118,14 @@ class Jobs:
         try:
             for source in sources:
                 try:
+                    if 'copy' in source:
+                        from .file_import import import_files
+                        result=import_files(self.store,source['copy'],pid,category,folder_id,
+                            lambda message:self._update(jid,message=message))
+                        done+=result['done'];skipped+=result['skipped']
+                        errors.extend(result['errors'][:max(0,20-len(errors))])
+                        self._update(jid,done=done,skipped=skipped)
+                        continue
                     if 'archive' in source:
                         from .archive_import import import_zip
                         try:

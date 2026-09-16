@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from yingxu.organize import Organize
-from yingxu.store import CATEGORIES,Store,UserError,now,uid
+from yingxu.store import Store,UserError,now,uid
+from yingxu.project_layout import category_paths
 from yingxu.jobs import Jobs
 
 
@@ -192,7 +193,7 @@ class OrganizeTests(unittest.TestCase):
         self.assertTrue(path.exists())
 
     def test_many_folder_lookup_is_bounded_by_path_depth_and_tree_is_capped(self):
-        stamp=now();base=CATEGORIES['scripts'][1]
+        stamp=now();base=category_paths(self.project)['scripts']
         with self.store.connection() as db:
             db.executemany('INSERT INTO folders(id,project_id,category,name,relative_path,created,updated) VALUES(?,?,?,?,?,?,?)',
                 [(uid(),self.project['id'],'scripts',f'集{i:04d}',f'{base}/集{i:04d}',stamp,stamp) for i in range(5001)])

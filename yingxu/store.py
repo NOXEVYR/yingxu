@@ -14,6 +14,8 @@ import sqlite3
 import threading
 import uuid
 
+from .project_layout import category_paths, extra_directories, project_parent, reserve_directory
+
 CATEGORIES = {
     'unclassified': ('未分类', '05_Unclassified'),
     'scripts': ('剧本与文档', '00_Brief/剧本与文档'),
@@ -104,11 +106,12 @@ def decode_text(raw):
 
 
 class Store:
-    def __init__(self, data_root, project_root):
+    def __init__(self, data_root, project_root, *, create_project_root=True):
         self.data_root = Path(data_root).resolve()
         self.project_root = Path(project_root).resolve()
         self.data_root.mkdir(parents=True, exist_ok=True)
-        self.project_root.mkdir(parents=True, exist_ok=True)
+        if create_project_root:
+            self.project_root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_root / 'yingxu.sqlite3'
         self.lock = threading.RLock()
         self._init()
@@ -164,13 +167,16 @@ class Store:
             ''')
             # Additive migrations preserve earlier catalogues and soft removals.
             for table, columns in {
-                'projects': [('removed', 'INTEGER NOT NULL DEFAULT 0'), ('removed_batch', 'TEXT')],
+                'projects': [('removed', 'INTEGER NOT NULL DEFAULT 0'), ('removed_batch', 'TEXT'), ('layout_version', 'INTEGER NOT NULL DEFAULT 0')],
                 'items': [('folder_id', 'TEXT'), ('removed_batch', 'TEXT')],
             }.items():
                 existing={row[1] for row in db.execute('PRAGMA table_info('+table+')')}
                 for column, declaration in columns:
                     if column not in existing:db.execute('ALTER TABLE '+table+' ADD COLUMN '+column+' '+declaration)
             db.executescript('''
+            CREATE TABLE IF NOT EXISTS managed_project_library_paths(
+              folder_id TEXT NOT NULL,parent_path TEXT NOT NULL,path TEXT NOT NULL UNIQUE,
+              PRIMARY KEY(folder_id,parent_path));
             CREATE TABLE IF NOT EXISTS folders(
               id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),category TEXT NOT NULL,
               parent_id TEXT REFERENCES folders(id),name TEXT NOT NULL,relative_path TEXT NOT NULL,
@@ -224,19 +230,19 @@ class Store:
         if folder_id is not None and (not isinstance(folder_id,str) or not folder_id):
             raise UserError('请选择有效的项目分类。')
         pid = uid()
-        root = self.project_root / (name + '_' + pid[:6])
+        root = None
         made_dirs=[];readme=None
         with self.lock:
+            storage_root = self.project_storage.validated_root() if hasattr(self, 'project_storage') else clean_path(self.project_root)
             try:
                 with self.connection() as db:
                     # Reserve the write transaction before checking the category:
                     # a concurrent deletion cannot orphan the newly created project.
                     db.execute('BEGIN IMMEDIATE')
-                    if folder_id is not None:
-                        if not db.execute('SELECT 1 FROM project_library_folders WHERE id=?',(folder_id,)).fetchone():
-                            raise UserError('项目分类不存在，请刷新后重试。',404)
-                    root.mkdir();made_dirs.append(root)
-                    for folder in [v[1] for v in CATEGORIES.values()] + ['30_Workflows']:
+                    parent = project_parent(db, storage_root, folder_id, made_dirs)
+                    root = reserve_directory(db, parent, name, made_dirs)
+                    layout = {'layout_version': 1}
+                    for folder in list(category_paths(layout).values()) + extra_directories(layout):
                         current=root
                         for component in Path(folder).parts:
                             current=current/component
@@ -246,7 +252,7 @@ class Store:
                     with target.open('x',encoding='utf-8') as handle:
                         readme=target
                         handle.write(f'# {name}\n\n{description}\n\n此项目由映序管理，文件可独立使用。\n')
-                    db.execute('INSERT INTO projects(id,name,description,root,created,updated) VALUES(?,?,?,?,?,?)', (pid,name,str(description),str(root),now(),now()))
+                    db.execute('INSERT INTO projects(id,name,description,root,created,updated,layout_version) VALUES(?,?,?,?,?,?,1)', (pid,name,str(description),str(root),now(),now()))
                     db.execute('INSERT INTO sources VALUES(?,?,?,?,?)', (uid(),pid,str(root),'references',0))
                     if folder_id is not None:
                         db.execute('INSERT INTO project_library_entries(project_id,folder_id) VALUES(?,?)',(pid,folder_id))
@@ -284,10 +290,10 @@ class Store:
             row = db.execute('SELECT * FROM items WHERE id=? AND removed=0', (iid,)).fetchone()
             if row is None:
                 raise UserError('条目不存在或已移出工作台。', 404)
-            self._project(db,row['project_id'])
+            project = self._project(db,row['project_id'])
             item = self.item_dict(row)
             folder=db.execute('SELECT relative_path FROM folders WHERE id=?',(row['folder_id'],)).fetchone() if row['folder_id'] else None
-            item['folder_path']=folder[0][len(CATEGORIES[row['category']][1])+1:] if folder else ''
+            item['folder_path']=folder[0][len(category_paths(project)[row['category']])+1:] if folder else ''
             if detail:
                 item['relations'] = []
                 for relation in db.execute('SELECT * FROM relations WHERE source_id=? OR target_id=?', (iid,iid)):
@@ -379,10 +385,10 @@ class Store:
         ordering={'updated':'i.updated DESC,i.id','name':'i.name COLLATE NOCASE,i.id','order':'i.sort_order,i.name,i.id'}.get(sort,'i.updated DESC,i.id')
         sql=' FROM items i WHERE '+' AND '.join(clauses)
         with self.connection() as db:
-            self._project(db,pid)
+            project = self._project(db,pid)
             total=db.execute('SELECT count(*)'+sql,args).fetchone()[0]
             columns='i.id,i.project_id,i.source_id,i.name,i.category,i.kind,i.ext,i.path,i.size,i.mtime,i.status,i.tags,substr(i.notes,1,240) AS notes,i.sort_order,i.created,i.updated,i.removed,i.folder_id'
-            columns+=",coalesce((SELECT substr(f.relative_path,length(CASE i.category "+' '.join("WHEN '"+k+"' THEN '"+v[1]+"'" for k,v in CATEGORIES.items())+" END)+2) FROM folders f WHERE f.id=i.folder_id),'') AS folder_path"
+            columns+=",coalesce((SELECT substr(f.relative_path,length(CASE i.category "+' '.join("WHEN '"+k+"' THEN '"+v+"'" for k,v in category_paths(project).items())+" END)+2) FROM folders f WHERE f.id=i.folder_id),'') AS folder_path"
             # Never pull document bodies or huge generation workflows into a list page.
             meta_keys=('shot_number','duration','shot_size','camera','version','width','height')
             columns+=',json_object('+','.join("'"+k+"',json_extract(i.metadata,'$."+k+"')" for k in meta_keys)+') AS metadata'
@@ -514,7 +520,7 @@ class Store:
                     root=Path(project['root'])
                     if p.is_relative_to(root):
                         rel=p.relative_to(root).as_posix()
-                        for key,(_,folder) in CATEGORIES.items():
+                        for key,folder in category_paths(project).items():
                             if rel.startswith(folder+'/'): category=key;break
                     db.execute('INSERT INTO items(id,project_id,source_id,name,category,kind,ext,path,size,mtime,metadata,created,updated,search_content) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (iid,source['project_id'],source['id'],p.stem,category,kind,p.suffix.lower(),str(p),st.st_size,st.st_mtime_ns,json_text(meta),now(),now(),content))

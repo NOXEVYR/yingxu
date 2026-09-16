@@ -53,6 +53,7 @@ function desktopMessage(action,extra={}) {
 async function confirmRemoval(title,subtitle,choices) { return preference('confirm_delete') ? choose(title,subtitle,choices) : 'delete'; }
 
 async function api(path, options = {}) {
+  if (state.migrationBusy && options.method && !['GET','HEAD'].includes(options.method.toUpperCase()) && path !== '/api/project-storage/migration') throw new Error('项目正在迁移，请完成后再编辑或导入。');
   const init = {...options,headers:{Accept:'application/json',...(options.headers || {})}};
   if (options.body !== undefined) { init.body = JSON.stringify(options.body); init.headers['Content-Type'] = 'application/json'; }
   if (options.method && options.method !== 'GET') init.headers['X-YingXu-Token'] = state.bootstrap?.token || '';
@@ -1138,9 +1139,16 @@ async function newItemDialog(category,options = {}) {
 function importDialog() {
   if (!state.projectId) { newProjectDialog(); return; }
   const selected = state.category === 'all' ? 'unclassified' : state.category; const projectId = state.projectId;
-  const dialog = showDialog({title:'导入文件',subtitle:'选择文件、文件夹或 ZIP，也可粘贴本地路径。ZIP 会解压为当前分类下的独立文件夹，保留包内目录；原压缩包不变。',submit:'开始导入',body:`<div class="fields-two"><div class="field"><label for="importCategory">分类</label><select id="importCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),selected)}</select></div><div class="field"><label for="importFolder">文件夹</label><select id="importFolder" name="folder_id">${folderOptions(selected === state.category ? state.folders : [],state.folderId)}</select></div></div><div class="import-pickers"><button class="button button-secondary" type="button" data-pick="files">${icon('file')}选择文件</button><button class="button button-secondary" type="button" data-pick="folder">${icon('folder')}选择文件夹</button></div><div class="field"><label for="importPaths">文件路径（每行一个）</label><textarea class="selected-paths" id="importPaths" name="paths" placeholder="F:\\我的视频项目\\角色素材&#10;F:\\我的视频项目\\剧本.docx" required></textarea></div><p class="dialog-hint">普通文件引用原位置；ZIP 解压为项目副本。拖入的普通文件也会保存项目副本。</p>`,onSubmit:async form => { requireFolderSelection('#importFolder'); const data = new FormData(form); const paths = String(data.get('paths')).split(/\r?\n/).map(path => path.trim().replace(/^"|"$/g,'')).filter(Boolean); if (!paths.length) throw new Error('请选择文件，或填写至少一个本地路径。'); const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category:data.get('category'),folder_id:data.get('folder_id') || null,paths}}); monitorJob(result.job_id,'正在整理导入的素材'); }});
+  const dialog = showDialog({title:'导入文件',subtitle:'选择文件、文件夹或 ZIP，也可粘贴本地路径。ZIP 会解压为当前分类下的独立文件夹，保留包内目录；原压缩包不变。',submit:'开始导入',body:`<div class="fields-two"><div class="field"><label for="importCategory">分类</label><select id="importCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),selected)}</select></div><div class="field"><label for="importFolder">文件夹</label><select id="importFolder" name="folder_id">${folderOptions(selected === state.category ? state.folders : [],state.folderId)}</select></div></div><div class="field"><label for="importMode">导入方式</label><select id="importMode" name="mode"><option value="copy" selected>复制到项目分类（默认）</option><option value="reference">仅引用原位置</option></select><p class="field-hint">复制会将文件和文件夹保存到当前项目的所选分类，保留原文件。仅引用不复制文件，原位置改变后可能无法打开。</p></div><div class="import-pickers"><button class="button button-secondary" type="button" data-pick="files">${icon('file')}选择文件</button><button class="button button-secondary" type="button" data-pick="folder">${icon('folder')}选择文件夹</button></div><div class="field"><label for="importPaths">文件路径（每行一个）</label><textarea class="selected-paths" id="importPaths" name="paths" placeholder="F:\\我的视频项目\\角色素材&#10;F:\\我的视频项目\\剧本.docx" required></textarea></div><p class="dialog-hint">ZIP 始终解压为所选分类下的项目副本，保留包内目录；原压缩包保持不变。</p>`,onSubmit:async form => { requireFolderSelection('#importFolder'); const data = new FormData(form); const paths = String(data.get('paths')).split(/\r?\n/).map(path => path.trim().replace(/^"|"$/g,'')).filter(Boolean); if (!paths.length) throw new Error('请选择文件，或填写至少一个本地路径。'); const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category:data.get('category'),folder_id:data.get('folder_id') || null,paths,mode:data.get('mode') || 'copy'}}); monitorJob(result.job_id,'正在整理导入的素材'); }});
   bindFolderSelector(dialog,'#importCategory','#importFolder',projectId,selected,state.folderId);
-  $$('[data-pick]',dialog).forEach(button => button.addEventListener('click',async () => { button.disabled = true; try { const result = await api('/api/pick',{method:'POST',body:{kind:button.dataset.pick}}); if (result.paths?.length && dialog.open) { const existing = $('#importPaths').value.trim(); $('#importPaths').value = [...new Set([...existing.split(/\r?\n/).filter(Boolean),...result.paths])].join('\n'); } } catch(error) { $('#dialogError').textContent = error.message; $('#dialogError').hidden = false; } finally { button.disabled = false; } }));
+  const modal = state.modalSequence, pathsInput = $('#importPaths');
+  const pickerIsCurrent = () => dialog.open && state.modalSequence === modal && $('#importPaths') === pathsInput;
+  $$('[data-pick]',dialog).forEach(button => button.addEventListener('click',async () => {
+    if (button.disabled || !pickerIsCurrent()) return; button.disabled = true;
+    try { const result = await api('/api/pick',{method:'POST',body:{kind:button.dataset.pick}}); if (result.paths?.length && pickerIsCurrent()) { const existing = pathsInput.value.trim(); pathsInput.value = [...new Set([...existing.split(/\r?\n/).filter(Boolean),...result.paths])].join('\n'); } }
+    catch(error) { if (pickerIsCurrent()) { $('#dialogError').textContent = error.message; $('#dialogError').hidden = false; } }
+    finally { if (pickerIsCurrent()) button.disabled = false; }
+  }));
 }
 async function monitorJob(id,label,throwErrors = false) {
   if (!id) return; const token = {}; state.jobs.set(id,token); const tray = $('#jobTray'); tray.hidden = false; tray.innerHTML = `<span class="spinner"></span><span>${escapeHtml(label)}…</span>`;
@@ -1352,7 +1360,7 @@ function renderContext() {
 async function copyText(value,message='已复制。') { try { await navigator.clipboard.writeText(String(value || '')); toast(message); } catch { showDialog({title:'复制内容',subtitle:'当前窗口不能直接访问剪贴板，可在下方选择并复制。',body:`<div class="field"><textarea id="copyFallback" readonly style="min-height:200px">${escapeHtml(value)}</textarea></div>`,actions:'<button class="button button-primary" type="button" data-dialog-cancel>完成</button>'}); $('#copyFallback').select(); } }
 async function runNative(action) { if (action === 'open' && window.yingxuDesktopFocus && activeTab()?.source === 'file') { window.chrome.webview.postMessage({action:'open-file',id:activeTab().id}); return; } const tab = activeTab(); if (!tab || tab.source !== 'file') return; await api('/api/open',{method:'POST',body:{id:tab.id,action}}); }
 function runtimeSummary() { const caps = state.bootstrap?.capabilities || {}; return `<p class="muted">图片缩略图：${caps.image_thumbnails === false ? '组件缺失，请重新解压完整包' : '可用'} · 视频缩略图：${caps.ffmpeg ? '可用' : '组件缺失，请使用完整包'} · ${window.yingxuMac ? 'macOS 试用版：从 Finder 定位后拖出原文件；截图与菜单栏常驻暂未提供。' : `拖出原文件：${window.yingxuDesktopDrag ? '可用' : '请从桌面程序打开'}`}</p>`; }
-function helpDialog() { showDialog({title:'让每个镜头都有来处',subtitle:'映序把本地创作文件串成项目，你可以从最熟悉的一步开始。',wide:true,body:`${runtimeSummary()}<div class="guide-grid"><div class="guide-item"><strong>${icon('folder')}项目与分类</strong><p>创建项目，再用剧本、分镜、角色、场景、道具等分类整理内容。卡片可拖到左侧分类。</p></div><div class="guide-item"><strong>${icon('script')}像笔记一样写作</strong><p>右键空白处、项目或文件夹可新建笔记。单击打开文件，多标签自由切换；Markdown 支持实时预览编辑，Word 可修改正文段落。Ctrl+K 可跨项目查找名称与已索引正文，点击结果直接打开。</p></div><div class="guide-item"><strong>${icon('link')}把创作线索连起来</strong><p>在右侧信息面板把角色、场景、白模视频、生成版本关联到具体分镜，并记录状态与提示词。</p></div><div class="guide-item"><strong>${icon('upload')}导入与拖放</strong><p>导入目录引用原文件；把文件拖进页面会保存项目副本。桌面版直接拖动图片或卡片即可拖到其他软件。先点第一项，按住 Shift 点最后一项可连续多选并一起拖动。</p></div><div class="guide-item"><strong>${icon('skills')}集中管理 SKILL</strong><p>阅读已有 SKILL，创建自己的创作规范。右键 SKILL 可打开其所在位置；绑定到项目后，交接文件会记录相关能力与位置。</p></div><div class="guide-item"><strong>${icon('context')}把进度交给 AI</strong><p>在 AI 协作中刷新项目进度，将本地交接文件路径发给 Codex，继续处理已有项目。</p></div></div><div class="shortcut-list"><span>当前页面搜索<kbd>Ctrl F</kbd></span><span>全局搜索<kbd>Ctrl K</kbd></span><span>保存<kbd>Ctrl S</kbd></span><span>帮助<kbd>?</kbd></span></div>`,actions:'<button class="button button-primary" type="button" data-dialog-cancel>开始创作</button>'}); }
+function helpDialog() { showDialog({title:'让每个镜头都有来处',subtitle:'映序把本地创作文件串成项目，你可以从最熟悉的一步开始。',wide:true,body:`${runtimeSummary()}<div class="guide-grid"><div class="guide-item"><strong>${icon('folder')}项目与分类</strong><p>创建项目，再用剧本、分镜、角色、场景、道具等分类整理内容。卡片可拖到左侧分类。</p></div><div class="guide-item"><strong>${icon('script')}像笔记一样写作</strong><p>右键空白处、项目或文件夹可新建笔记。单击打开文件，多标签自由切换；Markdown 支持实时预览编辑，Word 可修改正文段落。Ctrl+K 可跨项目查找名称与已索引正文，点击结果直接打开。</p></div><div class="guide-item"><strong>${icon('link')}把创作线索连起来</strong><p>在右侧信息面板把角色、场景、白模视频、生成版本关联到具体分镜，并记录状态与提示词。</p></div><div class="guide-item"><strong>${icon('upload')}导入与拖放</strong><p>导入默认复制到项目分类，也可选择仅引用原位置；把文件拖进页面会保存项目副本。桌面版直接拖动图片或卡片即可拖到其他软件。先点第一项，按住 Shift 点最后一项可连续多选并一起拖动。</p></div><div class="guide-item"><strong>${icon('skills')}集中管理 SKILL</strong><p>阅读已有 SKILL，创建自己的创作规范。右键 SKILL 可打开其所在位置；绑定到项目后，交接文件会记录相关能力与位置。</p></div><div class="guide-item"><strong>${icon('context')}把进度交给 AI</strong><p>在 AI 协作中刷新项目进度，将本地交接文件路径发给 Codex，继续处理已有项目。</p></div></div><div class="shortcut-list"><span>当前页面搜索<kbd>Ctrl F</kbd></span><span>全局搜索<kbd>Ctrl K</kbd></span><span>保存<kbd>Ctrl S</kbd></span><span>帮助<kbd>?</kbd></span></div>`,actions:'<button class="button button-primary" type="button" data-dialog-cancel>开始创作</button>'}); }
 
 async function handleAction(action,target) {
   if(action==='find-document')return openDocumentSearch();
@@ -1470,7 +1478,7 @@ function wireEvents() {
     if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="button"],[role="tab"]')) { event.preventDefault(); event.target.click(); }
   });
   window.addEventListener('resize',hideMenu); $('#resourceViewport').addEventListener('scroll',hideMenu,{passive:true});
-  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy || state.migrationBusy) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('pagehide',() => { stopPreviewMedia(); persistDrafts(true); });
   document.addEventListener('visibilitychange',() => { if (document.hidden) stopPreviewMedia(); });
   const divider = $('#editorDivider'); let resizing = false;
@@ -1675,6 +1683,184 @@ async function maintenanceAction(cleanup=false) {
 }
 function maintenanceSettingsHtml(){return `<div class="settings-section"><h3>存储和历史版本</h3><p class="field-hint">按需查看缓存和历史占用；不会自动清理文稿历史。</p><label class="maintenance-option"><input type="checkbox" id="maintenanceCache" checked> 缩略图缓存（需要时可重新生成）</label><label class="maintenance-option"><input type="checkbox" id="maintenanceVersions"> 同时清理旧文稿历史</label><div class="fields-two"><div class="field"><label for="maintenanceKeep">每篇至少保留版本数</label><input id="maintenanceKeep" type="number" min="1" max="1000" value="20"></div><div class="field"><label for="maintenanceDays">保留最近多少天</label><input id="maintenanceDays" type="number" min="0" max="36500" value="30"></div></div><button type="button" id="previewMaintenance" class="button button-secondary" data-action="maintenance-preview">查看容量与清理预览</button><div id="maintenanceResult" aria-live="polite"></div></div>`;}
 
+let projectStorageSave = null;
+function projectMigrationHtml() {
+  return `<div class="project-migration" id="projectMigration"><div id="migrationProjects" class="field-hint"></div><div id="projectMigrationPlan" class="migration-plan" hidden></div><button type="button" id="confirmProjectMigration" class="button button-primary" hidden>确认保存并迁移</button><p id="projectMigrationNotice" class="field-hint" role="status" aria-live="polite"></p><progress id="projectMigrationProgress" hidden></progress><button type="button" id="retryProjectMigration" class="button button-secondary" hidden>重试连接</button></div>`;
+}
+function migrationDraftProblem() {
+  if (projectStorageSave || state.uploading || state.jobs.size || captureUI?.isBusy() || documentLinkBusy || state.trashBusy || state.exitBusy || skillSourceState.busy || state.restoringDrafts) return '请先等待导入、截图或其他后台操作完成，再迁移项目。';
+  for (const tab of state.tabs) {
+    if (tab.loading || tab.saving || tab.propertiesSaving) return '请先等待文稿加载或保存完成，再迁移项目。';
+    if (!markdownInputReady(tab)) return '请先完成正在输入的文字，再迁移项目。';
+    if (tab.dirty || tab.propertiesDirty) return `请先关闭设置并保存「${tab.item.name}」的文稿与制作信息，再回来迁移。未保存内容已保留。`;
+  }
+  return '';
+}
+async function refreshMigratedProjects(ids) {
+  const selected = new Set(state.selectedIds), projects = new Set(ids.map(String));
+  try {
+    await refreshProjects({preserveLocation:true});
+    for (const tab of state.tabs.filter(tab => tab.source === 'file' && projects.has(String(tab.item.project_id)))) {
+      const item = await api(`/api/items/${encodeURIComponent(tab.id)}`);
+      const content = tab.content ? await api(`/api/content/${encodeURIComponent(tab.id)}`) : null;
+      tab.item = item;
+      if (content) {
+        if (tab.dirty || tab.propertiesDirty) {
+          // A late local edit must retain its old etag and conflict check.
+          if (tab.content.etag !== content.etag) tab.conflict = true;
+        } else {
+          tab.content = {...tab.content,...content};
+          // Migration may rewrite relative Markdown links. Keep clean editors in
+          // sync, otherwise the next save could restore the obsolete paths.
+          if (typeof content.content === 'string' && tab.draft !== content.content) {
+            tab.draft = content.content; tab.markdownEditor?.setValue(tab.draft);
+          }
+        }
+      }
+    }
+    if (state.section === 'assets') await loadItems();
+  } finally { state.selectedIds = selected; updateSelection(); }
+  renderWorkspace();
+}
+function bindProjectMigration(dialog, options) {
+  const sequence = state.modalSequence, host = $('#projectMigration');
+  const rows = $('#migrationProjects'), confirm = $('#confirmProjectMigration'), planHost = $('#projectMigrationPlan');
+  const notice = $('#projectMigrationNotice'), progress = $('#projectMigrationProgress'), retry = $('#retryProjectMigration');
+  let projects = [], selected = new Set(), plan = null, busy = false, running = false, polling = false, jobId = '', fingerprint = '', locked = new Map();
+  const alive = () => dialog.open && sequence === state.modalSequence && $('#projectMigration') === host;
+  const signature = () => JSON.stringify([options.root(),[...selected].sort()]);
+  const message = (value,error=false) => { if (alive()) { notice.textContent=String(value || '');notice.classList.toggle('project-storage-error',error); } };
+  const update = () => {
+    if (!alive()) return;
+    confirm.disabled=busy || running || !plan;
+    options.update?.();
+  };
+  const invalidate = () => { if(running)return;plan=null;fingerprint='';if(alive()){planHost.hidden=true;planHost.innerHTML='';confirm.hidden=true;}update(); };
+  const setSnapshot = snapshot => {
+    if(!alive() || running)return;projects=Array.isArray(snapshot.existing_roots)?snapshot.existing_roots:[];
+    selected = new Set(projects.map(project=>String(project.id)));
+    rows.textContent=projects.length?`保存位置时将同步全部 ${projects.length} 个项目。先预览来源、目标和复制量，再确认。原目录保留作备份，外部引用保持原位置。`:'';
+    invalidate();
+  };
+  const setRunning = value => {
+    running=value;state.migrationBusy=value;state.modalBusy=value;
+    if(value){locked=new Map($$('#dialogForm input,#dialogForm select,#dialogForm textarea,#dialogForm button,#closeDialog').map(node=>[node,node.disabled]));for(const node of locked.keys())node.disabled=true;}
+    else {for(const [node,disabled] of locked)if(node.isConnected)node.disabled=disabled;locked.clear();}
+    update();
+  };
+  const showPreview = async () => {
+    if(busy || running || !alive() || !selected.size || !options.root())return;
+    invalidate();busy=true;update();message('正在核对项目文件与目标位置…');const stamp=signature(),ids=[...selected];
+    try {
+      const result=await api('/api/project-storage/migration/preview',{method:'POST',body:{root:options.root(),project_ids:ids}});
+      if(!alive() || signature()!==stamp)return;if(!result.token || !Array.isArray(result.projects))throw Error('迁移预览不完整，请重新预览。');
+      plan={...result,ids};fingerprint=stamp;
+      planHost.innerHTML=result.projects.map(project=>`<article><strong>${escapeHtml(project.name)}</strong><dl><dt>原位置</dt><dd>${escapeHtml(project.source_root)}</dd><dt>迁移到</dt><dd>${escapeHtml(project.target_root)}</dd></dl><p class="field-hint">${Number(project.files)||0} 个文件 · ${formatSize(project.bytes)} · ${Number(project.external_references)||0} 个外部引用保持原位置</p></article>`).join('')+`<p>本次复制 ${formatSize(result.total_bytes)}，核验完成后切换项目位置。原目录保留作备份。</p>`+(result.warnings||[]).map(value=>`<p class="field-hint">${escapeHtml(value)}</p>`).join('');
+      planHost.hidden=false;confirm.hidden=false;message('请核对原位置和目标位置。确认后等待迁移完成，期间暂停编辑和导入。');
+    }catch(error){message(error.message,true);}finally{busy=false;update();}
+  };
+  const followJob = async () => {
+    if(polling || !running)return;polling=true;if(alive()){retry.hidden=true;retry.disabled=true;progress.hidden=false;}
+    try {
+      if(!jobId){const result=await api('/api/project-storage/migration',{method:'POST',body:{token:plan.token}});if(!result.job_id)throw Error('尚未取得迁移任务状态，请重试连接。');jobId=String(result.job_id);}
+      while(running){
+        let result;
+        try {result=await api(`/api/project-storage/migration/jobs/${encodeURIComponent(jobId)}`);}
+        catch(error){
+          if(error.status!==404)throw error;
+          const status=await api('/api/project-storage/migration/status');
+          if(status.active_job_id){
+            const activeId=String(status.active_job_id);
+            if(activeId===jobId)throw Error('迁移仍在进行，任务详情暂时不可用，请重试连接。');
+            jobId=activeId;message('后台仍有迁移任务，正在重新连接进度…');continue;
+          }
+          if(status.active_job_id!==null)throw Error('暂时无法确认后台迁移状态，请重试连接。');
+          const ids=plan.ids;let refreshError='';
+          try {await refreshMigratedProjects(ids);}catch(refreshFailure){refreshError=refreshFailure.message;}
+          plan=null;jobId='';if(alive()){confirm.hidden=true;progress.hidden=true;planHost.hidden=true;}setRunning(false);
+          try {await options.complete?.();}catch(refreshFailure){refreshError=refreshError || refreshFailure.message;}
+          message(refreshError?`后台已重启，当前已无迁移任务；实际位置刷新未完成，请重新打开设置核对。${refreshError}`:'后台已重启，已重新读取实际项目位置，请核对；未完成可重新预览迁移。',true);return;
+        }
+        if(alive()){message(result.message || '正在迁移项目，请保持映序运行。');const total=Number(result.total)||0;if(total>0){progress.max=total;progress.value=Math.min(total,Number(result.completed)||0);}else progress.removeAttribute('value');}
+        if(result.state==='done' || result.state==='error'){
+          const ids=plan.ids;plan=null;jobId='';if(alive()){confirm.hidden=true;progress.hidden=true;}
+          if(result.state==='done'){
+            try {await refreshMigratedProjects(ids);message('迁移完成，项目已切换到新位置。原目录保留作备份，外部引用保持原位置。');}
+            catch(error){message(`迁移已完成，但界面刷新未完成。请重新打开映序查看新位置。${error.message}`,true);}
+          }else message(result.error || result.message || '迁移未完成，请核对错误后重新预览。原文件保留。',true);
+          setRunning(false);if(result.state==='done'){try{await options.complete?.();}catch(error){message(`迁移已完成，请重新打开设置查看新位置。${error.message}`,true);}}return;
+        }
+        if(!['running','queued'].includes(result.state))throw Error('迁移状态暂时无法确认，请重试连接。');
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+    }catch(error){
+      if(!jobId && error.status>=400 && error.status<500){plan=null;if(alive())confirm.hidden=true;setRunning(false);message(error.message,true);}
+      else {message(`暂时无法确认迁移进度，保持暂停编辑。${error.message}`,true);if(alive()){retry.hidden=false;retry.disabled=false;}}
+    }finally{polling=false;}
+  };
+  const start = async () => {
+    if(busy || running || !alive() || !plan)return;
+    if(fingerprint!==signature()){invalidate();message('选择或目标位置已改变，请重新预览。',true);return;}
+    const problem=migrationDraftProblem();if(problem){message(problem,true);return;}
+    setRunning(true);message('正在启动迁移…');await followJob();
+  };
+  confirm.addEventListener('click',start);retry.addEventListener('click',followJob);
+  return {setSnapshot,invalidate,preview:showPreview,start,retry:followJob,isBusy:()=>busy || running,hasProjects:()=>projects.length>0};
+}
+function projectStorageSettingsHtml() {
+  return `<section class="settings-section project-storage" id="projectStorageSection"><h3>项目存放位置</h3><p class="field-hint">新建项目将按“项目分类 / 项目 / 文本等分类”保存到所选位置。</p><dl class="project-storage-current"><dt>当前位置</dt><dd id="projectStorageCurrent">正在读取…</dd></dl><div class="field"><label for="projectStoragePath">新的存放文件夹</label><div class="project-storage-picker"><input id="projectStoragePath" type="text" spellcheck="false" autocomplete="off" placeholder="选择文件夹，或输入完整路径" aria-describedby="projectStoragePreview" disabled><button id="chooseProjectStorage" type="button" class="button button-secondary" disabled>${icon('folder')}选择文件夹</button></div></div><p class="project-storage-preview field-hint" id="projectStoragePreview"></p><p class="field-hint">更改位置时会将已有项目复制到新文件夹，核验成功后统一切换；以后新建的项目也使用新位置。原目录保留作备份，外部引用保持原位置。分类改名或重新归类本身不会移动磁盘目录。</p><div class="settings-buttons"><button id="saveProjectStorage" type="button" class="button button-secondary" disabled>保存存放位置</button><button id="retryProjectStorage" type="button" class="button button-ghost" hidden>重新读取</button></div><p id="projectStorageNotice" class="field-hint" role="status" aria-live="polite"></p>${projectMigrationHtml()}</section>`;
+}
+function bindProjectStorageSettings(dialog) {
+  const sequence = state.modalSequence, host = $('#projectStorageSection');
+  const input = $('#projectStoragePath'), choose = $('#chooseProjectStorage'), save = $('#saveProjectStorage');
+  const retry = $('#retryProjectStorage'), current = $('#projectStorageCurrent'), preview = $('#projectStoragePreview'), notice = $('#projectStorageNotice');
+  const alive = () => dialog.open && sequence === state.modalSequence && $('#projectStorageSection') === host;
+  const picker = Boolean(state.bootstrap?.capabilities?.native_picker);
+  let busy = false, loaded = false, root = '', migration = null;
+  const showNotice = (message,error = false) => { if (alive()) { notice.textContent = message; notice.classList.toggle('project-storage-error',error); } };
+  const update = () => {
+    if (!alive()) return;
+    const value = input.value.trim(), blocked = busy || migration?.isBusy(); input.disabled = blocked || !loaded; choose.disabled = blocked || !loaded || !picker;
+    save.disabled = blocked || !loaded || !value || value === root; save.textContent=migration?.hasProjects()?'保存并迁移':'保存存放位置'; retry.disabled = blocked;
+    preview.textContent = value ? `新项目目录示例：${value.replace(/[\\/]+$/,'')}${value.includes('\\') ? '\\' : '/'}项目分类 / 项目名称 / 文本等分类` : '请选择新项目的存放文件夹。';
+  };
+  const accept = result => { root = String(result.root || ''); current.textContent = root || '尚未设置'; input.value = root; loaded = true; state.bootstrap.project_root = root; };
+  const load = async () => {
+    if (busy || !alive()) return; busy = true; update(); showNotice('正在读取项目存放位置…');
+    try {
+      if (projectStorageSave) await projectStorageSave.catch(() => {});
+      if (!alive()) return;
+      const result = await api('/api/project-storage'); if (!alive()) return;
+      accept(result); migration?.setSnapshot(result); retry.hidden = result.available !== false;
+      showNotice(result.available === false ? String(result.error || '当前项目存放位置不可用。请连接对应磁盘后重新读取，或选择其他文件夹。') : picker ? '' : '当前环境不能打开文件夹选择窗口，可直接填写完整路径。',result.available === false);
+    } catch(error) { if (alive()) { retry.hidden = false; showNotice(error.message,true); } }
+    finally { busy = false; update(); }
+  };
+  const pick = async () => {
+    if (busy || migration?.isBusy() || !loaded || !picker || !alive()) return; busy = true; update(); showNotice('请选择项目存放文件夹…');
+    try { const result = await api('/api/pick',{method:'POST',body:{kind:'folder'}}); if (!alive()) return; if (result.paths?.length) { input.value = String(result.paths[0]); migration?.invalidate(); } showNotice(result.paths?.length ? '核对位置后，点击保存按钮继续。' : '已取消选择，存放位置未改变。'); }
+    catch(error) { showNotice(error.message,true); }
+    finally { busy = false; update(); }
+  };
+  const apply = async () => {
+    if (busy || migration?.isBusy() || !loaded || projectStorageSave || !alive()) return;
+    const target = input.value.trim(); if (!target || target === root) return;
+    if (migration?.hasProjects()) { await migration.preview(); return; }
+    busy = true; update(); showNotice('正在保存项目存放位置…');
+    const pending = api('/api/project-storage',{method:'POST',body:{root:target}}); projectStorageSave = pending;
+    try {
+      const result = await pending; state.bootstrap.project_root = result.root;
+      if (alive()) { accept(result); migration?.setSnapshot(result); retry.hidden = true; showNotice('已保存。以后新建的项目将存放在这里。'); }
+    } catch(error) { showNotice(error.message,true); }
+    finally { if (projectStorageSave === pending) projectStorageSave = null; busy = false; update(); }
+  };
+  migration = bindProjectMigration(dialog,{root:()=>input.value.trim() || root,update,complete:load});
+  input.addEventListener('input',() => { migration.invalidate(); showNotice(''); update(); });
+  input.addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); save.focus(); } });
+  choose.addEventListener('click',pick); save.addEventListener('click',apply); retry.addEventListener('click',load);
+  return {ready:load(),load,pick,apply};
+}
+
 async function settingsDialog() {
   if ($('#appDialog').open || groupsIsOpen() || globalSearchIsOpen()) { toast('请先完成或关闭当前对话框。','info'); return; }
   maintenancePreview=null;maintenanceRevision++;
@@ -1682,7 +1868,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.9-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.9 · ${escapeHtml(state.bootstrap?.version === '0.4.9' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.10-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.10 · ${escapeHtml(state.bootstrap?.version === '0.4.10' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);
@@ -1692,6 +1878,7 @@ async function settingsDialog() {
     window.chrome?.webview?.postMessage({action:'settings-changed'});
     configureSection(); if (state.section === 'assets') await loadItems(); toast('设置已保存。');
   }});
+  if (state.bootstrap?.capabilities?.project_storage) bindProjectStorageSettings($('#appDialog'));
   for(const selector of ['#maintenanceCache','#maintenanceVersions','#maintenanceKeep','#maintenanceDays'])$(selector)?.addEventListener('input',invalidateMaintenancePreview);
 }
 async function openExternal(id) {

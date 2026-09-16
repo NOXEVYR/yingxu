@@ -29,7 +29,19 @@ ROOT=Path(__file__).resolve().parent
 
 class Application:
     def __init__(self,data_root,project_root):
-        self.store=Store(data_root,project_root)
+        from yingxu.settings import Settings
+        from yingxu.project_storage import ProjectStorage
+        data_root=Path(data_root).resolve()
+        data_root.mkdir(parents=True,exist_ok=True)
+        self.settings=Settings(data_root)
+        configured_root=self.settings.get()['project_storage_root']
+        # Never recreate an offline configured location or touch the former
+        # default directory before Settings has a chance to repair the choice.
+        self.store=Store(data_root,configured_root or project_root,create_project_root=not configured_root)
+        from yingxu.project_migration import ProjectMigration, recover_pending
+        recover_pending(self.store,self.settings)
+        self.project_storage=ProjectStorage(self.store,self.settings)
+        self.store.project_storage=self.project_storage
         resume_token=os.environ.pop('YINGXU_RESUME_SESSION_TOKEN','')
         self.token=resume_token if re.fullmatch(r'[A-Za-z0-9_-]{40,128}',resume_token) else secrets.token_urlsafe(32)
         self.picker_lock=threading.Lock()
@@ -48,10 +60,8 @@ class Application:
         self.thumbnails=Thumbnails(self.store)
         from yingxu.trash import TrashDeletion
         self.trash_deletion=TrashDeletion(self.store,self.skills)
-        from yingxu.settings import Settings
         from yingxu.external import ExternalPreviews
         from yingxu.project_library import ProjectLibrary
-        self.settings=Settings(self.store.data_root)
         self.external=ExternalPreviews(self.store.data_root)
         self.project_library=ProjectLibrary(self.store)
         from yingxu.search import GlobalSearch
@@ -62,6 +72,9 @@ class Application:
         self.markdown_assets=MarkdownAssets(self.store)
         from yingxu.maintenance import Maintenance
         self.maintenance=Maintenance(self.store)
+        from yingxu.migration_jobs import MigrationJobs
+        self.project_migration=ProjectMigration(self.store,self.project_storage)
+        self.migration_jobs=MigrationJobs(self,self.project_migration)
         self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
@@ -70,18 +83,21 @@ class Application:
             if self._closed:return
             self._closed=True
             try:
-                self.jobs.pool.shutdown(wait=True,cancel_futures=False)
+                self.migration_jobs.close()
             finally:
-                try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                try:
+                    self.jobs.pool.shutdown(wait=True,cancel_futures=False)
                 finally:
-                    if not self.context.close():
-                        raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
+                    try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                    finally:
+                        if not self.context.close():
+                            raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
 
     def bootstrap(self):
         return {'app':'yingxu','version':__version__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'global_search':True,'resource_groups':True}}
+          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -404,6 +420,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk);remaining-=len(chunk)
 
     def handle_request(self):
+        if self.command in ('GET','HEAD'):return self.handle_application_request()
+        try:
+            self.check_origin(self.command not in ('GET','HEAD'))
+            with self.app.migration_jobs.mutation(self.command,urlsplit(self.path).path):
+                return self.handle_application_request()
+        except UserError as error:
+            self.close_connection=True
+            self.json({'error':str(error)},error.status)
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
+
+    def handle_application_request(self):
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
             parsed=urlsplit(self.path);path=parsed.path
@@ -412,6 +439,10 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/health':return self.json({'app':'yingxu','ok':True,'version':__version__,'instance_id':instance_id(self.app.store.data_root)})
                 if path=='/api/bootstrap':return self.json(self.app.bootstrap())
                 if path=='/api/settings':return self.json(self.app.settings.get())
+                if path=='/api/project-storage':return self.json(self.app.project_storage.snapshot())
+                if path=='/api/project-storage/migration/status':return self.json(self.app.migration_jobs.status())
+                migration_job=re.fullmatch(r'/api/project-storage/migration/jobs/([a-f0-9]{32})',path)
+                if migration_job:return self.json(self.app.migration_jobs.get(migration_job[1]))
                 if path=='/api/project-library':return self.json(self.app.project_library.snapshot())
                 if path=='/api/markdown-assets/file-link':
                     if set(query)-{'note','item'}:raise UserError('文件链接仅接受笔记与素材 ID。')
@@ -489,7 +520,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise UserError('接口或请求方式不存在。',404)
             if self.command=='POST' and path=='/api/maintenance/preview':return self.json(self.app.maintenance.preview(data))
             if self.command=='POST' and path=='/api/maintenance/cleanup':return self.json(self.app.maintenance.execute(data))
-            if self.command=='PATCH' and path=='/api/settings':return self.json(self.app.settings.update(data))
+            if self.command=='PATCH' and path=='/api/settings':
+                if 'project_storage_root' in data:raise UserError('请通过项目存放位置单独保存目录。')
+                return self.json(self.app.settings.update(data))
+            if self.command=='POST' and path=='/api/project-storage/migration/preview':
+                return self.json(self.app.migration_jobs.preview(data))
+            if self.command=='POST' and path=='/api/project-storage/migration':
+                return self.json(self.app.migration_jobs.submit(data),202)
+            if self.command=='POST' and path=='/api/project-storage':return self.json(self.app.project_storage.configure(data))
             library_folder=re.fullmatch(r'/api/project-folders/([a-f0-9]{32})',path)
             if library_folder:
                 if self.command=='PATCH':return self.json(self.app.project_library.update_folder(library_folder[1],data))
@@ -531,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/items':
                     item=self.app.store.create_item(data);self.app.context.request(item['project_id']);return self.json(item,201)
                 if path=='/api/clipboard/paste':return self.json(self.app.paste_clipboard(data),201)
-                if path=='/api/import':return self.json(self.app.jobs.submit(data.get('project_id'),data.get('category','references'),data.get('paths',[]),data.get('folder_id','')),202)
+                if path=='/api/import':return self.json(self.app.jobs.submit(data.get('project_id'),data.get('category','references'),data.get('paths',[]),data.get('folder_id',''),mode=data.get('mode','reference')),202)
                 if path=='/api/rescan':return self.json(self.app.jobs.submit(data.get('project_id')),202)
                 if path=='/api/macos/desktop':
                     if self.app.desktop_message is None:raise UserError('当前环境没有 macOS 桌面窗口。',404)
