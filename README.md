@@ -12,11 +12,22 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.9](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.9/YingXu-v0.4.9-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9)
+**[下载 Windows x64 完整包 · v0.4.10](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.10/YingXu-v0.4.10-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.9-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.10-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.10 已发布：项目存放位置与迁移。** Windows 和 macOS 使用同一份功能源码，分别完成最终包验证与上传后下载回检。
+
+- 在“设置 → 项目存放位置”选择新文件夹，预览后确认保存，自动复制并迁移全部活动项目；不必逐个搬动。
+- 磁盘目录遵循“项目分类 / 项目 / 文本、角色等分类”，例如“个人作品 / 练习 / 文本 / 剧本.md”。导入默认复制到当前分类，也可选择引用原文件。
+- 副本逐项校验后切换位置；原目录保留作备份，外部引用保持原位置，保留素材身份与历史记录。失败继续使用原位置，意外中断后核对数据库与设置恢复一致。
+- 迁移前检查未保存内容，期间暂停编辑和导入；进度断连可重试同一任务，后台重启后重新读取实际位置。无需新增模型或运行依赖。
+
+详情见[项目存放位置与分类目录](docs/功能指南.md#项目存放位置与分类目录)。完成后在新位置工作，原目录作为迁移时的备份保留。
+
+[Windows 0.4.9 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9) · [macOS 0.4.9-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)
 
 **0.4.9 已发布：浏览器图片粘贴修复。** Windows 正式包与 macOS 0.4.9-mac.1 试用包分别完成构建、隔离验证和上传后完整下载回检。
 
