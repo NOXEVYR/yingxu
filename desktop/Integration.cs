@@ -239,4 +239,158 @@ namespace YingXu.Desktop
         [DllImport("shell32.dll")]
         private static extern void SHChangeNotify(uint eventId,uint flags,IntPtr item1,IntPtr item2);
     }
+    // Explorer navigation is asynchronous. Shell COM lookup must never run on the UI thread.
+    internal sealed class FolderFocusState
+    {
+        internal IntPtr Handle;
+        internal uint Process;
+        internal uint Input;
+        internal bool Explorer;
+    }
+    internal interface IFolderFocus
+    {
+        FolderFocusState ReadState();
+        IEnumerable<IntPtr> Find(string folder);
+        bool IsMinimized(IntPtr handle);
+        void Restore(IntPtr handle);
+        void Activate(IntPtr handle);
+        void Wait();
+    }
+    internal static class FolderForeground
+    {
+        private static int serial;
+        private static readonly object workerLock=new object();
+        private static Action pending;
+        private static bool running;
+        internal static bool MayFocus(FolderFocusState state,uint own,uint input)
+        {
+            // A newly opened/reused Explorer can become foreground before its path updates.
+            // Do not abort that transition, but never steal focus after another user action.
+            return state.Process==own || ((state.Handle==IntPtr.Zero || state.Explorer) && state.Input==input);
+        }
+        internal static string Normalize(string path)
+        {
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+        }
+        internal static void Run(string folder,uint own,uint input,IFolderFocus desktop,Func<bool> cancelled)
+        {
+            var elapsed=System.Diagnostics.Stopwatch.StartNew();
+            for(int attempt=0;attempt<40 && elapsed.ElapsedMilliseconds<4000 && !cancelled();attempt++)
+            {
+                if(!MayFocus(desktop.ReadState(),own,input))return;
+                foreach(IntPtr handle in desktop.Find(folder))
+                {
+                    if(cancelled() || elapsed.ElapsedMilliseconds>=4000)return;
+                    FolderFocusState current=desktop.ReadState();
+                    if(!MayFocus(current,own,input))return;
+                    if(current.Handle==handle && !desktop.IsMinimized(handle))return;
+                    if(desktop.IsMinimized(handle))desktop.Restore(handle);
+                    desktop.Activate(handle);
+                    // SetForegroundWindow success only queues activation; verify on next pass.
+                    break;
+                }
+                desktop.Wait();
+            }
+        }
+        internal static void Request(string folder,string selected,bool open,Func<bool> cancelled)
+        {
+            string expected=Normalize(folder);
+            if(!Directory.Exists(folder))return;
+            if(selected!=null && (!File.Exists(selected) || !String.Equals(Normalize(Path.GetDirectoryName(selected)),expected,StringComparison.OrdinalIgnoreCase)))return;
+            var native=new NativeFolderFocus();
+            uint input=native.ReadState().Input;
+            int request=Interlocked.Increment(ref serial);
+            // This call is made by the foreground desktop host, not the detached Python service.
+            // Explorer can inherit the user's activation permission when it creates a window.
+            if(open)
+            {
+                string explorer=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe");
+                string arguments=selected==null?Hub.Quote(folder):"/select,"+Hub.Quote(selected);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(explorer,arguments) { UseShellExecute=true });
+            }
+            lock(workerLock)
+            {
+                pending=delegate {
+                    try { Run(expected,(uint)System.Diagnostics.Process.GetCurrentProcess().Id,input,native,
+                        () => request!=Volatile.Read(ref serial)||cancelled()); }
+                    catch(Exception error) { Hub.Log("folder_foreground_failed="+error.GetType().Name); }
+                };
+                if(running)return;
+                running=true;
+                var worker=new Thread(delegate() {
+                    while(true) {
+                        Action next;
+                        lock(workerLock) { next=pending;pending=null;if(next==null) { running=false;return; } }
+                        next();
+                    }
+                });
+                worker.IsBackground=true;worker.Name="YingXu folder foreground";
+                worker.SetApartmentState(ApartmentState.STA);worker.Start();
+            }
+        }
+        private sealed class NativeFolderFocus : IFolderFocus
+        {
+            public FolderFocusState ReadState()
+            {
+                IntPtr handle=GetForegroundWindow();uint owner;GetWindowThreadProcessId(handle,out owner);
+                var name=new StringBuilder(128);GetClassName(handle,name,name.Capacity);
+                var input=new LastInput { Size=(uint)Marshal.SizeOf(typeof(LastInput)) };GetLastInputInfo(ref input);
+                return new FolderFocusState { Handle=handle,Process=owner,Input=input.Time,
+                    Explorer=name.ToString()=="CabinetWClass" || name.ToString()=="ExploreWClass" };
+            }
+            public IEnumerable<IntPtr> Find(string folder)
+            {
+                var found=new List<IntPtr>();object shell=null,windows=null;
+                try
+                {
+                    shell=Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
+                    windows=Get(shell,"Windows",true);
+                    int count=Math.Min(Convert.ToInt32(Get(windows,"Count",false)),128);
+                    for(int index=0;index<count;index++)
+                    {
+                        object window=null,document=null,location=null,self=null;
+                        try
+                        {
+                            window=windows.GetType().InvokeMember("Item",System.Reflection.BindingFlags.InvokeMethod,null,windows,new object[] { index });
+                            string path=null;
+                            // Folder.Self.Path also handles Explorer URLs which are not file: URIs.
+                            try { document=Get(window,"Document",false);location=Get(document,"Folder",false);self=Get(location,"Self",false);path=Convert.ToString(Get(self,"Path",false)); } catch { }
+                            if(String.IsNullOrEmpty(path))
+                            {
+                                Uri uri;if(Uri.TryCreate(Convert.ToString(Get(window,"LocationURL",false)),UriKind.Absolute,out uri)&&uri.IsFile)path=uri.LocalPath;
+                            }
+                            if(String.IsNullOrEmpty(path)||!String.Equals(Normalize(path),folder,StringComparison.OrdinalIgnoreCase))continue;
+                            IntPtr handle=new IntPtr(Convert.ToInt64(Get(window,"HWND",false)));
+                            IntPtr root=GetAncestor(handle,2);if(root!=IntPtr.Zero)handle=root;
+                            if(handle!=IntPtr.Zero)found.Add(handle);
+                        }
+                        catch { }
+                        finally { Release(self);Release(location);Release(document);Release(window); }
+                    }
+                }
+                catch { }
+                finally { Release(windows);Release(shell); }
+                return found;
+            }
+            private static object Get(object value,string property,bool method)
+            {
+                return value.GetType().InvokeMember(property,method?System.Reflection.BindingFlags.InvokeMethod:System.Reflection.BindingFlags.GetProperty,null,value,null);
+            }
+            private static void Release(object value) { if(value!=null && Marshal.IsComObject(value))Marshal.ReleaseComObject(value); }
+            public bool IsMinimized(IntPtr handle) { return IsIconic(handle); }
+            public void Restore(IntPtr handle) { ShowWindowAsync(handle,9); }
+            public void Activate(IntPtr handle) { SetForegroundWindow(handle); }
+            public void Wait() { Thread.Sleep(100); }
+            [StructLayout(LayoutKind.Sequential)] private struct LastInput { internal uint Size;internal uint Time; }
+            [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr handle,out uint process);
+            [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr handle,StringBuilder text,int count);
+            [DllImport("user32.dll")] private static extern bool GetLastInputInfo(ref LastInput input);
+            [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr handle);
+            [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr handle,int command);
+            [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr handle);
+            [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr handle,uint flags);
+        }
+    }
+
 }

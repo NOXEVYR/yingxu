@@ -160,16 +160,19 @@ class Application:
             open_path(path,reveal=action=='reveal')
             return {'ok':True,'focus_folder':str(path.parent) if action=='reveal' else None}
         if os.name!='nt':raise UserError('此操作需要 Windows 桌面环境。')
-        if action=='reveal':subprocess.Popen(['explorer.exe','/select,',str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
+        if action=='reveal':
+            if data.get('native_open') is True:return {'ok':True,'focus_folder':str(path.parent),'native_open':True,'reveal_file':str(path)}
+            subprocess.Popen(['explorer.exe','/select,',str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
         elif action=='open':os.startfile(str(path))
         else:raise UserError('不支持的打开方式。')
         return {'ok':True,'focus_folder':str(path.parent) if action=='reveal' else None}
 
     def open_folder(self,data):
-        if not isinstance(data,dict) or set(data)-{'project_id','category','folder_id','skill_id'}:
+        if not isinstance(data,dict) or set(data)-{'project_id','category','folder_id','skill_id','native_open'}:
             raise UserError('请选择已登记的项目文件夹或 SKILL。')
         skill_target='skill_id' in data
-        if skill_target and (set(data)!={'skill_id'} or not isinstance(data['skill_id'],str) or not re.fullmatch('[a-f0-9]{32}',data['skill_id'])):
+        if 'native_open' in data and not isinstance(data['native_open'],bool):raise UserError('打开方式参数无效。')
+        if skill_target and (set(data)-{'native_open'}!={'skill_id'} or not isinstance(data['skill_id'],str) or not re.fullmatch('[a-f0-9]{32}',data['skill_id'])):
             raise UserError('SKILL 位置请求仅接受一个有效的 skill_id。')
         if os.name!='nt' and sys.platform!='darwin':raise UserError('此操作需要桌面环境。')
         with self.skills.lock,self.store.lock:
@@ -193,6 +196,7 @@ class Application:
                 from yingxu.macos import open_path
                 open_path(path)
             else:
+                if data.get('native_open') is True:return {'ok':True,'focus_folder':str(path),'native_open':True,'reveal_file':None}
                 explorer=Path(os.environ.get('WINDIR','C:/Windows'))/'explorer.exe'
                 subprocess.Popen([str(explorer),str(path)],creationflags=subprocess.CREATE_NO_WINDOW)
         return {'ok':True,'focus_folder':str(path)}
@@ -600,6 +604,19 @@ class Handler(BaseHTTPRequestHandler):
                     result=self.app.organize.create_folder(data.get('project_id'),data.get('category'),data.get('name',''),data.get('parent_id'))
                     self.app.changed(result['project_id']);return self.json(result,201)
                 if path=='/api/move':
+                    target=data.get('target_project_id')
+                    if target is not None and (not isinstance(target,str) or not re.fullmatch(r'[a-f0-9]{32}',target)):
+                        raise UserError('目标项目无效。')
+                    source=self.app.store.get_item(data['ids'][0])['project_id'] if target and isinstance(data.get('ids'),list) and data['ids'] else None
+                    if target and target!=source:
+                        from yingxu.cross_project import move_items
+                        with self.app.migration_jobs.cross_project_move():
+                            result=move_items(self.app.organize,data.get('ids'),target,data.get('category'),data.get('folder_id'))
+                        try:self.app.changed()
+                        except Exception:
+                            traceback.print_exc()
+                            result.setdefault('warnings',[]).append('文件已移动，项目索引需要重新刷新。')
+                        return self.json(result)
                     result=self.app.organize.move_items(data.get('ids'),data.get('category'),data.get('folder_id'))
                     self.app.changed();return self.json(result)
                 if path=='/api/trash/items':

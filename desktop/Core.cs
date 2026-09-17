@@ -165,6 +165,57 @@ namespace YingXu.Desktop
             catch { return false; }
         }
 
+        internal static bool TryReadDropFilesMessage(string source, string currentSource, string json, out string requestId)
+        {
+            requestId = null;
+            if (!IsLocalPage(source, Url) || !IsLocalPage(currentSource, Url) ||
+                String.IsNullOrEmpty(json) || json.Length > 512) return false;
+            try
+            {
+                var message = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(json);
+                object action, id;
+                if (message == null || message.Count != 2 || !message.TryGetValue("action", out action) ||
+                    (action as string) != "resolve-drop-files" || !message.TryGetValue("requestId", out id)) return false;
+                string value = id as string;
+                if (value == null || !Regex.IsMatch(value, "\\A[0-9a-fA-F]{32}\\z")) return false;
+                requestId = value;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        internal static string[] ResolveDropFilePaths(IEnumerable<object> objects)
+        {
+            return ResolveDropFilePaths(objects, entry => {
+                var file = entry as FileInfo;
+                if (file == null) throw new InvalidDataException("拖入对象不是本地文件，请从系统文件夹重新拖入。");
+                return file.FullName;
+            });
+        }
+
+        internal static string[] ResolveDropFilePaths(IEnumerable<object> objects, Func<object, string> nativePath)
+        {
+            // Only WebView2-attached File objects are authoritative. Never accept a JSON path.
+            // Read metadata only: the existing import endpoint checks and copies actual files.
+            if (objects == null) return null;
+            var paths = new List<string>();
+            bool pathless = false;
+            foreach (object entry in objects)
+            {
+                if (paths.Count >= 200) throw new InvalidDataException("一次最多拖入 200 个文件，请分批导入。");
+                string path = nativePath(entry);
+                if (String.IsNullOrEmpty(path)) pathless = true;
+                else if (path.Length > 32700 || path.Length < 3 || !Char.IsLetter(path[0]) ||
+                    path[1] != ':' || (path[2] != '\\' && path[2] != '/') ||
+                    path.IndexOf('\0') >= 0 || path.IndexOf(':', 2) >= 0)
+                    throw new InvalidDataException("拖入文件路径无效，请使用本机磁盘中的普通文件。");
+                paths.Add(path);
+            }
+            // Generated browser files have no disk path. Fall back for the entire batch so
+            // neither partial import nor reordering can occur; preserve duplicate paths too.
+            return pathless || paths.Count == 0 ? null : paths.ToArray();
+        }
+
         private static readonly HashSet<string> DragExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".md", ".markdown", ".txt", ".json", ".csv", ".srt", ".vtt", ".yaml", ".yml", ".html", ".htm", ".excalidraw",
@@ -267,7 +318,7 @@ namespace YingXu.Desktop
                     return health != null && health.TryGetValue("app", out name) && (name as string) == "yingxu" &&
                            health.TryGetValue("ok", out ok) && ok is bool && (bool)ok &&
                            health.TryGetValue("instance_id", out identity) && (identity as string) == InstanceId() &&
-                           health.TryGetValue("version", out version) && (version as string) == "0.4.10";
+                           health.TryGetValue("version", out version) && (version as string) == "0.4.11";
                 }
             }
             catch { return false; }

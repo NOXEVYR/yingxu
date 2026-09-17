@@ -55,7 +55,7 @@ async function confirmRemoval(title,subtitle,choices) { return preference('confi
 async function api(path, options = {}) {
   if (state.migrationBusy && options.method && !['GET','HEAD'].includes(options.method.toUpperCase()) && path !== '/api/project-storage/migration') throw new Error('项目正在迁移，请完成后再编辑或导入。');
   const init = {...options,headers:{Accept:'application/json',...(options.headers || {})}};
-  if (options.body !== undefined) { init.body = JSON.stringify(options.body); init.headers['Content-Type'] = 'application/json'; }
+  if (options.body !== undefined) { const body = window.yingxuDesktopOpenFolder && window.chrome?.webview?.postMessage && options.method === 'POST' && (path === '/api/open-folder' || (path === '/api/open' && options.body?.action === 'reveal')) ? {...options.body,native_open:true} : options.body; init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
   if (options.method && options.method !== 'GET') init.headers['X-YingXu-Token'] = state.bootstrap?.token || '';
   let response;
   try { response = await fetch(path, init); const connection = $('#connectionState'); if (connection) connection.textContent = '本地连接正常'; }
@@ -63,7 +63,7 @@ async function api(path, options = {}) {
   let result;
   try { result = await response.json(); } catch { result = {}; }
   if (!response.ok) { const error = new Error(result.error || `请求未完成（${response.status}）`); error.status = response.status; throw error; }
-  if (result.focus_folder && window.yingxuDesktopFocus && window.chrome?.webview?.postMessage) window.chrome.webview.postMessage({action:'focus-folder',path:result.focus_folder});
+  if (result.focus_folder && window.yingxuDesktopFocus && window.chrome?.webview?.postMessage) window.chrome.webview.postMessage(result.native_open === true ? {action:'focus-folder',path:result.focus_folder,open:true,select:result.reveal_file || null} : {action:'focus-folder',path:result.focus_folder});
   return result;
 }
 
@@ -612,19 +612,57 @@ async function refreshOpenItems(projectId) {
   for (let index = 0; index < tabs.length; index += 4) { const batch = tabs.slice(index,index+4); const results = await Promise.allSettled(batch.map(tab => api(`/api/items/${encodeURIComponent(tab.id)}`))); results.forEach((result,i) => { if (result.status === 'fulfilled') batch[i].item = result.value; else report(result.reason); }); }
   renderTabs(); renderInspector();
 }
-async function moveDialog(ids) {
+async function moveDialog(ids,targetProjectId = null) {
+  if (state.moveDialogOpening || state.moveBusy || state.migrationBusy || state.exitBusy || state.uploading || state.modalBusy || $('#appDialog').open) return;
+  state.moveDialogOpening = true;
+  try {
   if (!ids.length || !await prepareTabs(fileTabs(ids))) return;
   const sample = state.items.find(item => String(item.id) === String(ids[0])) || state.tabs.find(tab => String(tab.id) === String(ids[0]))?.item; if (!sample) throw new Error('请重新选择要移动的文件。');
-  const projectId = sample.project_id; const initial = sample.category || 'references'; let sequence = 0;
-  const dialog = showDialog({title:ids.length === 1 ? '移动文件' : `移动 ${ids.length} 个文件`,subtitle:'项目内文件会移到目标目录；外部引用只调整工作台位置。',submit:'移动到这里',body:`<div class="field"><label for="moveCategory">目标分类</label><select id="moveCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),initial)}</select></div><div class="field"><label for="moveFolder">目标文件夹</label><select id="moveFolder" name="folder_id"><option value="">分类根目录</option></select></div><p class="dialog-hint">同名文件不会覆盖。项目内文件路径改变后，外部工具中引用的旧路径可能需要更新。</p>`,onSubmit:async form => { const data = new FormData(form); await performMove(ids,data.get('category'),data.get('folder_id') || null); }});
-  const populate = async () => { const seq = ++sequence; const category = $('#moveCategory').value; $('#moveFolder').disabled = true; try { const folders = await folderChoices(projectId,category); if (dialog.open && seq === sequence) $('#moveFolder').innerHTML = folderOptions(folders,null); } catch(error) { if (dialog.open) { $('#dialogError').textContent = error.message; $('#dialogError').hidden = false; } } finally { if (dialog.open && seq === sequence) $('#moveFolder').disabled = false; } }; $('#moveCategory').addEventListener('change',populate); await populate();
+  const projectId = targetProjectId || sample.project_id, initial = sample.category || 'references'; let sequence = 0;
+  if (!state.projects.some(project => String(project.id) === String(projectId))) throw new Error('目标项目已不存在，请重新选择。');
+  const projects = state.projects.map(project => ({key:project.id,label:project.name}));
+  const dialog = showDialog({title:ids.length === 1 ? '移动文件' : `移动 ${ids.length} 个文件`,subtitle:'选择目标项目、分类和文件夹。项目内文件会移到目标目录，外部引用保留原文件位置。',submit:'移动到这里',body:`<div class="field"><label for="moveProject">目标项目</label><select id="moveProject" name="target_project_id">${optionHtml(projects,projectId)}</select></div><div class="field"><label for="moveCategory">目标分类</label><select id="moveCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),initial)}</select></div><div class="field"><label for="moveFolder">目标文件夹</label><select id="moveFolder" name="folder_id" disabled><option value="">正在读取文件夹…</option></select></div><p class="dialog-hint">同名文件不会覆盖。跨项目移动时，有关联的文件或素材组可能需要一起选择；移动成功后关闭这些文件的预览标签。外部工具或非 Markdown 文件内的旧链接需自行核对。</p>`,onSubmit:async form => { requireFolderSelection('#moveFolder'); const data = new FormData(form); return await performMove(ids,data.get('category'),data.get('folder_id') || null,data.get('target_project_id')); }});
+  const modal = state.modalSequence;
+  const populate = async () => {
+    const seq = ++sequence, category = $('#moveCategory').value, target = $('#moveProject').value;
+    $('#moveFolder').disabled = true; $('#moveFolder').innerHTML = '<option value="">正在读取文件夹…</option>';
+    try {
+      const folders = await folderChoices(target,category);
+      if (dialog.open && state.modalSequence === modal && seq === sequence) { $('#moveFolder').innerHTML = folderOptions(folders,null); $('#moveFolder').disabled = false; }
+    } catch(error) { if (dialog.open && state.modalSequence === modal && seq === sequence) { $('#dialogError').textContent = error.message; $('#dialogError').hidden = false; } }
+  };
+  $('#moveProject').addEventListener('change',populate); $('#moveCategory').addEventListener('change',populate); await populate();
+  } finally { state.moveDialogOpening = false; }
 }
-async function performMove(ids,category,folderId) {
-  if (!ids.length || !await prepareTabs(fileTabs(ids))) return false;
-  const result = await api('/api/move',{method:'POST',body:{ids,category,folder_id:folderId || null}});
-  for (const item of result.items || []) { const tab = state.tabs.find(tab => tab.source === 'file' && String(tab.id) === String(item.id)); if (tab) tab.item = {...tab.item,...item}; }
-  state.selectedIds.clear(); await refreshProjects(); if (state.section === 'assets') await loadItems(); renderTabs(); renderInspector();
-  const stats = result.stats || {}; toast(`整理完成${stats.moved ? `：${stats.moved} 个项目文件已移动` : ''}${stats.referenced ? `，${stats.referenced} 个外部引用保留原位` : ''}。`); return true;
+async function performMove(ids,category,folderId,targetProjectId = null) {
+  if (state.moveBusy || state.migrationBusy || state.uploading || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再移动文件。');
+  if (!ids.length) return false;
+  state.moveBusy = true;
+  try {
+    if (!await prepareTabs(fileTabs(ids))) return false;
+    if (state.migrationBusy || state.uploading || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再移动文件。');
+    const tabs = fileTabs(ids), sample = state.items.find(item => String(item.id) === String(ids[0])) || tabs[0]?.item;
+    const crossProject = targetProjectId && String(targetProjectId) !== String(sample?.project_id || state.projectId);
+    const body = {ids,category,folder_id:folderId || null}; if (targetProjectId) body.target_project_id = targetProjectId;
+    const result = await api('/api/move',{method:'POST',body});
+    if (crossProject) {
+      const changed = tabs.filter(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.markdownEditor?.isComposing());
+      removeOpenTabs(tabs.filter(tab => !changed.includes(tab)));
+      if (changed.length) toast('文件已移动，稍后输入的草稿仍保留在标签中，请核对后保存。','info',9000);
+    }
+    for (const item of result.items || []) {
+      const tab = state.tabs.find(tab => tab.source === 'file' && String(tab.id) === String(item.id));
+      if (tab) { tab.item = {...tab.item,...item}; if (result.content_changed?.includes(item.id) && tab.dirty) tab.conflict = true; }
+    }
+    state.selectedIds.clear();
+    // A display refresh failure must not leave an already committed move ready to submit again.
+    try { await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems(); }
+    catch { toast('文件已移动，但列表刷新未完成，请刷新列表查看结果，无需重复移动。','info',9000); }
+    renderTabs(); renderInspector();
+    const stats = result.stats || {}; toast(`整理完成${stats.moved ? `：${stats.moved} 个项目文件已移动` : ''}${stats.referenced ? `，${stats.referenced} 个外部引用保留原位` : ''}。`);
+    for (const warning of result.warnings || []) toast(warning,'info',9000);
+    return true;
+  } finally { state.moveBusy = false; }
 }
 
 async function projectRenameDialog(id) {
@@ -1529,12 +1567,63 @@ async function insertDocumentFileLinks(ids=[],files=[]) {
   } finally {documentLinkBusy=false;}
 }
 
+function resolveDroppedPaths(files) {
+  const bridge = window.chrome?.webview;
+  if (!window.yingxuDesktopDropPaths || !bridge?.postMessageWithAdditionalObjects) return Promise.resolve(null);
+  return new Promise((resolve,reject) => {
+    const requestId = crypto.randomUUID().replace(/-/g,'');
+    let timer;
+    const finish = (paths,error) => {
+      clearTimeout(timer); bridge.removeEventListener('message',receive);
+      if (error) reject(new Error(error)); else resolve(paths);
+    };
+    const receive = event => {
+      const data = event.data;
+      if (data?.action !== 'resolved-drop-files' || data.requestId !== requestId) return;
+      if (data.error) { finish(null,String(data.error)); return; }
+      if (data.paths === null) { finish(null); return; }
+      if (!Array.isArray(data.paths) || data.paths.length !== files.length || data.paths.some(path => typeof path !== 'string' || !path)) {
+        finish(null,'拖拽文件路径不完整，请重新拖入，或使用“导入 → 选择文件”。'); return;
+      }
+      finish(data.paths);
+    };
+    bridge.addEventListener('message',receive);
+    timer = setTimeout(() => finish(null,'读取拖拽文件路径超时，请使用“导入 → 选择文件”。'),5000);
+    try { bridge.postMessageWithAdditionalObjects({action:'resolve-drop-files',requestId},files); }
+    catch { finish(null); } // Read-only resolution has no import side effects; old runtimes retain upload support.
+  });
+}
+
+async function importResourceDrop(files,category,folderId = null) {
+  if (!window.yingxuDesktopDropPaths || !window.chrome?.webview?.postMessageWithAdditionalObjects) return uploadFiles(files,category,folderId);
+  if (state.uploading) { toast('当前正在导入一批文件，请等这批完成后继续。','info'); return; }
+  if (state.migrationBusy || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再导入。');
+  if (!files.length || files.length > 200) throw new Error('一次请拖入 1 至 200 个文件。');
+  const projectId = state.projectId, tray = $('#jobTray');
+  state.uploading = true; tray.hidden = false;
+  tray.innerHTML = '<span class="spinner"></span><span>正在读取拖拽文件…</span>';
+  let uploadOwnsBusy = false;
+  try {
+    const paths = await resolveDroppedPaths(files);
+    if (paths === null) {
+      state.uploading = false; uploadOwnsBusy = true;
+      return await uploadFiles(files,category,folderId,projectId);
+    }
+    // Use the same bounded copy/import queue as the file picker. No browser byte upload.
+    const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category,folder_id:folderId,paths,mode:'copy'}});
+    if (!result.job_id) throw new Error('未能确认导入任务，请先检查当前分类，避免重复导入。');
+    return await monitorJob(result.job_id,'正在导入拖拽文件',true);
+  } finally {
+    if (!uploadOwnsBusy) { state.uploading = false; tray.hidden = true; }
+  }
+}
+
 function wireDragAndDrop() {
   let dragDepth = 0;
   let nativeDrag = null;
   const isInternal = transfer => Boolean(nativeDrag) || Array.from(transfer?.types || []).includes('application/x-yingxu-item');
   const isExternal = transfer => !isInternal(transfer) && Array.from(transfer?.types || []).includes('Files');
-  const clearDrag = () => { resourceGroups?.endDrag(); nativeDrag = null; dragDepth = 0; $$('.dragging-card,.drop-category').forEach(node => node.classList.remove('dragging-card','drop-category')); document.body.classList.remove('external-drag'); };
+  const clearDrag = () => { resourceGroups?.endDrag(); nativeDrag = null; dragDepth = 0; $$('.dragging-card,.drop-category,.drop-project').forEach(node => node.classList.remove('dragging-card','drop-category','drop-project')); document.body.classList.remove('external-drag'); };
   const startNativeDrag = (ids,item,{grouping = true} = {}) => {
     nativeDrag = {ids:ids.slice(0,200)};
     if (grouping) groupController()?.beginDrag(nativeDrag.ids); else resourceGroups?.endDrag();
@@ -1556,6 +1645,13 @@ function wireDragAndDrop() {
     if(nativeDrag && !nativeDrag.handled && data.released && data.inside && data.width>0 && data.height>0){
       const target=document.elementFromPoint(data.x*window.innerWidth/data.width,data.y*window.innerHeight/data.height);
       if(target?.closest('#editorContent')){const ids=nativeDrag.ids.slice();nativeDrag.handled=true;preparedKey='';clearDrag();insertDocumentFileLinks(ids).catch(report);return;}
+    }
+    if (nativeDrag && !nativeDrag.handled && data.released && data.inside && data.width > 0 && data.height > 0) {
+      const target = document.elementFromPoint(data.x * window.innerWidth / data.width,data.y * window.innerHeight / data.height)?.closest('[data-project]');
+      if (target && String(target.dataset.project) !== String(state.projectId)) {
+        const ids = nativeDrag.ids.slice(), project = target.dataset.project;
+        nativeDrag.handled = true; preparedKey = ''; clearDrag(); moveDialog(ids,project).catch(report); return;
+      }
     }
     if (resourceGroups?.handleNativeDrop(data)) { preparedKey = ''; clearDrag(); return; }
     // Some windowed WebView2 runtimes omit DOM drop events for their own OLE drag.
@@ -1588,6 +1684,25 @@ function wireDragAndDrop() {
     event.dataTransfer.setData('application/x-yingxu-item',id); event.dataTransfer.setData('application/x-yingxu-items',JSON.stringify(ids)); event.dataTransfer.effectAllowed = 'move'; item.classList.add('dragging-card'); hideMenu(); });
   document.addEventListener('dragend',() => { if (!nativeDrag) clearDrag(); });
   document.addEventListener('dragenter',event => { if (isExternal(event.dataTransfer)) { event.preventDefault(); dragDepth++; document.body.classList.add('external-drag'); } });
+  document.addEventListener('dragover',event => {
+    const target = event.target.closest('[data-project]');
+    if (!isInternal(event.dataTransfer) || !target || String(target.dataset.project) === String(state.projectId)) return;
+    event.preventDefault(); event.stopImmediatePropagation?.();
+    event.dataTransfer.dropEffect = nativeDrag ? 'copy' : 'move'; target.classList.add('drop-project');
+  });
+  document.addEventListener('dragleave',event => event.target.closest('[data-project]')?.classList.remove('drop-project'));
+  document.addEventListener('drop',event => {
+    const target = event.target.closest('[data-project]'), transfer = event.dataTransfer;
+    if (!isInternal(transfer) || !target || String(target.dataset.project) === String(state.projectId)) return;
+    event.preventDefault(); event.stopImmediatePropagation?.(); event.stopPropagation();
+    let ids = nativeDrag?.ids || [];
+    try { if (!ids.length) ids = JSON.parse(transfer.getData('application/x-yingxu-items') || '[]'); } catch { ids = []; }
+    if (!Array.isArray(ids) || !ids.length) ids = [transfer.getData('application/x-yingxu-item')].filter(Boolean);
+    ids = [...new Set(ids.map(String))].slice(0,200);
+    if (nativeDrag) nativeDrag.handled = true;
+    const project = target.dataset.project; preparedKey = ''; clearDrag();
+    if (ids.length) moveDialog(ids,project).catch(report);
+  });
   document.addEventListener('dragleave',event => { if (isExternal(event.dataTransfer)) { dragDepth = Math.max(0,dragDepth-1); if (!dragDepth) document.body.classList.remove('external-drag'); } const target = event.target.closest('[data-folder-drop],[data-category]'); if (target) target.classList.remove('drop-category'); });
   document.addEventListener('dragover',event => { const transfer = event.dataTransfer; const target = event.target.closest('[data-folder-drop],[data-category]'); const valid = target && target.dataset.category !== 'all'; if (isInternal(transfer)) { event.preventDefault(); transfer.dropEffect = valid ? (nativeDrag ? 'copy' : 'move') : 'none'; if (valid) target.classList.add('drop-category'); } else if (isExternal(transfer)) { event.preventDefault(); transfer.dropEffect = 'copy'; if (valid) target.classList.add('drop-category'); } });
   document.addEventListener('drop',async event => { const transfer = event.dataTransfer; if (!transfer) return; document.body.classList.remove('external-drag'); dragDepth = 0; $$('.drop-category').forEach(node => node.classList.remove('drop-category'));
@@ -1595,7 +1710,7 @@ function wireDragAndDrop() {
     // Internal moves take precedence even if WebView2 also exposes a Files payload.
     const id = nativeDrag?.ids[0] || transfer.getData('application/x-yingxu-item');
     if (isInternal(transfer) || id) { event.preventDefault(); if (!id || !valid) return; let ids = [id]; try { const parsed = nativeDrag?.ids || JSON.parse(transfer.getData('application/x-yingxu-items') || '[]'); if (Array.isArray(parsed) && parsed.length) ids = [...new Set(parsed.map(String))].slice(0,200); if (nativeDrag) nativeDrag.handled = true; await performMove(ids,category,folderId); } catch(error) { report(error); } return; }
-    if (transfer.files.length) { event.preventDefault(); if (!state.projectId) { toast('先创建或选择一个项目，再拖入文件。','info'); return; } if (state.section !== 'assets' && !valid) { toast('请把文件拖到左侧资源分类，或打开一个资源文件夹。','info'); return; } uploadFiles([...transfer.files],category,folderId).catch(report); }
+    if (transfer.files.length) { event.preventDefault(); if (!state.projectId) { toast('先创建或选择一个项目，再拖入文件。','info'); return; } if (state.section !== 'assets' && !valid) { toast('请把文件拖到左侧资源分类，或打开一个资源文件夹。','info'); return; } importResourceDrop([...transfer.files],category,folderId).catch(report); }
   });
   document.addEventListener('pointerdown',event => { const handle = event.target.closest('[data-drag-file]'); if (!handle || event.button !== 0) return; event.preventDefault(); event.stopPropagation(); if (window.yingxuDesktopDrag && window.chrome?.webview?.postMessage) { const id = String(handle.dataset.dragFile); startNativeDrag(state.selectedIds.has(id) ? [...state.selectedIds] : [id],handle.closest('[data-item]'),{grouping:false}); } else if (window.chrome?.webview?.postMessage) { window.chrome.webview.postMessage({action:'drag-file',id:handle.dataset.dragFile}); } else toast('桌面版支持直接拖出。当前浏览器请使用“定位文件”。','info',6000); });
 }
@@ -1642,13 +1757,60 @@ async function pasteResourceFiles(location = null, clipboardData = null) {
   finally { if (!uploadOwnsBusy) state.uploading = false; }
 }
 
+// Upload errors describe one request, not the health of the whole local service.
+// Probe only after an ambiguous failure; never retry a write whose result is unknown.
+async function uploadFailure(fileName) {
+  const connection = $('#connectionState');
+  if (connection) connection.textContent = '正在检查本地连接';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(),5000);
+  let online = false;
+  try {
+    const response = await fetch('/api/health',{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
+    const health = await response.json();
+    online = response.ok && health.app === 'yingxu' && health.ok === true;
+  } catch { /* A failed health check does not prove that the upload was rolled back. */ }
+  finally { clearTimeout(timer); }
+  if (connection) connection.textContent = online ? '本地连接正常' : '本地连接检查未通过';
+  return new Error(online
+    ? `「${fileName}」的上传结果未能确认，但本地服务仍可连接。请先查看当前分类是否已有文件，避免重复导入；如没有，请在“导入 → 选择文件”中选择原图片。`
+    : `「${fileName}」的上传结果未能确认，本地服务连接检查也未通过。请确认映序仍在运行；恢复后先查看当前分类，再决定是否重新导入。`);
+}
+
 async function uploadFiles(files,category,folderId = null,projectId = state.projectId) {
   if (state.uploading) { toast('当前正在导入一批文件，请等这批完成后继续。','info'); return; }
   state.uploading = true; const items=[],project = projectId; let cancelled = false,xhr = null,completed = 0; const tray = $('#jobTray'); tray.hidden = false;
   try {
     for (let index = 0; index < files.length && !cancelled; index++) {
       const file = files[index]; tray.innerHTML = `<span class="spinner"></span><span id="uploadProgress">正在保存项目副本 ${index+1}/${files.length} · ${escapeHtml(file.name)}</span><button class="button button-ghost button-small" id="cancelUpload">取消</button>`; $('#cancelUpload').onclick = () => { cancelled = true; xhr?.abort(); };
-      const result = await new Promise((resolve,reject) => { xhr = new XMLHttpRequest(); const params = new URLSearchParams({project,category,name:file.name}); if (folderId) params.set('folder_id',folderId); xhr.open('POST',`/api/upload?${params}`); xhr.setRequestHeader('X-YingXu-Token',state.bootstrap.token); xhr.setRequestHeader('Content-Type','application/octet-stream'); xhr.upload.onprogress = event => { if (event.lengthComputable && $('#uploadProgress')) $('#uploadProgress').textContent = `正在保存 ${index+1}/${files.length} · ${file.name} · ${Math.round(event.loaded/event.total*100)}%`; }; xhr.onload = () => { let body; try { body = JSON.parse(xhr.responseText); } catch { body = {}; } if (xhr.status >= 200 && xhr.status < 300) resolve(body); else reject(new Error(body.error || `「${file.name}」未能导入。`)); }; xhr.onerror = () => reject(new Error('本地连接中断，文件导入未完成。')); xhr.onabort = () => reject(new Error('已取消后续导入，完成的项目副本会保留。')); xhr.send(file); });
+      const result = await new Promise((resolve,reject) => {
+        xhr = new XMLHttpRequest();
+        const params = new URLSearchParams({project,category,name:file.name});
+        if (folderId) params.set('folder_id',folderId);
+        xhr.open('POST',`/api/upload?${params}`);
+        xhr.setRequestHeader('X-YingXu-Token',state.bootstrap.token);
+        xhr.setRequestHeader('Content-Type','application/octet-stream');
+        xhr.upload.onprogress = event => { if (event.lengthComputable && $('#uploadProgress')) $('#uploadProgress').textContent = `正在保存 ${index+1}/${files.length} · ${file.name} · ${Math.round(event.loaded/event.total*100)}%`; };
+        const uncertain = () => { uploadFailure(file.name).then(reject,reject); };
+        xhr.onload = () => {
+          if (!xhr.status) { uncertain(); return; }
+          let body;
+          try { body = JSON.parse(xhr.responseText); } catch { body = null; }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            if (!body || (!body.id && !body.job_id)) { uncertain(); return; }
+            const connection = $('#connectionState'); if (connection) connection.textContent = '本地连接正常';
+            resolve(body);
+          } else {
+            const connection = $('#connectionState'); if (connection && body?.error) connection.textContent = '本地连接正常';
+            reject(new Error(body?.error || `「${file.name}」导入请求失败（HTTP ${xhr.status}）。请检查文件和目标目录后重试。`));
+          }
+        };
+        xhr.onerror = uncertain;
+        xhr.ontimeout = uncertain;
+        xhr.onabort = () => reject(new Error('已取消后续导入。当前文件的结果请在列表中核对，完成的项目副本会保留。'));
+        try { xhr.send(file); }
+        catch { reject(new Error(`无法读取或发送「${file.name}」。请确认文件仍在原位置且可以打开，再使用“导入 → 选择文件”。`)); }
+      });
       if (result.job_id) { const job = await monitorJob(result.job_id,'正在解压 ZIP',true); if (!job || job.errors?.length) throw new Error(job?.errors?.[0] || 'ZIP 导入未完成。'); }
       if(result.id)items.push(result);completed++;
     }
@@ -1688,7 +1850,7 @@ function projectMigrationHtml() {
   return `<div class="project-migration" id="projectMigration"><div id="migrationProjects" class="field-hint"></div><div id="projectMigrationPlan" class="migration-plan" hidden></div><button type="button" id="confirmProjectMigration" class="button button-primary" hidden>确认保存并迁移</button><p id="projectMigrationNotice" class="field-hint" role="status" aria-live="polite"></p><progress id="projectMigrationProgress" hidden></progress><button type="button" id="retryProjectMigration" class="button button-secondary" hidden>重试连接</button></div>`;
 }
 function migrationDraftProblem() {
-  if (projectStorageSave || state.uploading || state.jobs.size || captureUI?.isBusy() || documentLinkBusy || state.trashBusy || state.exitBusy || skillSourceState.busy || state.restoringDrafts) return '请先等待导入、截图或其他后台操作完成，再迁移项目。';
+  if (projectStorageSave || state.moveBusy || state.uploading || state.jobs.size || captureUI?.isBusy() || documentLinkBusy || state.trashBusy || state.exitBusy || skillSourceState.busy || state.restoringDrafts) return '请先等待导入、截图或其他后台操作完成，再迁移项目。';
   for (const tab of state.tabs) {
     if (tab.loading || tab.saving || tab.propertiesSaving) return '请先等待文稿加载或保存完成，再迁移项目。';
     if (!markdownInputReady(tab)) return '请先完成正在输入的文字，再迁移项目。';
@@ -1868,7 +2030,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.10-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.10 · ${escapeHtml(state.bootstrap?.version === '0.4.10' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.11-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.11 · ${escapeHtml(state.bootstrap?.version === '0.4.11' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p></div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkey">截图快捷键</label><input id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}" maxlength="40"><p class="field-hint">默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
     for (const key of (mac ? ['default_view','default_sort'] : ['default_view','default_sort','capture_hotkey','capture_mode'])) patch[key] = values.get(key);
@@ -1904,7 +2066,7 @@ async function handleDesktopMessage(data) {
   if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : []);
   if (data?.action === 'prepare-exit') {
     let allow = false;
-    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving); persistDrafts(true); } }
+    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.moveBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving); persistDrafts(true); } }
     finally { state.exitBusy = false; window.chrome?.webview?.postMessage({action:'exit-response',requestId:data.requestId,allow}); }
     if (!allow) toast('退出已取消，请先完成当前操作或保存文稿。','info');
   }

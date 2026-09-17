@@ -18,8 +18,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.10.0")]
-[assembly: AssemblyFileVersion("0.4.10.0")]
+[assembly: AssemblyVersion("0.4.11.0")]
+[assembly: AssemblyFileVersion("0.4.11.0")]
 
 namespace YingXu.Desktop
 {
@@ -424,9 +424,14 @@ namespace YingXu.Desktop
             }
             if (action == "focus-folder")
             {
-                object folder;
-                if (message.Count != 2 || !message.TryGetValue("path",out folder) || !(folder is string) || !Path.IsPathRooted((string)folder)) return false;
-                BeginInvoke((Action)(() => FocusFolder((string)folder))); return true;
+                object folder,open,selected;
+                if (!message.TryGetValue("path",out folder) || !(folder is string) || !Path.IsPathRooted((string)folder)) return false;
+                bool launch=false;string select=null;
+                if(message.Count==4) {
+                    if(!message.TryGetValue("open",out open)||!(open is bool)||!message.TryGetValue("select",out selected)||(selected!=null && !(selected is string)))return false;
+                    launch=(bool)open;select=selected as string;
+                } else if(message.Count!=2)return false;
+                BeginInvoke((Action)(() => FocusFolder((string)folder,select,launch))); return true;
             }
             if (action == "desktop-ready") { Hub.Log("startup_stage=app_ready elapsed_ms=" + startup.ElapsedMilliseconds); pageReady = true; pageFailed = false; exitUnresponsive = false; ReloadSettings(); if(capture!=null)capture.Flush(); FlushSettings(); DrainFiles(); return true; }
             if (action == "capture-request" && message.Count==1) { BeginInvoke((Action)StartCapture); return true; }
@@ -453,11 +458,6 @@ namespace YingXu.Desktop
             return false;
         }
 
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
-        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
-        [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window,int command);
-
         private async void OpenRegisteredFile(string id)
         {
             try {
@@ -468,36 +468,10 @@ namespace YingXu.Desktop
             } catch(Exception error) { Notice("系统应用未能打开："+error.Message,true); }
         }
 
-        private void FocusFolder(string folder)
+        private void FocusFolder(string folder,string selected=null,bool open=false)
         {
-            string expected;
-            try { expected=Path.GetFullPath(folder).TrimEnd('\\'); } catch { return; }
-            int attempts=0;
-            var timer=new System.Windows.Forms.Timer { Interval=150 };
-            timer.Tick += delegate {
-                uint owner; GetWindowThreadProcessId(GetForegroundWindow(),out owner);
-                // Never repeatedly steal focus after the user switches to another application.
-                if(IsDisposed || closing.IsCancellationRequested || ++attempts>24 || owner!=(uint)Process.GetCurrentProcess().Id) { timer.Stop();timer.Dispose();return; }
-                object shell=null,windows=null;
-                try {
-                    shell=Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
-                    windows=shell.GetType().InvokeMember("Windows",BindingFlags.InvokeMethod,null,shell,null);
-                    foreach(object window in (System.Collections.IEnumerable)windows) {
-                        try {
-                            string url=Convert.ToString(window.GetType().InvokeMember("LocationURL",BindingFlags.GetProperty,null,window,null));
-                            Uri uri;if(!Uri.TryCreate(url,UriKind.Absolute,out uri)||!uri.IsFile)continue;
-                            if(!String.Equals(Path.GetFullPath(uri.LocalPath).TrimEnd('\\'),expected,StringComparison.OrdinalIgnoreCase))continue;
-                            IntPtr handle=new IntPtr(Convert.ToInt64(window.GetType().InvokeMember("HWND",BindingFlags.GetProperty,null,window,null)));
-                            if(IsIconic(handle))ShowWindowAsync(handle,9);
-                            if(SetForegroundWindow(handle)) { timer.Stop();timer.Dispose();return; }
-                        } catch { } finally { if(Marshal.IsComObject(window))Marshal.ReleaseComObject(window); }
-                    }
-                } catch { } finally {
-                    if(windows!=null&&Marshal.IsComObject(windows))Marshal.ReleaseComObject(windows);
-                    if(shell!=null&&Marshal.IsComObject(shell))Marshal.ReleaseComObject(shell);
-                }
-            };
-            timer.Start();
+            try { FolderForeground.Request(folder,selected,open,() => IsDisposed || closing.IsCancellationRequested); }
+            catch(Exception error) { Notice("文件夹未能打开："+error.Message,true); }
         }
 
         private async Task InitializeAsync()
@@ -571,7 +545,7 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
-            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopFocus = true;");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true;");
             core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
             {
                 if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; return; }
@@ -633,6 +607,7 @@ namespace YingXu.Desktop
 
         private async void ReceiveDragRequest(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            if (ReceiveDropFilesRequest(e)) return;
             if (ReceiveDesktopRequest(e.Source,e.WebMessageAsJson)) return;
             string[] itemIds;
             if (draggingFile || closing.IsCancellationRequested || web == null ||
@@ -679,6 +654,37 @@ namespace YingXu.Desktop
                 Hub.Log("native_drag_error " + error.GetType().Name);
             }
             finally { draggingFile = false; preparedDragPaths = null; preparedDragKey = null; FinishNativeDrag(nativeDragReleased); }
+        }
+
+        private bool ReceiveDropFilesRequest(CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            if (closing.IsCancellationRequested || web == null || web.IsDisposed || web.CoreWebView2 == null) return false;
+            string requestId;
+            if (!Hub.TryReadDropFilesMessage(e.Source, web.CoreWebView2.Source, e.WebMessageAsJson, out requestId)) return false;
+            try
+            {
+                // AdditionalObjects is accessed only after validating both page origins.
+                // Pinned SDK 1.0.4191 exposes CoreWebView2File; older SDKs used FileInfo.
+                // Neither path accessor reads file bytes or starts an import.
+                string[] paths = Hub.ResolveDropFilePaths(e.AdditionalObjects, entry => {
+                    var native = entry as CoreWebView2File;
+                    if (native != null) return native.Path;
+                    var file = entry as FileInfo;
+                    if (file != null) return file.FullName;
+                    throw new InvalidDataException("拖入对象不是本地文件，请从系统文件夹重新拖入。");
+                });
+                Post(new { action = "resolved-drop-files", requestId = requestId, paths = paths });
+            }
+            catch (NotImplementedException) { Post(new { action = "resolved-drop-files", requestId = requestId, paths = (string[])null }); }
+            catch (NotSupportedException) { Post(new { action = "resolved-drop-files", requestId = requestId, paths = (string[])null }); }
+            catch (InvalidCastException) { Post(new { action = "resolved-drop-files", requestId = requestId, paths = (string[])null }); }
+            catch (Exception error)
+            {
+                Hub.Log("resolve_drop_files_error " + error.GetType().Name);
+                Post(new { action = "resolved-drop-files", requestId = requestId,
+                    error = error is InvalidDataException ? error.Message : "无法读取拖入文件的位置，请使用“导入 → 选择文件”。" });
+            }
+            return true;
         }
 
         private Task<string[]> PrepareNativeDrag(string[] ids)

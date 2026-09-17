@@ -15,6 +15,7 @@ class MigrationJobs:
         self.lock = threading.RLock()
         self.writers = 0
         self.active = None
+        self.cross_project_active = False
         self.records = {}
         self.tokens = {}
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='yingxu-migration')
@@ -27,6 +28,8 @@ class MigrationJobs:
         with self.lock:
             # Retrying the accepted token must remain possible if its first
             # response was lost. submit() only permits that same token while busy.
+            if self.cross_project_active:
+                raise UserError('文件正在跨项目移动，请等待完成后再修改或导入。', 409)
             if self.active and not (method == 'POST' and path == '/api/project-storage/migration'):
                 raise UserError('项目正在迁移，请等待完成后再修改或导入。', 409)
             self.writers += 1
@@ -35,6 +38,23 @@ class MigrationJobs:
         finally:
             with self.lock:
                 self.writers -= 1
+
+    @contextmanager
+    def cross_project_move(self):
+        """Reserve writes before taking the exporter/store locks; never invert them."""
+        with self.lock:
+            if self.active or self.cross_project_active or self.writers > 1:
+                raise UserError('还有文件操作正在进行，请稍后再跨项目移动。', 409)
+            with self.app.jobs.lock:
+                if any(job['state'] in ('queued', 'running') for job in self.app.jobs.jobs.values()):
+                    raise UserError('请等待导入或扫描完成后再跨项目移动。', 409)
+            self.cross_project_active = True
+        try:
+            with self.app.context._export_lock:
+                yield
+        finally:
+            with self.lock:
+                self.cross_project_active = False
 
     def submit(self, body):
         if not isinstance(body, dict) or set(body) != {'token'} or not isinstance(body['token'], str):

@@ -31,6 +31,26 @@ class OpenFolderTests(unittest.TestCase):
                 self.assertEqual(Path(arguments[1]), expected)
                 self.assertEqual(len(arguments), 2)
 
+    def test_desktop_native_open_defers_only_validated_explorer_targets(self):
+        import json
+        project=self.app.store.create_project('桌面打开合成目录')
+        item=self.app.store.create_item({'project_id':project['id'],'name':'定位文件'})
+        with patch('server.subprocess.Popen') as launch:
+            status,raw,_=self.request('POST','/api/open-folder',{'project_id':project['id'],'category':'scripts','native_open':True})
+            self.assertEqual(status,200,raw)
+            result=json.loads(raw)
+            self.assertTrue(result['native_open'])
+            self.assertEqual(Path(result['focus_folder']),Path(project['root'])/'文本')
+            status,raw,_=self.request('POST','/api/open',{'id':item['id'],'action':'reveal','native_open':True})
+            self.assertEqual(status,200,raw)
+            result=json.loads(raw)
+            self.assertEqual(result['reveal_file'],item['path'])
+            self.assertEqual(Path(result['focus_folder']),Path(item['path']).parent)
+            self.assertEqual(self.request('POST','/api/open-folder',{'project_id':project['id'],'native_open':'true'})[0],400)
+            self.assertEqual(self.request('POST','/api/open-folder',{'path':str(self.root),'native_open':True})[0],400)
+            self.assertEqual(self.request('POST','/api/open-folder',{'project_id':project['id'],'native_open':True},headers={'X-YingXu-Token':''})[0],403)
+            launch.assert_not_called()
+
     def test_deleted_cross_project_and_arbitrary_paths_never_launch(self):
         project = self.app.store.create_project('当前项目')
         other = self.app.store.create_project('其他项目')

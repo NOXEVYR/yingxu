@@ -51,6 +51,12 @@ PNG提取元数据为 source_prompt/source_parameters/source_workflow，width,he
 - GET /api/items 增加 folder 参数：不传/空串为当前分类递归全部；root 为分类直属；ID 为子文件夹直属。列表与详情带 folder_id/folder_path。
 - POST /api/items、POST /api/import 与 POST /api/upload query 均支持 folder_id；空/root 表示分类目录。
 - POST /api/move {ids:[...],category,folder_id:null|ID} -> {ok,project_id,items,stats:{moved,referenced,unchanged,copied}}，最多200条同项目。项目内文件实际移动，外部引用只改组织归属；不覆盖同名文件。
+  - 可选 `target_project_id`：省略或等于原项目时保持旧行为；指定其他活动项目时跨项目移动，返回额外 `source_project_id`、`warnings`、`content_changed`（已改写链接的文稿 ID），`project_id` 是目标项目。所有 ID、文稿历史、属性保留；整组选中时保留素材组及顺序，整批内关联保留。
+  - 跨项目每批 1–200 个同项目活动文件、项目内文件合计最多 2 GiB。目标分类/文件夹必须属于目标项目；同名文件/已有路径记录整批拒绝，不覆盖。外部引用只迁移登记归属、保留原文件路径；项目内文件经临时复制、SHA-256 校验、排他发布后提交数据库，提交成功后才清理原文件。旧文件被占用或变化时返回成功及 `warnings`，保留副本；已提交后通知失败也只返回警告。
+  - 部分素材组、与未选项关联、被其他项目引用的项目内原文件返回 409，提示一起选择/先解除关联/复制导入。Markdown 最多核对 1000 篇、合计 16 MiB、单篇 2 MiB；只改写随批次移动的文稿并备份原字节至历史。未选文稿仍引用被移动文件，或选中文稿含未随批次移动/无法核对的本地链接时拒绝，禁止静默破坏链接。
+  - 与项目迁移共用写入预约，存在导入/扫描或其他在途写操作时拒绝；复制期间允许读取，其他写请求 409。调用方须先保护文稿/画板草稿，成功后刷新两项目与受影响标签。响应丢失后重发同目标同 ID 会按目标项目内整理处理，不重复生成条目。
+  - 应用数据 `cross-project-moves` 保存源/目标路径及摘要操作记录；断电时原件或已校验目标仍可用，不自动猜测删除遗留副本。数据库提交响应异常会先重新核对持久状态，无法确认时保留两边文件并报告。仅处理所选文件，非 Markdown 格式内部的外链不自动重写。
+
 - PATCH /api/projects/ID {name?,description?} -> project，仅改显示资料，项目根路径不动。
 - DELETE /api/projects/ID、DELETE /api/folders/ID、POST /api/trash/items {ids} -> {ok,batch_id,project_id,kind,count}。
 - DELETE /api/skills/ID -> {ok,kind:'skill',batch_id:ID,count:1}。自建技能可恢复删除；外部来源仅在映序隐藏，源文件不卸载。绑定关系保留但回收期间不参与项目交接。

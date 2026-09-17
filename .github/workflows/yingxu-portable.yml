@@ -79,7 +79,7 @@ jobs:
         run: |
           python tools/package_release.py
           if ($LASTEXITCODE) { throw 'Package failed' }
-          python tools/verify_release.py releases/YingXu-v0.4.10-Windows-x64.zip | Tee-Object releases/YingXu-v0.4.10-verification.json
+          python tools/verify_release.py releases/YingXu-v0.4.11-Windows-x64.zip | Tee-Object releases/YingXu-v0.4.11-verification.json
           if ($LASTEXITCODE) { throw 'Release verification failed' }
       - name: Upload draft, fetch and verify assets, then publish
         env:
@@ -88,7 +88,7 @@ jobs:
           REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && (github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' || github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'))) && 'true' || 'false' }}"
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = 'yingxu-v0.4.10'
+          $tag = 'yingxu-v0.4.11'
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           $taskExistingDraft = $false
           $taskReplaceIcons = $false
@@ -105,7 +105,7 @@ jobs:
             if (-not $taskReplaceIcons) {
             $taskTagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha
             if ($LASTEXITCODE -or $taskTagSha -ne $env:GITHUB_SHA) { throw 'Draft tag differs from this verified source commit; preserve it for review' }
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.10 · 项目存放位置与迁移'
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.11 · 拖拽导入修复与跨项目移动'
             if ($LASTEXITCODE) { throw 'Draft title refresh failed' }
             $taskExistingDraft = $true
             }
@@ -116,13 +116,13 @@ jobs:
           @'
           完整解压后双击 YingXu.exe。自带锁定 Python、Pillow、FFmpeg 和 WebView2，无新增依赖或模型。
 
-          - 设置可选择项目存放文件夹；保存更改时预览并迁移现有项目，按项目库分类、项目名和资源分类整理实际目录。
-          - 复制完成并校验后切换项目位置；原目录保留作备份，迁移期间阻止冲突写入，意外中断后可核对恢复。
-          - 剧本等文档保存在对应项目的“文本”文件夹；保留项目、素材及历史记录的身份，更新可识别的 Markdown 相对链接。
-          - 导入默认复制到当前项目分类，也可选择引用原文件；外部引用不擅自搬动，迁移预览会说明。
-          - 保留既有功能，无新增模型或运行依赖。
+          - Windows 文件夹拖入资源区时优先使用原生文件路径，并复用文件选择导入队列；无磁盘路径的图片保留上传方式。
+          - 上传失败时核实本地服务状态，区分传输失败和连接中断；结果不明时不自动重复导入。
+          - Windows 打开、定位文件夹改由桌面宿主发起并匹配 Explorer 窗口，改善新窗口被映序遮挡的问题。
+          - 素材可拖到左侧其他项目，选择目标分类和文件夹后移动；先复制校验、再提交并清理源文件，保留历史和批次内关系。
+          - 部分素材组和未随批次移动的文稿链接会明确提示；大批次移动期间暂停冲突写入，无新增启动扫描、模型或运行依赖。
 
-          本次附件为 Windows x64 0.4.10；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。
+          本次附件为 Windows x64 0.4.11；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。
 
           更新前保存文稿，从托盘退出映序，运行旧目录Stop-YingXu.ps1，再完整解压新版。保留原项目和应用数据目录。发布附件经过完整下载、SHA-256与隔离运行验证；历史版本保留。
           '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/release-notes.md"
@@ -134,15 +134,15 @@ jobs:
           if ($taskExistingDraft) {
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes-file "$env:RUNNER_TEMP/release-notes.md"
             if ($LASTEXITCODE) { throw 'Draft notes refresh failed' }
-            gh release upload $tag releases/YingXu-v0.4.10-Windows-x64.zip releases/YingXu-v0.4.10-SHA256.txt releases/YingXu-v0.4.10-manifest.json releases/YingXu-v0.4.10-verification.json --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload $tag releases/YingXu-v0.4.11-Windows-x64.zip releases/YingXu-v0.4.11-SHA256.txt releases/YingXu-v0.4.11-manifest.json releases/YingXu-v0.4.11-verification.json --repo $env:GITHUB_REPOSITORY --clobber
           } else {
-          gh release create $tag releases/YingXu-v0.4.10-Windows-x64.zip releases/YingXu-v0.4.10-SHA256.txt releases/YingXu-v0.4.10-manifest.json releases/YingXu-v0.4.10-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.10 · 项目存放位置与迁移' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
+          gh release create $tag releases/YingXu-v0.4.11-Windows-x64.zip releases/YingXu-v0.4.11-SHA256.txt releases/YingXu-v0.4.11-manifest.json releases/YingXu-v0.4.11-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.11 · 拖拽导入修复与跨项目移动' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
           }
           if ($LASTEXITCODE) { throw 'Draft upload failed' }
           gh release download $tag --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP/published-check"
           if ($LASTEXITCODE) { throw 'Draft download failed' }
-          $manifest = Get-Content "$env:RUNNER_TEMP/published-check/YingXu-v0.4.10-manifest.json" -Raw | ConvertFrom-Json
-          $zip = Get-Item "$env:RUNNER_TEMP/published-check/YingXu-v0.4.10-Windows-x64.zip"
+          $manifest = Get-Content "$env:RUNNER_TEMP/published-check/YingXu-v0.4.11-manifest.json" -Raw | ConvertFrom-Json
+          $zip = Get-Item "$env:RUNNER_TEMP/published-check/YingXu-v0.4.11-Windows-x64.zip"
           if ($zip.Length -ne $manifest.bytes -or (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower() -ne $manifest.sha256) { throw 'Downloaded asset differs' }
           python tools/verify_release.py $zip.FullName
           if ($LASTEXITCODE) { throw 'Downloaded asset failed verification' }

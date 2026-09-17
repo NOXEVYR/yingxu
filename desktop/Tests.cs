@@ -75,7 +75,7 @@ namespace YingXu.Desktop
                 "Path('logs/console.txt').write_text(str(ctypes.windll.kernel32.GetConsoleWindow()))\n" +
                 "class Handler(BaseHTTPRequestHandler):\n" +
                 " def do_GET(self):\n" +
-                "  body=json.dumps(dict(app='yingxu',ok=True,version='0.4.10',instance_id=instance_id(default_data_root()))).encode()\n" +
+                "  body=json.dumps(dict(app='yingxu',ok=True,version='0.4.11',instance_id=instance_id(default_data_root()))).encode()\n" +
                 "  self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n" +
                 " def log_message(self,*args): pass\n" +
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n" +
@@ -187,6 +187,57 @@ namespace YingXu.Desktop
             NativeResponse("{\"error\":\"not indexed\"}", null);
         }
 
+        private static void RejectDropObjects(object[] values, string name)
+        {
+            bool rejected = false;
+            try { Hub.ResolveDropFilePaths(values); }
+            catch (InvalidDataException) { rejected = true; }
+            Check(rejected, name);
+        }
+
+        private static void NativeDropResolver(string folder)
+        {
+            Hub.Url = "http://127.0.0.1:8791/";
+            string requestId;
+            const string id = "0123456789ABCDEF0123456789abcdef";
+            string message = "{\"action\":\"resolve-drop-files\",\"requestId\":\"" + id + "\"}";
+            Check(Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, message, out requestId) && requestId == id,
+                "drop path resolver accepts exact request and preserves ID case");
+            Check(!Hub.TryReadDropFilesMessage("https://example.com", Hub.Url, message, out requestId), "drop resolver rejects untrusted sender");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, "https://example.com", message, out requestId), "drop resolver rejects navigated host page");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, "http://127.0.0.1:8765/", message, out requestId), "drop resolver rejects different current app");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, message.Replace(id, "../file"), out requestId), "drop resolver rejects path as request ID");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, message.Replace(id, id + "\\n"), out requestId), "drop resolver rejects trailing newline ID");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, message.Replace("}", ",\"paths\":[\"C:/fake.png\"]}"), out requestId), "drop resolver rejects JSON-supplied paths");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, message.Replace("resolve-drop-files", "drop-files"), out requestId), "drop resolver rejects other action");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, "null", out requestId) &&
+                !Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, "[]", out requestId), "drop resolver rejects non-object request");
+            Check(!Hub.TryReadDropFilesMessage(Hub.Url, Hub.Url, new string(' ', 513) + message, out requestId), "drop resolver bounds request bytes");
+            Check(Hub.ResolveDropFilePaths(null) == null && Hub.ResolveDropFilePaths(new object[0]) == null,
+                "unsupported or empty attached-file metadata falls back as whole batch");
+            var first = new FileInfo(Path.Combine(folder, "未写入的中文 图片.png"));
+            var second = new FileInfo(Path.Combine(folder, "another.jpg"));
+            var result = Hub.ResolveDropFilePaths(new object[] { first, second, first });
+            Check(result.Length == 3 && result[0] == first.FullName && result[1] == second.FullName && result[2] == first.FullName,
+                "drop resolver preserves Chinese paths, order and duplicates");
+            Check(!File.Exists(first.FullName) && !File.Exists(second.FullName), "drop resolver does not create or read file bytes");
+            Check(Hub.ResolveDropFilePaths(new object[] { first, second }, entry => entry == first ? first.FullName : "") == null,
+                "one generated pathless native File falls back the entire batch");
+            Check(Hub.ResolveDropFilePaths(new object[] { first }, entry => null) == null,
+                "null native File path falls back without import");
+            RejectDropObjects(new object[] { first.FullName }, "drop resolver rejects string paths");
+            RejectDropObjects(new object[] { first, "C:/fake.png" }, "drop resolver rejects mixed attachment types without partial result");
+            RejectDropObjects(new object[] { null }, "drop resolver rejects null attachment");
+            RejectDropObjects(new object[] { new DirectoryInfo(folder) }, "drop resolver rejects directory attachment");
+            RejectDropObjects(new object[] { new FileInfo(@"\\server\share\image.png") }, "drop resolver rejects network attachment path");
+            var maximum = new object[200];
+            for (int index = 0; index < maximum.Length; index++) maximum[index] = first;
+            Check(Hub.ResolveDropFilePaths(maximum).Length == 200, "drop resolver accepts bounded 200-file selection");
+            var tooMany = new object[201];
+            for (int index = 0; index < tooMany.Length; index++) tooMany[index] = first;
+            RejectDropObjects(tooMany, "drop resolver rejects 201-file selection");
+        }
+
         private static int Main(string[] args)
         {
             string folder = Path.Combine(Path.GetTempPath(), "yingxu-桌面测试 空间-" + Guid.NewGuid().ToString("N"));
@@ -222,7 +273,7 @@ namespace YingXu.Desktop
                 Directory.CreateDirectory(Path.Combine(folder, "frontend"));
                 File.WriteAllText(Path.Combine(folder, "frontend", "index.html"), "");
                 Check(Hub.IsAppRoot(folder), "complete app folder recognized");
-                HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.10\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", true);
+                HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.11\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", true);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.4\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.3.2\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.2.1\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
@@ -233,6 +284,7 @@ namespace YingXu.Desktop
                 HealthResponse("{\"app\":\"yingxu\"}", false);
                 HealthResponse("not-json", false);
                 NativeDrag(folder, args);
+                NativeDropResolver(folder);
                 DesktopIntegration(folder);
                 ColdStart(folder, args[0]);
                 Console.WriteLine("Desktop tests passed: " + passed);

@@ -40,7 +40,7 @@ namespace YingXu.Desktop
         }
         private static void Check(bool value,string name)
         {
-            if (!value) throw new Exception("FAILED: " + name);
+            if (!value) { Console.WriteLine("FAILED: " + name); throw new Exception("FAILED: " + name); }
             count++; Console.WriteLine("PASS " + name);
         }
         private static object Field(object target,string name)
@@ -110,7 +110,7 @@ namespace YingXu.Desktop
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.10',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.11',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
@@ -171,6 +171,9 @@ namespace YingXu.Desktop
             Check(!web.CoreWebView2.Settings.AreHostObjectsAllowed && !web.CoreWebView2.Settings.AreDevToolsEnabled,
                 "parallel startup preserves WebView restrictions");
             Check(!window.Visible,"startup integration never opens the user-facing window");
+            // The minimal HTTP fixture intentionally has no application bootstrap.
+            Field(window,"pageReady",true);
+            await CheckDroppedFileBridge(web);
             string log=File.ReadAllText(Path.Combine(Hub.Data,"desktop.log"));
             int service=log.IndexOf("startup_stage=service_ready"),browser=log.IndexOf("startup_stage=browser_ready"),navigate=log.IndexOf("startup_stage=navigate");
             Check(service>=0 && browser>=0 && navigate>service && navigate>browser,"both startup branches finish before navigation");
@@ -181,6 +184,78 @@ namespace YingXu.Desktop
             Field(window,"exitApproved",true);window.Close();
             for(int i=0;i<200 && !exited.Task.IsCompleted;i++)await Task.Delay(25);
             Check(exited.Task.IsCompleted,"startup fixture browser exits after approved close");
+        }
+        private static async Task CheckDroppedFileBridge(WebView2 web)
+        {
+            // Real runtime File -> AdditionalObjects -> CoreWebView2File mapping, using only
+            // synthetic temporary files. CDP populates a file input without a dialog.
+            // This tests the production bridge, not a fabricated .NET event argument.
+            var json=new JavaScriptSerializer();
+            string first=Path.Combine(Hub.Data,"拖入合成 图片.png");
+            string second=Path.Combine(Hub.Data,"拖入合成 第二张.jpg");
+            File.WriteAllText(first,"Synthetic drop metadata fixture one");
+            File.WriteAllText(second,"Synthetic drop metadata fixture two");
+            const string requestId="1234567890abcdef1234567890abcdef";
+            string observedTypes=null;
+            EventHandler<CoreWebView2WebMessageReceivedEventArgs> observe=(sender,args)=>{
+                if(args.WebMessageAsJson.Contains(requestId))
+                {
+                    try {
+                        var names=new List<string>();
+                        foreach(object attached in args.AdditionalObjects) names.Add(attached==null?"null":attached.GetType().FullName);
+                        observedTypes=String.Join(",",names.ToArray());
+                    } catch(Exception error) { observedTypes="ERROR:"+error.GetType().FullName;Console.WriteLine("DROP_MAPPING "+observedTypes+" HRESULT="+error.HResult); }
+                }
+            };
+            web.CoreWebView2.WebMessageReceived+=observe;
+            try
+            {
+                Check(await web.CoreWebView2.ExecuteScriptAsync("window.yingxuDesktopDropPaths===true && typeof window.chrome.webview.postMessageWithAdditionalObjects==='function'")=="true",
+                    "production navigation exposes supported attached-file drop bridge");
+                await web.CoreWebView2.ExecuteScriptAsync("window.dropFixtureResponses={};window.chrome.webview.addEventListener('message',function(e){if(e.data.action==='resolved-drop-files')window.dropFixtureResponses[e.data.requestId]=e.data;});var input=document.createElement('input');input.type='file';input.multiple=true;input.id='drop-fixture-input';document.body.appendChild(input);");
+                var tree=json.Deserialize<Dictionary<string,object>>(await web.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.getDocument","{}"));
+                var root=(Dictionary<string,object>)tree["root"];
+                var node=json.Deserialize<Dictionary<string,object>>(await web.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.querySelector",json.Serialize(new {nodeId=root["nodeId"],selector="#drop-fixture-input"})));
+                await web.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles",json.Serialize(new {nodeId=node["nodeId"],files=new[]{first,second}}));
+                Check(await web.CoreWebView2.ExecuteScriptAsync("document.getElementById('drop-fixture-input').files.length")=="2",
+                    "real WebView file input receives two isolated on-disk Files");
+                await web.CoreWebView2.ExecuteScriptAsync("window.chrome.webview.postMessageWithAdditionalObjects({action:'resolve-drop-files',requestId:'"+requestId+"'},Array.from(document.getElementById('drop-fixture-input').files));");
+                Dictionary<string,object> response=await DropFixtureResponse(web,requestId);
+                Check(observedTypes=="Microsoft.Web.WebView2.Core.CoreWebView2File,Microsoft.Web.WebView2.Core.CoreWebView2File",
+                    "pinned SDK maps both native Files to CoreWebView2File in real runtime");
+                Check(!response.ContainsKey("error") && response.ContainsKey("paths"),"production native bridge returns resolved paths without import errors");
+                var paths=response["paths"] as System.Collections.ArrayList;
+                Check(paths!=null && paths.Count==2 && (string)paths[0]==first && (string)paths[1]==second,
+                    "native drop response preserves actual Unicode full paths and order");
+                Check(File.ReadAllText(first)=="Synthetic drop metadata fixture one" && File.ReadAllText(second)=="Synthetic drop metadata fixture two",
+                    "native resolver leaves both temporary source contents unchanged");
+                const string syntheticId="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+                string syntheticSend=await web.CoreWebView2.ExecuteScriptAsync("(function(){try{window.chrome.webview.postMessageWithAdditionalObjects({action:'resolve-drop-files',requestId:'"+syntheticId+"'},[new File(['synthetic browser bytes'],'generated.png',{type:'image/png'})]);return 'sent';}catch(e){return e.name+': '+e.message;}})()");
+                if(syntheticSend=="\"sent\"")
+                {
+                    var synthetic=await DropFixtureResponse(web,syntheticId);
+                    Check(!synthetic.ContainsKey("error") && synthetic.ContainsKey("paths") && synthetic["paths"]==null,
+                        "generated browser File without disk path falls back without claiming import");
+                }
+                else
+                {
+                    Check(syntheticSend.StartsWith("\"TypeError:",StringComparison.Ordinal),
+                        "runtime rejects generated browser File synchronously for frontend blob fallback");
+                    Check(await web.CoreWebView2.ExecuteScriptAsync("window.dropFixtureResponses['"+syntheticId+"']||null")=="null",
+                        "unsupported generated File does not invoke native resolver or claim import");
+                }
+            }
+            finally { web.CoreWebView2.WebMessageReceived-=observe; }
+        }
+        private static async Task<Dictionary<string,object>> DropFixtureResponse(WebView2 web,string requestId)
+        {
+            for(int index=0;index<100;index++)
+            {
+                string response=await web.CoreWebView2.ExecuteScriptAsync("window.dropFixtureResponses['"+requestId+"']||null");
+                if(response!="null") return new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(response);
+                await Task.Delay(20);
+            }
+            throw new TimeoutException("Real attached-file bridge did not return the fixture request: "+requestId);
         }
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void RunZoomIntegration(string browserFolder)

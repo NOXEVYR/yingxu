@@ -74,6 +74,10 @@ def main():
                                       str(DESKTOP / "Integration.cs"),
                                       str(DESKTOP / "Tests.cs")], check=True)
             subprocess.run([str(tests), str(ROOT)] + ([str(args.alias_root)] if args.alias_root else []), check=True)
+            folder_tests = folder / "folder-foreground-tests.exe"
+            subprocess.run(common + ["/target:exe", f"/out:{folder_tests}", str(DESKTOP / "Core.cs"),
+                str(DESKTOP / "Integration.cs"), str(DESKTOP / "FolderForegroundTests.cs")], check=True)
+            subprocess.run([str(folder_tests)], check=True, timeout=15)
             capture_tests = folder / "capture-tests.exe"
             subprocess.run(common + ["/target:exe", f"/out:{capture_tests}",
                 "/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll",

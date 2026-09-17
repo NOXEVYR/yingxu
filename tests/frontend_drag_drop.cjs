@@ -6,27 +6,27 @@ const vm = require('node:vm');
 const {test} = require('node:test');
 
 function setup(desktop = false, groups = false) {
-  const listeners = new Map(), nodes = [], moves = [], uploads = [], messages = [], groupEvents = [];
+  const listeners = new Map(), nodes = [], moves = [], uploads = [], messages = [], groupEvents = [], projectMoves = [];
   function node(dataset = {}) {
     const classes = new Set();
     const element = {dataset, classList:{add:(...names)=>names.forEach(n=>classes.add(n)), remove:(...names)=>names.forEach(n=>classes.delete(n)), contains:n=>classes.has(n)},
       hasAttribute:name=>name==='data-folder-drop' && 'folderDrop' in dataset,
-      closest:selector=>selector==='[data-item]' && dataset.item ? element : selector==='[data-drag-file]' && dataset.dragFile ? element : selector==='[data-folder-drop],[data-category]' && ('folderDrop' in dataset || 'category' in dataset) ? element : null};
+      closest:selector=>selector==='[data-project]' && dataset.project ? element : selector==='[data-item]' && dataset.item ? element : selector==='[data-drag-file]' && dataset.dragFile ? element : selector==='[data-folder-drop],[data-category]' && ('folderDrop' in dataset || 'category' in dataset) ? element : null};
     nodes.push(element); return element;
   }
-  const document = {body:node(), addEventListener:(type,fn)=>{const previous=listeners.get(type);listeners.set(type,previous ? e=>{previous(e);return fn(e);} : fn);}, querySelectorAll:()=>nodes};
+  const document = {body:node(), addEventListener:(type,fn)=>{const previous=listeners.get(type);listeners.set(type,previous ? e=>{const result=previous(e);if(e.immediateStopped)return result;return fn(e);} : fn);}, querySelectorAll:()=>nodes};
   const hostListeners = new Map();
-  const context = vm.createContext({document, window:{innerWidth:1000,innerHeight:600,yingxuDesktopDrag:desktop,chrome:{webview:{postMessage:m=>messages.push(m),addEventListener:(type,fn)=>hostListeners.set(type,fn)}}}, localStorage:{getItem:()=>null}, console, setTimeout, clearTimeout, moves, uploads});
+  const context = vm.createContext({document, window:{innerWidth:1000,innerHeight:600,yingxuDesktopDrag:desktop,chrome:{webview:{postMessage:m=>messages.push(m),addEventListener:(type,fn)=>hostListeners.set(type,fn)}}}, localStorage:{getItem:()=>null}, console, setTimeout, clearTimeout, moves, uploads,projectMoves});
   if (groups) context.window.YingXuResourceGroups = {install:() => ({beginDrag:ids=>groupEvents.push(['begin',...ids]),endDrag:()=>groupEvents.push(['end']),handleNativeDrop:()=>false})};
   const source = fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/, '');
-  vm.runInContext(source+`\nhideMenu=()=>{}; performMove=async (...args)=>moves.push(args); uploadFiles=async (...args)=>uploads.push(args); report=error=>{throw error;}; globalThis.app={state,wireDragAndDrop,cardHtml,rowHtml};`,context);
+  vm.runInContext(source+`\nhideMenu=()=>{}; moveDialog=async(...args)=>projectMoves.push(args); performMove=async (...args)=>moves.push(args); uploadFiles=async (...args)=>uploads.push(args); report=error=>{throw error;}; globalThis.app={state,wireDragAndDrop,cardHtml,rowHtml};`,context);
   Object.assign(context.app.state,{projectId:'synthetic',section:'assets',category:'references',folderId:'current'});
   context.app.wireDragAndDrop();
   function transfer(files=[],data={}) {
     return {files, data:{...data}, get types(){return [...Object.keys(this.data),...(files.length?['Files']:[])];}, clearData(){this.data={};}, setData(k,v){this.data[k]=v;}, getData(k){return this.data[k]||'';}};
   }
-  function fire(type,target,dataTransfer) { const e={type,target,dataTransfer,button:0,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}}; return {event:e,result:listeners.get(type)(e)}; }
-  return {app:context.app,document,node,transfer,fire,moves,uploads,messages,hostListeners,groupEvents};
+  function fire(type,target,dataTransfer) { const e={type,target,dataTransfer,button:0,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;},stopImmediatePropagation(){this.immediateStopped=true;}}; return {event:e,result:listeners.get(type)(e)}; }
+  return {app:context.app,document,node,transfer,fire,moves,uploads,messages,hostListeners,groupEvents,projectMoves};
 }
 
 test('thumbnail drag with browser Files payload moves the selected resources without an import overlay',async()=>{
@@ -149,4 +149,23 @@ test('hover and pointer down prepare selected files before starting Windows drag
   const s=setup(true),card=s.node({item:'a'});s.app.state.selectedIds.add('a');s.app.state.selectedIds.add('b');
   s.fire('pointerover',card);s.fire('pointerover',card);s.fire('pointerdown',card);
   assert.deepEqual(JSON.parse(JSON.stringify(s.messages)),[{action:'prepare-drag-files',ids:['a','b']},{action:'prepare-drag-files',ids:['a','b']}]);
+});
+
+
+test('selected resources dropped on another project open destination confirmation once',async()=>{
+  const s=setup(),target=s.node({project:'destination'}),transfer=s.transfer([{name:'native.png'}],{'application/x-yingxu-item':'a','application/x-yingxu-items':'["a","b"]'});
+  const over=s.fire('dragover',target,transfer);assert.equal(over.event.prevented,true);assert.equal(transfer.dropEffect,'move');assert.equal(target.classList.contains('drop-project'),true);
+  await s.fire('drop',target,transfer).result;
+  assert.deepEqual(JSON.parse(JSON.stringify(s.projectMoves)),[[['a','b'],'destination']]);assert.equal(s.moves.length,0);assert.equal(s.uploads.length,0);assert.equal(target.classList.contains('drop-project'),false);
+});
+
+test('native mouse release over another project opens confirmation without byte reimport',async()=>{
+  const s=setup(true),card=s.node({item:'a'}),target=s.node({project:'destination'});s.document.elementFromPoint=()=>target;
+  s.fire('dragstart',card,s.transfer());s.hostListeners.get('message')({data:{action:'native-drag-ended',released:true,inside:true,x:10,y:10,width:100,height:100}});
+  assert.deepEqual(JSON.parse(JSON.stringify(s.projectMoves)),[[['a'],'destination']]);assert.equal(s.uploads.length,0);assert.equal(s.moves.length,0);
+  s.hostListeners.get('message')({data:{action:'native-drag-ended',released:true,inside:true,x:10,y:10,width:100,height:100}});assert.equal(s.projectMoves.length,1);
+});
+
+test('dropping within same project does not open cross-project confirmation',async()=>{
+  const s=setup(),target=s.node({project:'synthetic'}),transfer=s.transfer([],{'application/x-yingxu-item':'a'});await s.fire('drop',target,transfer).result;assert.equal(s.projectMoves.length,0);assert.equal(s.moves.length,0);assert.equal(s.uploads.length,0);
 });
