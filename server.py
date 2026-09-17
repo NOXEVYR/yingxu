@@ -1,4 +1,4 @@
-"""映序 local HTTP application. No external services, package installs or telemetry."""
+"""映序 local HTTP application. Offline by default; manual update lookup only. No telemetry."""
 from __future__ import annotations
 import argparse
 from contextlib import nullcontext
@@ -97,7 +97,7 @@ class Application:
         return {'app':'yingxu','version':__version__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True}}
+          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -427,6 +427,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command in ('GET','HEAD'):return self.handle_application_request()
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
+            # Manual release actions do not read or mutate project storage.
+            if self.command == 'POST' and urlsplit(self.path).path in ('/api/updates/check','/api/updates/open'):
+                return self.handle_application_request()
             with self.app.migration_jobs.mutation(self.command,urlsplit(self.path).path):
                 return self.handle_application_request()
         except UserError as error:
@@ -510,6 +513,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.file(static)
             if self.command=='POST' and path=='/api/upload':return self.json(self.app.receive_upload(self,query),201)
             data=self.body()
+            if self.command == 'POST' and path == '/api/updates/check':
+                if data or query:raise UserError('检查更新不接受额外参数。')
+                from yingxu.updates import check_update
+                return self.json(check_update())
+            if self.command == 'POST' and path == '/api/updates/open':
+                if set(data) != {'tag'} or query:raise UserError('发布页参数无效。')
+                from yingxu.updates import open_release
+                return self.json(open_release(data['tag']))
             group=re.fullmatch(r'/api/resource-groups/([a-f0-9]{32})(/members|/transfer)?',path)
             if group:
                 if group[2]=='/transfer':

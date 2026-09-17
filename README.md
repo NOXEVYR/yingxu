@@ -18,6 +18,8 @@
 
 [下载 macOS M 系列 0.4.11-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
+**开发中，尚未包含在上方 0.4.11 安装包：** 设置 → 关于映序新增“检查更新”。仅点击时访问 GitHub，分别检查 Windows 正式包或 macOS Apple Silicon 试用包；可通过系统浏览器查看发布说明与下载。不会自动下载、安装或启动时联网，无新增运行依赖与后台轮询。查询失败会明确提示；短时间重复检查复用一分钟内的成功结果。
+
 **0.4.11 已发布：拖拽导入修复与跨项目移动。** Windows 与 macOS 共享相同功能代码，并分别完成上传后完整下载、解压与隔离验证。Windows 来源提交另含浏览器测试等待及临时测试目录清理修正，不改变应用功能。
 
 - Windows 资源区从文件夹拖入文件时，使用原生文件路径并复用文件选择导入队列；无磁盘路径的图片仍使用上传。传输失败会核实本地服务状态，避免把导入失败直接误报为断连。
