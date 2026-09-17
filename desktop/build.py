@@ -25,15 +25,20 @@ def cleanup_integration_fixture(value):
     if fixture.parent != Path(tempfile.gettempdir()).resolve() or not fixture.name.startswith('yingxu-lifecycle-') or fixture.is_symlink():
         raise ValueError('Invalid integration fixture cleanup path')
     # The host has exited, but its WebView subprocess may still release handles.
-    # Retry only sharing violations, for at most five seconds; never kill browsers.
+    # Retry sharing violations and files concurrently removed by WebView, for at
+    # most five seconds. Never kill browsers or hide other cleanup errors.
     for attempt in range(26):
         try:
             shutil.rmtree(fixture)
             return
-        except FileNotFoundError:
+        except FileNotFoundError as error:
             if not fixture.exists():
                 return
-            raise
+            # Python before 3.13 can enumerate a lock file just before WebView
+            # removes it. Retry the remaining owned fixture, not an unrelated path.
+            if not error.filename or not Path(error.filename).resolve().is_relative_to(fixture) or attempt == 25:
+                raise
+            time.sleep(0.2)
         except OSError as error:
             if getattr(error, 'winerror', None) not in (32, 33) or attempt == 25:
                 raise

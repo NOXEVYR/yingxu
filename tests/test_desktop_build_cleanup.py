@@ -45,3 +45,32 @@ class DesktopBuildCleanupTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     build.cleanup_integration_fixture(value)
             remove.assert_not_called()
+
+    def test_concurrent_webview_lock_removal_retries_remaining_fixture(self):
+        error = FileNotFoundError(2, 'concurrently removed', str(self.fixture() / 'WebView2' / 'lockfile'))
+        with patch.object(build.shutil, 'rmtree', side_effect=[error, None]) as remove, patch.object(build.Path, 'exists', return_value=True), patch.object(build.time, 'sleep') as sleep:
+            build.cleanup_integration_fixture(self.fixture())
+            self.assertEqual(remove.call_count, 2)
+            sleep.assert_called_once_with(0.2)
+
+    def test_missing_whole_fixture_is_already_clean(self):
+        with patch.object(build.shutil, 'rmtree', side_effect=FileNotFoundError(2, 'gone', str(self.fixture()))) as remove, patch.object(build.Path, 'exists', return_value=False), patch.object(build.time, 'sleep') as sleep:
+            build.cleanup_integration_fixture(self.fixture())
+            remove.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_persistent_missing_child_still_has_bounded_wait(self):
+        error = FileNotFoundError(2, 'concurrently removed', str(self.fixture() / 'lockfile'))
+        with patch.object(build.shutil, 'rmtree', side_effect=error) as remove, patch.object(build.Path, 'exists', return_value=True), patch.object(build.time, 'sleep') as sleep:
+            with self.assertRaises(FileNotFoundError):
+                build.cleanup_integration_fixture(self.fixture())
+            self.assertEqual(remove.call_count, 26)
+            self.assertEqual(sleep.call_count, 25)
+
+    def test_unrelated_missing_path_is_not_retried(self):
+        error = FileNotFoundError(2, 'unrelated', str(self.fixture().parent / 'unrelated'))
+        with patch.object(build.shutil, 'rmtree', side_effect=error) as remove, patch.object(build.Path, 'exists', return_value=True), patch.object(build.time, 'sleep') as sleep:
+            with self.assertRaises(FileNotFoundError):
+                build.cleanup_integration_fixture(self.fixture())
+            remove.assert_called_once()
+            sleep.assert_not_called()
