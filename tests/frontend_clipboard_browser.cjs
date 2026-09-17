@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
-const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
+const {test}=require('node:test'),{spawn,execFile}=require('node:child_process'),http=require('node:http'),{promisify}=require('node:util');
 test('real browser routes synthetic image paste and menu actions without accessing the system clipboard',async t=>{
   const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p=>p&&fs.existsSync(p));
   if(!browser){t.skip('Requires existing Chromium');return;}
@@ -40,12 +40,37 @@ test('real browser routes synthetic image paste and menu actions without accessi
     navigator.clipboard.read=async()=>[{types:['image/png'],getType:async()=>new Blob([png],{type:'image/png'})}];
     blank.focus();await pasteResourceFiles({project_id:'browser-image',category:'props',folder_id:null});
     check('browser clipboard image uses upload with PNG filename',sent.length===2&&sent[1].file.name.endsWith('.png')&&native.length===1);
-    document.querySelector('#result').textContent=JSON.stringify(results);
-  })().catch(error=>document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack}));`);
+    await fetch('/result',{method:'POST',body:JSON.stringify(results)});
+  })().catch(error=>fetch('/result',{method:'POST',body:JSON.stringify({error:String(error),stack:error.stack})}));`);
   const html=fs.readFileSync(path.join(front,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'').replace('</body>','<pre id="result"></pre><script src="app.js"></script><script src="runner.js"></script></body>');
   fs.writeFileSync(path.join(temporary,'fixture.html'),html);
-  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--virtual-time-budget=3000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
-  const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1200));
-  const results=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
-  assert.ok(Array.isArray(results),JSON.stringify(results));assert.equal(results.length,9);for(const row of results)assert.equal(row.ok,true,row.name);
+  // Virtual-time --dump-dom can exhaust its timer budget while File.arrayBuffer()
+  // is still waiting on real browser I/O. Await an explicit fixture result instead.
+  let deliver;const completed=new Promise(resolve=>{deliver=resolve;});
+  const server=http.createServer((req,res)=>{
+    if(req.method==='POST'&&req.url==='/result') {
+      let body='';req.on('data',chunk=>{body+=chunk;if(body.length>65536)req.destroy();});
+      req.on('end',()=>{res.end('ok');try{deliver(JSON.parse(body));}catch(error){deliver({error:String(error)});}});return;
+    }
+    const name={'/fixture.html':'fixture.html','/app.js':'app.js','/runner.js':'runner.js'}[req.url];
+    if(!name){res.writeHead(404);res.end();return;}
+    res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');
+    res.end(fs.readFileSync(path.join(temporary,name)));
+  });
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  const child=spawn(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,`http://127.0.0.1:${server.address().port}/fixture.html`],{windowsHide:true,stdio:['ignore','ignore','pipe']});
+  let stderr='',timer;child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-4000);});
+  const failed=new Promise((_,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>reject(Error(`Fixture browser exited before result (${code}/${signal}): ${stderr}`)));});
+  try {
+    const results=await Promise.race([completed,failed,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Browser fixture did not finish within 30 seconds: '+stderr)),30000);})]);
+    assert.ok(Array.isArray(results),JSON.stringify(results));assert.equal(results.length,9);for(const row of results)assert.equal(row.ok,true,row.name);
+  } finally {
+    clearTimeout(timer);
+    if(child.exitCode===null&&child.pid) {
+      if(process.platform==='win32') await promisify(execFile)('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});
+      else child.kill('SIGTERM');
+      if(child.exitCode===null) await new Promise(resolve=>{const limit=setTimeout(resolve,3000);child.once('exit',()=>{clearTimeout(limit);resolve();});});
+    }
+    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+  }
 });
