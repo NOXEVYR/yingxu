@@ -12,11 +12,21 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.10](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.10/YingXu-v0.4.10-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10)
+**[下载 Windows x64 完整包 · v0.4.11](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.11/YingXu-v0.4.11-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.10-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.11-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.11 已发布：拖拽导入修复与跨项目移动。** Windows 与 macOS 共享相同功能代码，并分别完成上传后完整下载、解压与隔离验证。Windows 来源提交另含浏览器测试等待及临时测试目录清理修正，不改变应用功能。
+
+- Windows 资源区从文件夹拖入文件时，使用原生文件路径并复用文件选择导入队列；无磁盘路径的图片仍使用上传。传输失败会核实本地服务状态，避免把导入失败直接误报为断连。
+- Windows 打开、定位文件夹由桌面宿主发起，匹配 Explorer 窗口并尝试前台显示；用户切换其他应用后不继续抢焦点。
+- 素材可拖到左侧其他项目，选择目标分类和文件夹后移动，也可通过“移动到”选择其他项目。先复制、校验，再提交记录和清理源文件；外部引用保留原文件位置。
+- 移动保留条目身份、历史、完整素材组与批次内关系；部分素材组、跨批次本地文稿链接会明确拒绝。最多 200 项、受管文件合计 2 GiB，大文件移动期间暂停冲突写入。
+- 无新增启动扫描、模型或运行依赖。原生拖拽桥接和窗口行为使用隔离测试，仍需对方电脑复测；macOS 维持 M 系列试用范围。
+
+[Windows 0.4.10 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10) · [macOS 0.4.10-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10-mac.1)
 
 **0.4.10 已发布：项目存放位置与迁移。** Windows 和 macOS 使用同一份功能源码，分别完成最终包验证与上传后下载回检。
 
