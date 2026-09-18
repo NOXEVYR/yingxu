@@ -14,8 +14,8 @@ sys.path.insert(0,str(ROOT/'macos'))
 from verify_release import verify
 
 REPO='turnsolesama/yingxu'
-TAG='yingxu-v0.4.11-mac.1'
-NAME='YingXu-v0.4.11-mac.1-macOS-arm64'
+TAG='yingxu-v0.4.12-mac.1'
+NAME='YingXu-v0.4.12-mac.1-macOS-arm64'
 ICON_REPAIR_COMMIT='fix: replace 0.4.6 icons [viewfinder-v1]'
 ICON_REPAIR_WINDOWS_COMMIT=ICON_REPAIR_COMMIT+' [windows-only]'
 
@@ -174,7 +174,7 @@ def main():
     assert os.environ['GITHUB_REPOSITORY']==REPO
     commit=os.environ['GITHUB_SHA']
     artifacts=ROOT/'releases/macos-preview'
-    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.11-mac.1-verification.json']
+    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.12-mac.1-verification.json']
     manifest=json.loads((artifacts/names[1]).read_text())
     assert manifest['source_commit']==commit
     existing=gh('release','view',TAG,'--json','isDraft,targetCommitish',check=False)
@@ -187,14 +187,13 @@ def main():
             return
         if release['isDraft'] and release['targetCommitish']!=commit:
             raise RuntimeError('Existing draft belongs to another source commit')
-    notes='''映序 0.4.11 macOS 试用版（0.4.11-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
+    notes='''映序 0.4.12 macOS 试用版（0.4.12-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
 
 ## 本次更新
 
-- 素材可拖到左侧其他项目，选择目标分类和文件夹后移动；先复制校验、再提交并清理源文件，保留历史和批次内关系。
-- 部分素材组和未随批次移动的文稿链接会明确提示；跨磁盘移动保留校验与失败副本保护。
-- 上传失败时核实本地服务状态，区分传输失败和连接中断；结果不明时不自动重复导入。
-- 保留项目存放位置与迁移功能，无新增启动扫描、模型或运行依赖。
+- 设置新增“手动更新”：点击检查当前平台的 GitHub 完整包，查看发布说明并下载；不会在启动时检查更新。
+- 支持 Obsidian 图片引用、图片宽高语法；Markdown 可拖入、粘贴或选择图片插入草稿，保留原文和原附件。
+- 文稿默认扩大阅读区域，可按需显示文件列表，改善长文排版。
 
 ## 安装与边界
 
@@ -213,7 +212,7 @@ def main():
         root=Path(temporary);note=root/'notes.md';write_notes(note,notes)
         if existing.returncode:
             gh('release','create',TAG,*[str(artifacts/n) for n in names],
-               '--target',commit,'--title','映序 0.4.11 · 跨项目移动与导入状态修复 · macOS M 系列试用版',
+               '--target',commit,'--title','映序 0.4.12 · 笔记图片兼容与手动更新 · macOS M 系列试用版',
                '--notes-file',str(note),'--draft','--prerelease')
         else:
             gh('release','edit',TAG,'--notes-file',str(note),'--prerelease')
@@ -227,21 +226,20 @@ def main():
         gh('release','edit',TAG,'--draft=false','--prerelease','--latest=false')
         print('macOS preview downloaded, extracted, verified, and published.',flush=True)
         portal=root/'downloads.md'
-        write_notes(portal,'''映序 0.4.11 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
+        write_notes(portal,'''映序 0.4.12 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
 
 ## 当前下载
 
 - [Windows 完整包发布列表](https://github.com/turnsolesama/yingxu/releases)（以已发布附件为准）
-- [macOS M 系列 0.4.11-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)
+- [macOS M 系列 0.4.12-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)
 
-## 0.4.11 更新
+## 0.4.12 更新
 
-- 素材可拖到左侧其他项目，选择目标分类和文件夹后移动；先复制校验、再提交并清理源文件，保留历史和批次内关系。
-- 部分素材组和未随批次移动的文稿链接会明确提示；跨磁盘移动保留校验与失败副本保护。
-- 上传失败时核实本地服务状态，区分传输失败和连接中断；结果不明时不自动重复导入。
-- 保留项目存放位置与迁移功能，无新增启动扫描、模型或运行依赖。
+- 设置新增“手动更新”：点击检查当前平台的 GitHub 完整包，查看发布说明并下载；不会在启动时检查更新。
+- 支持 Obsidian 图片引用、图片宽高语法；Markdown 可拖入、粘贴或选择图片插入草稿，保留原文和原附件。
+- 文稿默认扩大阅读区域，可按需显示文件列表，改善长文排版。
 ''')
-        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.11 · Windows 与 macOS 下载','--notes-file',str(portal))
+        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.12 · Windows 与 macOS 下载','--notes-file',str(portal))
 
 if __name__=='__main__':
     if len(sys.argv)==3 and sys.argv[1]=='--replace-windows-icons':replace_windows_icons(sys.argv[2])

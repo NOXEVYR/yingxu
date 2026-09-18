@@ -23,6 +23,8 @@ def release(version, mac=False, **extra):
 class UpdatesTests(unittest.TestCase):
     def setUp(self):
         updates._cache = None
+        version = patch.object(updates, "__version__", "0.4.11")
+        version.start(); self.addCleanup(version.stop)
 
     def test_numeric_platform_and_incomplete_release_selection(self):
         entries = [release('0.4.9'),release('0.4.12-mac.1',True),release('0.4.10')]
