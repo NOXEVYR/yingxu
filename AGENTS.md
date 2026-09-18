@@ -12,7 +12,7 @@
 - Markdown 编辑器构建：在 `tools/markdown-editor` 执行 `npm ci --ignore-scripts --no-audit --no-fund`，然后 `npm run build`；每步成功后再运行前端测试。版本与完整性由 `package-lock.json` 锁定，输出本地 bundle、依赖清单和许可证，禁止从 CDN 加载。Node.js/npm 只在开发构建与测试时使用，完整包运行不需要 Node.js。
 - Markdown 文本是唯一保存模型，不将排版后的 HTML 回写文稿。超过 500000 字符或混合换行降级源码；中文 composition 期间禁止重建/关闭编辑器，保存草稿需与当前文本一致，并保留原文件 BOM 和换行方式。
 - Windows 桌面离线构建：`python desktop/build.py --sdk-package <已下载官方SDK.nupkg> --output YingXu.exe --test`。构建脚本校验固定 SDK 摘要，不下载依赖。
-- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.14-Windows-x64.zip` 使用隔离临时目录验证。
+- 发布：`python tools/package_release.py`，仅白名单打包；`python tools/verify_release.py releases/YingXu-v0.4.15-Windows-x64.zip` 使用隔离临时目录验证。
 - 不提交构建日志、本机配置、个人目录、素材和数据库；打包文件不能包含个人绝对路径。
 
 - 完整包先运行 `python tools/prepare_runtime.py --cache <构建缓存> --download`；运行时清单逐项校验，只能来自 `tools/runtime-lock.json`，禁止复制本机安装环境。大体积 ZIP 放 GitHub Release，不提交 Git 历史。
@@ -34,7 +34,7 @@
 
 - macOS 14+ Apple Silicon 试用版由 `macos_app.py` 使用系统 WebKit。平台分支保留 Finder、废纸篓、安全排他重命名和退出草稿保护；共同界面仍提供文内搜索、版本与容量管理。不得把 Windows 截图、托盘和打开方式注册宣称为 Mac 已实现。
 - macOS 在独立 Python 3.13 环境执行 `python -B macos/prepare_dependencies.py`，只下载 `macos/dependencies-lock.json` 中的已锁定档案并校验大小/SHA-256；开发依赖和安装清单不等于模型。Node 仅测试和构建 Markdown，不随应用运行。
-- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.14-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
+- macOS 构建 `python -B macos/build.py` 使用每次新建的暂存目录；验证 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.15-mac.1-macOS-arm64.zip` 必须对最终 ZIP 解压、验签并运行原生及 WKWebView 合成检查。用户目录、输入法、权限对话框或长期稳定性未经实测时必须说明。
 
 - README 下载链接必须按实际已发布资产更新，不因源码合并提前切换版本，保留 0.4.4 和更早更新记录。
 - 原生应用图标须与 frontend/index.html 的取景框/播放标志一致，不能仅给旧图案换色。Windows ICO 使用 32 位 DIB 帧兼容 .NET Framework，并通过生命周期检查核对 WM_GETICON、窗口和托盘实际图标。0.4.6 图标修复由清单 icon_revision=viewfinder-v1 区分；明确授权同版本覆盖时，保留原标签，发布说明记录附件的新来源提交及摘要。保留旧远程附件直到新附件上传回检成功，再按资产 ID 改名切换；切换失败恢复旧名称及说明，成功后的旧附件清理失败仅报告残留。已有本地备份应复用，不为备份重复下载旧安装包。

@@ -14,8 +14,8 @@ sys.path.insert(0,str(ROOT/'macos'))
 from verify_release import verify
 
 REPO='turnsolesama/yingxu'
-TAG='yingxu-v0.4.14-mac.1'
-NAME='YingXu-v0.4.14-mac.1-macOS-arm64'
+TAG='yingxu-v0.4.15-mac.1'
+NAME='YingXu-v0.4.15-mac.1-macOS-arm64'
 ICON_REPAIR_COMMIT='fix: replace 0.4.6 icons [viewfinder-v1]'
 ICON_REPAIR_WINDOWS_COMMIT=ICON_REPAIR_COMMIT+' [windows-only]'
 
@@ -174,7 +174,7 @@ def main():
     assert os.environ['GITHUB_REPOSITORY']==REPO
     commit=os.environ['GITHUB_SHA']
     artifacts=ROOT/'releases/macos-preview'
-    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.14-mac.1-verification.json']
+    names=[NAME+'.zip',NAME+'-manifest.json',NAME+'-SHA256.txt','YingXu-v0.4.15-mac.1-verification.json']
     manifest=json.loads((artifacts/names[1]).read_text())
     assert manifest['source_commit']==commit
     existing=gh('release','view',TAG,'--json','isDraft,targetCommitish',check=False)
@@ -187,14 +187,14 @@ def main():
             return
         if release['isDraft'] and release['targetCommitish']!=commit:
             raise RuntimeError('Existing draft belongs to another source commit')
-    notes='''映序 0.4.14 macOS 试用版（0.4.14-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
+    notes='''映序 0.4.15 macOS 试用版（0.4.15-mac.1），适用于 macOS 14+ 的 Apple Silicon / M 系列芯片。
 
 ## 本次更新
 
-- Windows 截图工具栏重新整理工具、色板与操作按钮，改善间距、选中反馈和高 DPI / 窄屏布局。
-- 修复原生按钮重绘残留导致的黑底、图标重复和重影；真实窗口在切换、悬停、按压及多种缩放下完成 834 项绘制检查。
-- 保留矩形、箭头、Shift 直线、马赛克与置顶功能；没有新增依赖、启动联网或后台轮询。
-- macOS 试用版同步版本与既有功能，不新增 Windows 截图工具；保留 0.4.13 的回收站清理确认修复。
+- Windows 截图线宽按钮改为真正展开选项，可直接选择 2、4、8、12 像素；打开选项不会改变当前粗细。
+- 选中线宽后自动收起，Esc 或外部点击仅关闭选项，不误画、不取消截图；选项适配窄屏与不同缩放。
+- 保留 0.4.14 的工具栏外观及黑底重影修复，实际窗口绘制和线宽交互完成 930 项检查；无新增运行依赖、启动联网或后台轮询。
+- macOS 仅同步版本与来源，不新增 Windows 截图功能。
 
 ## 安装与边界
 
@@ -213,7 +213,7 @@ def main():
         root=Path(temporary);note=root/'notes.md';write_notes(note,notes)
         if existing.returncode:
             gh('release','create',TAG,*[str(artifacts/n) for n in names],
-               '--target',commit,'--title','映序 0.4.14 · 同步版本 · macOS M 系列试用版',
+               '--target',commit,'--title','映序 0.4.15 · 同步版本 · macOS M 系列试用版',
                '--notes-file',str(note),'--draft','--prerelease')
         else:
             gh('release','edit',TAG,'--notes-file',str(note),'--prerelease')
@@ -227,21 +227,21 @@ def main():
         gh('release','edit',TAG,'--draft=false','--prerelease','--latest=false')
         print('macOS preview downloaded, extracted, verified, and published.',flush=True)
         portal=root/'downloads.md'
-        write_notes(portal,'''映序 0.4.14 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
+        write_notes(portal,'''映序 0.4.15 下载入口。Windows 正式包和 macOS 试用包分别选择，历史版本保留。
 
 ## 当前下载
 
 - [Windows 完整包发布列表](https://github.com/turnsolesama/yingxu/releases)（以已发布附件为准）
-- [macOS M 系列 0.4.14-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14-mac.1)
+- [macOS M 系列 0.4.15-mac.1 试用版与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15-mac.1)
 
-## 0.4.14 更新
+## 0.4.15 更新
 
-- Windows 截图工具栏重新整理工具、色板与操作按钮，改善间距、选中反馈和高 DPI / 窄屏布局。
-- 修复原生按钮重绘残留导致的黑底、图标重复和重影；真实窗口在切换、悬停、按压及多种缩放下完成 834 项绘制检查。
-- 保留矩形、箭头、Shift 直线、马赛克与置顶功能；没有新增依赖、启动联网或后台轮询。
-- macOS 试用版同步版本与既有功能，不新增 Windows 截图工具；保留 0.4.13 的回收站清理确认修复。
+- Windows 截图线宽按钮改为真正展开选项，可直接选择 2、4、8、12 像素；打开选项不会改变当前粗细。
+- 选中线宽后自动收起，Esc 或外部点击仅关闭选项，不误画、不取消截图；选项适配窄屏与不同缩放。
+- 保留 0.4.14 的工具栏外观及黑底重影修复，实际窗口绘制和线宽交互完成 930 项检查；无新增运行依赖、启动联网或后台轮询。
+- macOS 仅同步版本与来源，不新增 Windows 截图功能。
 ''')
-        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.14 · Windows 与 macOS 下载','--notes-file',str(portal))
+        gh('release','edit','downloads-2026-09-12','--title','映序 YingXu 0.4.15 · Windows 与 macOS 下载','--notes-file',str(portal))
 
 if __name__=='__main__':
     if len(sys.argv)==3 and sys.argv[1]=='--replace-windows-icons':replace_windows_icons(sys.argv[2])
