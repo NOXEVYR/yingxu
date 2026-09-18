@@ -403,6 +403,10 @@ namespace YingXu.Desktop
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor,true);
             BackColor=Color.Transparent;UseVisualStyleBackColor=false;FlatStyle=FlatStyle.Flat;FlatAppearance.BorderSize=0;Size=new Size(40,40);Margin=new Padding(2);
             AccessibleRole=AccessibleRole.PushButton;Cursor=Cursors.Hand;
+            // ButtonBase is opaque by default. Our partial, transparent painting
+            // needs the parent background on every WM_PAINT before drawing icons;
+            // otherwise the reused back buffer retains another button's pixels.
+            SetStyle(ControlStyles.Opaque,false);
         }
         protected override void OnMouseEnter(EventArgs e) {hover=true;Invalidate();base.OnMouseEnter(e);}
         protected override void OnMouseLeave(EventArgs e) {hover=false;Invalidate();base.OnMouseLeave(e);}

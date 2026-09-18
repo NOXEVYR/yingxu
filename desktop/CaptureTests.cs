@@ -6,6 +6,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
@@ -379,28 +380,171 @@ namespace YingXu.Desktop
                     typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[2],new object[]{EventArgs.Empty});
                     using(var preview=new Bitmap(image.Width,image.Height))
                     {
-                        selector.DrawToBitmap(preview,new Rectangle(Point.Empty,preview.Size));Point location=toolbar.Location;Color backdrop=preview.GetPixel(location.X,location.Y);toolbar.Parent=null;toolbar.BackColor=backdrop;
-                        try
-                        {
-                            using(var rendered=new Bitmap(toolbar.Width,toolbar.Height))
-                            {toolbar.DrawToBitmap(rendered,new Rectangle(Point.Empty,rendered.Size));using(var g=Graphics.FromImage(preview))g.DrawImageUnscaled(rendered,location);}
-                        }
-                        finally {toolbar.BackColor=Color.Transparent;toolbar.Parent=selector;toolbar.Location=location;}
+                        // Preserve the actual parent relationship; native-paint mode checks WM_PAINT separately.
+                        selector.DrawToBitmap(preview,new Rectangle(Point.Empty,preview.Size));
                         preview.Save(path,System.Drawing.Imaging.ImageFormat.Png);
                     }
                 }
             }
         }
+        private static void BackgroundPaintRegression()
+        {
+            using(var image=Picture(1060,730))
+            using(var selector=new CaptureSelector(image,new Rectangle(0,0,1060,730)))
+            {
+                Drag(selector,new Point(30,50),new Point(900,450));
+                var toolbar=(CaptureToolbar)selector.Controls[0];
+                MethodInfo style=typeof(Control).GetMethod("GetStyle",BindingFlags.Instance|BindingFlags.NonPublic);
+                MethodInfo background=typeof(Control).GetMethod("OnPaintBackground",BindingFlags.Instance|BindingFlags.NonPublic);
+                MethodInfo foreground=typeof(Control).GetMethod("OnPaint",BindingFlags.Instance|BindingFlags.NonPublic);
+                foreach(CaptureToolButton button in toolbar.Controls)
+                using(var surface=new Bitmap(button.Width,button.Height))
+                using(var destination=Graphics.FromImage(surface))
+                using(var buffer=BufferedGraphicsManager.Current.Allocate(destination,button.ClientRectangle))
+                {
+                    // Model the WM_PAINT background branch with a deliberately dirty
+                    // reusable buffer. A foreground-only button must not inherit it.
+                    // This is a pixel regression, not merely an assertion of style flags.
+                    buffer.Graphics.Clear(Color.Magenta);
+                    using(var pen=new Pen(Color.Cyan,4))buffer.Graphics.DrawLine(pen,0,button.Height/2,button.Width,button.Height/2);
+                    using(var paint=new PaintEventArgs(buffer.Graphics,button.ClientRectangle))
+                    {
+                        if(!(bool)style.Invoke(button,new object[]{ControlStyles.Opaque}))background.Invoke(button,new object[]{paint});
+                        foreground.Invoke(button,new object[]{paint});
+                    }
+                    buffer.Render(destination);
+                    Color corner=surface.GetPixel(0,0);
+                    Check(corner.R>200&&corner.G>200&&corner.B>200,"dirty paint buffer restores light button corner: "+button.AccessibleName);
+                    if(!button.Primary&&!button.Chosen)
+                    {
+                        Color empty=surface.GetPixel(3,surface.Height/2);
+                        Check(empty.R>190&&empty.G>190&&empty.B>190,"dirty paint buffer removes preceding icon from unselected surface: "+button.AccessibleName);
+                    }
+                }
+            }
+        }
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr window);
+        [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window,IntPtr dc);
+        [DllImport("gdi32.dll")] private static extern bool BitBlt(IntPtr target,int x,int y,int width,int height,IntPtr source,int sourceX,int sourceY,uint operation);
+        [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wparam,IntPtr lparam);
+        private static int nativeFailures;
+        private static void NativeCheck(bool value,string name)
+        {
+            if(value){passed++;Console.WriteLine("PASS "+name);}
+            else{nativeFailures++;Console.WriteLine("FAIL "+name);}
+        }
+        private static void PumpNative(Control parent)
+        {
+            // Exercise the same WM_PAINT/BufferedGraphics path as a shown selector,
+            // including reused buffers of identically sized sibling buttons.
+            parent.Invalidate(true);parent.Update();Application.DoEvents();
+            foreach(Control child in parent.Controls){child.Invalidate(true);child.Update();}
+            Application.DoEvents();
+        }
+        private static Bitmap NativePixels(Control control)
+        {
+            if(!control.IsHandleCreated||!control.Visible)throw new InvalidOperationException("Native pixels require a shown fixture HWND");
+            var image=new Bitmap(control.ClientSize.Width,control.ClientSize.Height);
+            IntPtr source=GetDC(control.Handle);
+            if(source==IntPtr.Zero){image.Dispose();throw new InvalidOperationException("Fixture GetDC failed");}
+            try
+            {
+                using(var graphics=Graphics.FromImage(image))
+                {
+                    IntPtr target=graphics.GetHdc();
+                    try{if(!BitBlt(target,0,0,image.Width,image.Height,source,0,0,0x00CC0020))throw new InvalidOperationException("Fixture BitBlt failed");}
+                    finally{graphics.ReleaseHdc(target);}
+                }
+                return image;
+            }
+            catch{image.Dispose();throw;}
+            finally{ReleaseDC(control.Handle,source);}
+        }
+        private static void CheckNativeButtons(CaptureToolbar toolbar,string state)
+        {
+            foreach(CaptureToolButton button in toolbar.Controls)
+            using(var actual=NativePixels(button))
+            {
+                // All rounded button corners must reveal the light toolbar, never
+                // an uninitialised black buffer or a previous sibling's artwork.
+                Color corner=actual.GetPixel(0,0);
+                NativeCheck(corner.R>200&&corner.G>200&&corner.B>200,state+" clean corner: "+button.AccessibleName+" = "+corner);
+                if(!button.Primary&&!button.Chosen)
+                {
+                    Color empty=actual.GetPixel(Math.Max(1,(int)(3*button.UiScale)),actual.Height/2);
+                    NativeCheck(empty.R>190&&empty.G>190&&empty.B>190,state+" light unselected surface: "+button.AccessibleName+" = "+empty);
+                }
+            }
+        }
+        private static void SaveNative(Control control,string folder,string name)
+        {
+            using(var actual=NativePixels(control))actual.Save(Path.Combine(folder,name+".png"),System.Drawing.Imaging.ImageFormat.Png);
+        }
+        private static int NativePaint(string folder)
+        {
+            folder=Path.GetFullPath(folder);Directory.CreateDirectory(folder);
+            IntPtr foreground=GetForegroundWindow();
+            try
+            {
+                Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+                Rectangle desktop=Screen.PrimaryScreen.WorkingArea;
+                foreach(float scale in new[]{1f,1.5f,2f})
+                foreach(bool narrow in new[]{false,true})
+                {
+                    int width=Math.Min(narrow?(int)(360*scale):1380,desktop.Width-40),height=Math.Min(800,desktop.Height-40);
+                    string name="native-"+scale.ToString("0.0",System.Globalization.CultureInfo.InvariantCulture).Replace('.','-')+(narrow?"-narrow":"-wide");
+                    using(var image=Picture(width,height))
+                    using(var selector=new CaptureSelector(image,new Rectangle(desktop.Left+20,desktop.Top+20,width,height),"annotate",scale))
+                    {
+                        selector.Show();Application.DoEvents();
+                        Drag(selector,new Point(24,70),new Point(width-24,height-180));
+                        var toolbar=(CaptureToolbar)selector.Controls[0];PumpNative(selector);PumpNative(toolbar);
+                        NativeCheck(toolbar.Parent==selector&&selector.IsHandleCreated&&toolbar.IsHandleCreated,name+" keeps shown parent and child HWNDs");
+                        bool inside=selector.ClientRectangle.Contains(toolbar.Bounds);
+                        foreach(Control button in toolbar.Controls)inside&=toolbar.ClientRectangle.Contains(button.Bounds);
+                        NativeCheck(inside,name+" all controls fit actual client bounds");
+                        SaveNative(selector,folder,name+"-initial");SaveNative(toolbar,folder,name+"-toolbar-initial");
+                        CheckNativeButtons(toolbar,name+" initial");
+                        ((Button)toolbar.Controls[1]).PerformClick();((Button)toolbar.Controls[7]).PerformClick();PumpNative(toolbar);
+                        NativeCheck(selector.DrawingTool=="rectangle"&&selector.DrawingColor==((CaptureToolButton)toolbar.Controls[7]).Swatch,name+" tool and color clicks update model");
+                        SaveNative(toolbar,folder,name+"-switched");CheckNativeButtons(toolbar,name+" switched");
+                        var hovered=(CaptureToolButton)toolbar.Controls[2];
+                        typeof(Control).GetMethod("OnMouseEnter",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(hovered,new object[]{EventArgs.Empty});
+                        PumpNative(toolbar);SaveNative(toolbar,folder,name+"-hover");CheckNativeButtons(toolbar,name+" hover");
+                        IntPtr point=new IntPtr((hovered.Height/2<<16)|(hovered.Width/2));
+                        SendMessage(hovered.Handle,0x0201,new IntPtr(1),point);PumpNative(toolbar);SaveNative(toolbar,folder,name+"-pressed");CheckNativeButtons(toolbar,name+" pressed");
+                        SendMessage(hovered.Handle,0x0202,IntPtr.Zero,point);
+                        typeof(Control).GetMethod("OnMouseLeave",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(hovered,new object[]{EventArgs.Empty});
+                        NativeCheck(selector.DrawingTool=="arrow",name+" real button mouse down/up invokes tool action");
+                        for(int repeat=0;repeat<3;repeat++)PumpNative(toolbar);
+                        SaveNative(toolbar,folder,name+"-released");CheckNativeButtons(toolbar,name+" released after repeated paint");
+                        selector.Close();Application.DoEvents();
+                    }
+                }
+            }
+            finally{if(foreground!=IntPtr.Zero&&IsWindow(foreground))SetForegroundWindow(foreground);}
+            Console.WriteLine("Native WM_PAINT checks: "+passed+" passed, "+nativeFailures+" failed; pixels read only from synthetic fixture HWNDs; no screen DC or clipboard access.");
+            return nativeFailures==0?0:1;
+        }
         [STAThread]
         private static int Main(string[] args)
         {
+            try{return RunTests(args);}
+            catch(Exception error){Console.Error.WriteLine("FAIL "+error.Message);return 1;}
+        }
+        private static int RunTests(string[] args)
+        {
             WindowsFormsSynchronizationContext.AutoInstall=false;
+            if(args.Length==2&&args[0]=="--native-paint")return NativePaint(args[1]);
             if(args.Length==3&&args[0]=="--upload-fixture")
             {
                 Uri url;if(!Uri.TryCreate(args[1],UriKind.Absolute,out url)||url.Scheme!="http"||url.Host!="127.0.0.1")throw new ArgumentException("Fixture must use loopback HTTP");
                 Hub.Url=url.AbsoluteUri;using(var image=Picture(128,64))Console.WriteLine(Json.Serialize(DesktopApi.UploadCapture(CapturePlatform.Encode(image),args[2])));return 0;
             }
-            GeometryAndHotkeys();SelectorEvents();Workflow().GetAwaiter().GetResult();AnnotationWorkflow().GetAwaiter().GetResult();ExtendedAnnotation(args.Length==2&&args[0]=="--preview"?args[1]:null);UploadProtocol().GetAwaiter().GetResult();
+            GeometryAndHotkeys();SelectorEvents();BackgroundPaintRegression();Workflow().GetAwaiter().GetResult();AnnotationWorkflow().GetAwaiter().GetResult();ExtendedAnnotation(args.Length==2&&args[0]=="--preview"?args[1]:null);UploadProtocol().GetAwaiter().GetResult();
             var timer=Stopwatch.StartNew();long bytes;
             using(var image=Picture(3840,2160)){using(var region=CapturePlatform.Crop(image,new Rectangle(100,100,1920,1080)))bytes=CapturePlatform.Encode(region).Length;}
             Console.WriteLine("synthetic_4k_crop_png_ms="+timer.ElapsedMilliseconds+" png_bytes="+bytes+" full_frame_bytes="+(3840L*2160*4));
