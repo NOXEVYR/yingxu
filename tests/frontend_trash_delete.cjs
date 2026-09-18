@@ -7,8 +7,8 @@ const {test}=require('node:test');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function setup(responses=[]) {
   const nodes=new Map();const calls=[];const dialogs=[];const messages=[];
-  const context=vm.createContext({localStorage:{getItem:()=>null},document:{querySelector:selector=>{if(!nodes.has(selector))nodes.set(selector,{textContent:'',innerHTML:''});return nodes.get(selector);}},URLSearchParams,
-    fakeApi:async(url,options)=>{calls.push({url,body:JSON.parse(JSON.stringify(options?.body || {}))});const value=responses.shift();if(value instanceof Error)throw value;return value;},
+  const context=vm.createContext({localStorage:{getItem:()=>null},document:{querySelector:selector=>{if(!nodes.has(selector))nodes.set(selector,{textContent:'',innerHTML:'',listeners:{},addEventListener(event,fn){this.listeners[event]=fn;}});return nodes.get(selector);}},URLSearchParams,
+    fakeApi:async(url,options)=>{calls.push({url,body:JSON.parse(JSON.stringify(options?.body || {}))});const value=responses.shift();if(value instanceof Error)throw value;return typeof value==='function' ? value() : value;},
     fakeDialog:options=>{const listeners=[];const dialog={options,addEventListener:(_,fn)=>listeners.push(fn),close:()=>listeners.forEach(fn=>fn())};dialogs.push(dialog);return dialog;},fakeToast:message=>messages.push(message)});
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
   vm.runInContext(source+`\nglobalThis.app={state,deleteTrash,trashDeletePreviewHtml,renderTrash};
@@ -58,4 +58,56 @@ test('confirmation preference can skip the popup while keeping the preview token
 test('disabled confirmation still shows blocked entries instead of silently clearing a subset',async()=>{
   const p=plan();p.entries[0].error='项目仍在使用';const s=setup([p]);s.state.bootstrap={settings:{confirm_trash_delete:false}};
   const pending=s.deleteTrash('a','items');await tick();assert.equal(s.dialogs.length,1);assert.equal(s.calls.length,1);s.dialogs[0].close();await pending;
+});
+
+test('failed confirmation refreshes the preview before a second explicit confirmation',async()=>{
+  const fresh=plan();fresh.token='new-snapshot';fresh.entries[0].name='<new name>';
+  const s=setup([plan(),new Error('清理确认已失效'),fresh,{deleted:1,failed:[],remaining:0}]);
+  const pending=s.deleteTrash('a','items');await tick();const submit=s.dialogs[0].options.onSubmit;
+  await assert.rejects(submit(),/重新预览/);
+  assert.equal(s.nodes.get('#dialogActions button[type="submit"]').textContent,'重新预览');
+  assert.equal(await submit(),false);
+  assert.deepEqual(s.calls.map(c=>c.url),['/api/trash/delete-preview','/api/trash/delete','/api/trash/delete-preview']);
+  assert.match(s.nodes.get('#dialogBody').innerHTML,/&lt;new name&gt;/);
+  assert.match(s.nodes.get('#dialogSubtitle').textContent,/再次确认/);
+  await submit();assert.equal(s.calls[3].body.token,'new-snapshot');
+  s.dialogs[0].close();await pending;assert.equal(s.state.trashBusy,false);
+});
+
+test('uncertain network result and failed refresh never replay the old deletion',async()=>{
+  const s=setup([plan(),new Error('本地连接中断'),new Error('暂时无法刷新'),plan()]);
+  const pending=s.deleteTrash('a','items');await tick();const submit=s.dialogs[0].options.onSubmit;
+  await assert.rejects(submit(),/重新预览/);await assert.rejects(submit(),/暂时无法刷新/);
+  assert.equal(await submit(),false);
+  assert.equal(s.calls.filter(c=>c.url==='/api/trash/delete').length,1);
+  s.dialogs[0].close();await pending;
+});
+
+test('empty or fully blocked refreshed selection cannot trigger another deletion',async()=>{
+  for(const total of [0,1]){
+    const fresh=plan();fresh.total=total;fresh.entries=total?[{...fresh.entries[0],error:'仍被引用'}]:[];
+    const s=setup([plan(),new Error('确认失效'),fresh]);const pending=s.deleteTrash(null,null,true);await tick();
+    const submit=s.dialogs[0].options.onSubmit;await assert.rejects(submit());await submit();await submit();
+    assert.doesNotMatch(s.nodes.get('#dialogActions').innerHTML,/type="submit"/);
+    assert.equal(s.calls.filter(c=>c.url==='/api/trash/delete').length,1);
+    s.dialogs[0].close();await pending;
+  }
+});
+
+test('late refresh cannot overwrite a closed or replaced dialog',async()=>{
+  let finish;const s=setup([plan(),new Error('确认失效'),()=>new Promise(resolve=>finish=resolve)]);
+  const pending=s.deleteTrash(null,null,true);await tick();const submit=s.dialogs[0].options.onSubmit;
+  await assert.rejects(submit());const refreshing=submit();s.dialogs[0].close();await pending;
+  s.state.modalSequence++;finish(plan());assert.equal(await refreshing,false);
+  assert.equal(s.nodes.has('#dialogBody'),false);
+});
+
+
+test('refreshed cancel button closes the dialog but respects an active submit',async()=>{
+  const s=setup([plan(),new Error('确认失效'),plan()]);const pending=s.deleteTrash(null,null,true);await tick();
+  const submit=s.dialogs[0].options.onSubmit;await assert.rejects(submit());await submit();
+  const cancel=s.nodes.get('#dialogActions [data-dialog-cancel]');
+  s.state.modalBusy=true;cancel.listeners.click();await tick();assert.equal(s.state.trashBusy,true);
+  s.state.modalBusy=false;cancel.listeners.click();await pending;assert.equal(s.state.trashBusy,false);
+  assert.equal(s.calls.filter(c=>c.url==='/api/trash/delete').length,1);
 });

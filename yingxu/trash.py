@@ -189,7 +189,7 @@ class TrashDeletion:
                 entries += [{'id': row[0], 'kind': 'skill'} for row in db.execute('SELECT id FROM yx_skills WHERE removed=1 AND purged=0')]
         else:
             entries = data.get('entries')
-        if not isinstance(entries, list) or not 1 <= len(entries) <= 500:
+        if not isinstance(entries, list) or not (0 if data.get('all') is True else 1) <= len(entries) <= 500:
             raise UserError('一次请选择 1 至 500 个回收站条目。')
         found = set(); result = []
         for entry in entries:
@@ -253,7 +253,9 @@ class TrashDeletion:
                         if _inside(row['path'], directory) and (not row['removed'] or row['removed_batch'] != batch['id']):
                             cleared = row['removed'] and row['removed_batch'] and db.execute('SELECT 1 FROM trash_batches WHERE id=? AND purged=1',(row['removed_batch'],)).fetchone()
                             if cleared and not os.path.lexists(row['path']): continue
-                            raise UserError('目录内有活动引用或其他回收批次，请先分别整理后再清理目录。', 409)
+                            if not row['removed']:
+                                raise UserError('目录内的文件仍被活动条目引用，请先处理引用后再清理目录。', 409)
+                            raise UserError('目录内还有其他回收批次，请先清理其中的文件，再重新预览此目录。', 409)
                     candidates = [directory]
                 else: candidates.extend(owned)
                 for path in candidates:
@@ -314,7 +316,10 @@ class TrashDeletion:
             for selected in selection:
                 try: entries.append(self._entry(selected))
                 except (UserError,OSError,ValueError) as error:
-                    entries.append({**selected, 'name':'回收站条目','paths':[], 'warnings':[], 'error':str(error)})
+                    table = 'yx_skills' if selected['kind'] == 'skill' else 'trash_batches'
+                    with self.store.connection() as db:
+                        row = db.execute('SELECT name FROM '+table+' WHERE id=?',(selected['id'],)).fetchone()
+                    entries.append({**selected, 'name':row['name'] if row else '回收站条目','paths':[], 'warnings':[], 'error':str(error)})
             current = time.monotonic()
             self.plans = {key:plan for key,plan in self.plans.items() if plan['expires'] > current}
             if len(self.plans) >= 32: self.plans.pop(next(iter(self.plans)))
@@ -344,9 +349,11 @@ class TrashDeletion:
             # Validate every accepted entry before making the first filesystem change.
             for entry in plan['entries']:
                 if 'error' in entry: continue
-                fresh = self._entry(entry)
+                try: fresh = self._entry(entry)
+                except (UserError,OSError,ValueError) as error:
+                    raise UserError(f'「{entry["name"]}」无法继续清理：{error} 请重新预览。',409) from error
                 if fresh['_signature'] != entry['_signature']:
-                    raise UserError('内容或目录已变化，未执行清理，请重新预览。', 409)
+                    raise UserError(f'「{entry["name"]}」内容或目录已变化，未执行清理，请重新预览。', 409)
             deleted = 0; failed = []; deleted_paths = []; recycled_paths = []
             for entry in plan['entries']:
                 completed = []; attempted = []; intent = False

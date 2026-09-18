@@ -718,18 +718,44 @@ async function deleteTrash(id,kind,all=false) {
   if (state.trashBusy || state.section !== 'trash') return;
   state.trashBusy = true; renderHero(); renderTrash();
   try {
-    const plan = await api('/api/trash/delete-preview',{method:'POST',body:all ? {all:true} : {entries:[{id,kind}]}});
+    const selection = all ? {all:true} : {entries:[{id,kind}]};
+    let plan = await api('/api/trash/delete-preview',{method:'POST',body:selection});
     if (state.section !== 'trash') return;
     if (!plan.total) { toast('回收站是空的。'); return; }
-    const actionable = (plan.entries || []).filter(entry => !entry.error).length;
+    let actionable = (plan.entries || []).filter(entry => !entry.error).length;
     const result = !preference('confirm_trash_delete') && actionable === plan.total ? await api('/api/trash/delete',{method:'POST',body:{token:plan.token}}) : await new Promise(resolve => {
-      let outcome = null;
+      let outcome = null, needsPreview = false, closed = false;
+      let sequence;
       const dialog = showDialog({title:all ? '清空映序回收站？' : `删除到 ${systemTrashName()}？`,wide:true,
         subtitle:all ? `包含全部回收条目，不受当前搜索或分页影响。${actionable} 项可处理，${plan.total-actionable} 项暂不能删除。` : '请核对原文件位置和处理说明，再确认删除。',
         body:trashDeletePreviewHtml(plan),
         actions:`<button type="button" class="button button-ghost" data-dialog-cancel>${actionable ? '取消' : '关闭'}</button>${actionable ? `<button type="submit" class="button button-danger">确认处理 ${actionable} 项</button>` : ''}`,
-        onSubmit:async () => { outcome = await api('/api/trash/delete',{method:'POST',body:{token:plan.token}}); }});
-      dialog.addEventListener('close',() => resolve(outcome),{once:true});
+        onSubmit:async () => {
+          if (closed || sequence !== state.modalSequence || state.section !== 'trash') return false;
+          if (needsPreview) {
+            const refreshed = await api('/api/trash/delete-preview',{method:'POST',body:selection});
+            if (closed || sequence !== state.modalSequence || state.section !== 'trash') return false;
+            plan = refreshed; actionable = (plan.entries || []).filter(entry => !entry.error).length; needsPreview = false;
+            $('#dialogBody').innerHTML = plan.total ? trashDeletePreviewHtml(plan) : '<p>所选内容已处理或恢复，没有需要清理的条目。</p>';
+            $('#dialogSubtitle').textContent = `预览已刷新：${actionable} 项可处理，${plan.total-actionable} 项暂不能删除。请核对后再次确认。`;
+            $('#dialogActions').innerHTML = `<button type="button" class="button button-ghost" data-dialog-cancel>${actionable ? '取消' : '关闭'}</button>${actionable ? `<button type="submit" class="button button-danger">确认处理 ${actionable} 项</button>` : ''}`;
+            $('#dialogActions [data-dialog-cancel]').addEventListener('click',() => { if (!state.modalBusy) dialog.close(); });
+            return false;
+          }
+          if (!actionable) return false;
+          try { outcome = await api('/api/trash/delete',{method:'POST',body:{token:plan.token}}); }
+          catch(error) {
+            // The server consumes confirmations before validating or recycling. Never replay an uncertain write.
+            needsPreview = true;
+            if (!closed && sequence === state.modalSequence) {
+              const button = $('#dialogActions button[type="submit"]');
+              if (button) button.textContent = '重新预览';
+            }
+            throw new Error(`${error.message || '清理未能完成。'} 请点击“重新预览”，核对当前条目后再确认。`);
+          }
+        }});
+      sequence = state.modalSequence;
+      dialog.addEventListener('close',() => { closed = true; resolve(outcome); },{once:true});
     });
     if (!result) return;
     await refreshProjects(); await refreshCategoryCounts(); await loadSection();

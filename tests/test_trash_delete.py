@@ -196,5 +196,28 @@ class TrashDeletionTests(unittest.TestCase):
         self.assertEqual(self.execute(plan)['deleted'],3); self.assertEqual(self.org.trash()['total'],0)
         with self.assertRaises(UserError): self.deletion.delete({'token':'invented'})
 
+    def test_stale_confirmation_needs_new_preview_before_any_recycle(self):
+        item=self.item('重新确认');batch=self.org.delete_items([item['id']]);plan=self.plan(batch)
+        Path(item['path']).write_text('已修改的合成内容',encoding='utf-8')
+        with self.assertRaisesRegex(UserError,'重新确认.*内容或目录已变化'):self.execute(plan)
+        with self.assertRaisesRegex(UserError,'确认已失效'):self.execute(plan)
+        self.assertEqual(self.calls,[])
+        refreshed=self.plan(batch)
+        self.assertNotEqual(refreshed['token'],plan['token'])
+        self.assertEqual(self.execute(refreshed)['deleted'],1)
+
+    def test_mixed_parent_and_child_keep_names_and_require_new_parent_preview(self):
+        item=self.item();child=self.org.delete_items([item['id']]);parent=self.org.delete_project(self.project['id'])
+        plan=self.deletion.preview({'all':True})
+        blocked=next(e for e in plan['entries'] if e['id']==parent['id'])
+        self.assertEqual(blocked['name'],self.project['name'])
+        self.assertIn('先清理其中的文件',blocked['error'])
+        result=self.execute(plan)
+        self.assertEqual(result['deleted'],1);self.assertEqual(result['failed'][0]['name'],self.project['name'])
+        self.assertTrue(Path(self.project['root']).exists())
+        self.assertEqual(self.execute(self.deletion.preview({'all':True}))['deleted'],1)
+        empty=self.deletion.preview({'all':True})
+        self.assertEqual(empty['total'],0);self.assertEqual(empty['entries'],[])
+
 
 if __name__ == '__main__': unittest.main()
