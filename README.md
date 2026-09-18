@@ -12,13 +12,21 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.11](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.11/YingXu-v0.4.11-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11)
+**[下载 Windows x64 完整包 · v0.4.12](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.12/YingXu-v0.4.12-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.11-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.12-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
-**开发中，尚未包含在上方 0.4.11 安装包：** 设置 → 关于映序新增“检查更新”。仅点击时访问 GitHub，分别检查 Windows 正式包或 macOS Apple Silicon 试用包；可通过系统浏览器查看发布说明与下载。不会自动下载、安装或启动时联网，无新增运行依赖与后台轮询。查询失败会明确提示；短时间重复检查复用一分钟内的成功结果。
+**0.4.12 已发布：笔记图片兼容、阅读布局与手动更新。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
+
+- 设置顶部新增“手动更新 → 检查更新”，按当前平台显示发布版本、说明和下载入口。只在点击时连接 GitHub，不自动下载安装。
+- Markdown 支持 Obsidian 图片引用和尺寸语法，可拖入、粘贴或选择图片插入笔记草稿；原文、原附件和普通文字粘贴保留。
+- 阅读默认扩大正文区域，可按需展开文件列表，优化长文排版。
+- Windows 从不同安装位置反复打开时，复用同一数据目录的桌面实例。
+- 无新增运行依赖或后台轮询。macOS 仍限 Apple Silicon 试用范围；人工输入法、权限和长期稳定性仍需反馈。
+
+[Windows 0.4.11 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11) · [macOS 0.4.11-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)
 
 **0.4.11 已发布：拖拽导入修复与跨项目移动。** Windows 与 macOS 共享相同功能代码，并分别完成上传后完整下载、解压与隔离验证。Windows 来源提交另含浏览器测试等待及临时测试目录清理修正，不改变应用功能。
 

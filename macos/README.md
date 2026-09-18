@@ -3,9 +3,9 @@
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
-当前已发布 **0.4.11-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+当前已发布 **0.4.12-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
 沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）；旧版发布附件保留。
-下载与校验见 [0.4.11-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)。
+下载与校验见 [0.4.12-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
 
 ## 安装
@@ -30,6 +30,12 @@
 - Command+S 保存，Command+F 按焦点查文档正文或当前资源，Command+K 全局搜索；Word 查找可跨分页定位。
 - 同步 0.4.5 的 Markdown 项目文件链接、画板切换与撤销、本地字体、隐藏刷新和重复序列化修复；设置提供版本与缓存/历史占用预览。
 - 关闭窗口前检查未保存文稿；退出会结束本实例的后台服务。
+
+## 0.4.12 已发布
+
+- 设置新增手动检查更新，可查看当前平台的发布说明与下载入口；仅点击时联网。
+- 笔记支持 Obsidian 图片引用、拖入与粘贴图片，保留原文和附件；文稿默认扩大阅读区域。
+- 最终 ZIP 已在 macOS CI 完成原生、WKWebView 与上传后下载校验，平台支持边界保持不变。
 
 ## 0.4.11 已发布
 
@@ -107,7 +113,7 @@
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.11-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.12-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。
 
