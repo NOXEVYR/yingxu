@@ -108,6 +108,10 @@ def main():
             command.append(f"/resource:{folder / name},{name}")
         subprocess.run(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs")], check=True)
         if args.test:
+            instance_tests = folder / "single-instance-tests.exe"
+            subprocess.run(common + ["/target:exe", f"/out:{instance_tests}", str(DESKTOP / "Core.cs"),
+                str(DESKTOP / "Integration.cs"), str(DESKTOP / "SingleInstanceTests.cs")], check=True)
+            subprocess.run([str(instance_tests), str(exe)], check=True, timeout=35)
             lifecycle = folder / "lifecycle-tests.exe"
             lifecycle_command = [value for value in command if not value.startswith('/target:') and not value.startswith('/out:')]
             subprocess.run(lifecycle_command + ["/target:exe", f"/out:{lifecycle}", "/main:YingXu.Desktop.LifecycleTests",

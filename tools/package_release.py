@@ -14,6 +14,7 @@ FIXED = (
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
     'desktop/RuntimeCheck.cs', 'desktop/Core.cs', 'desktop/Program.cs', 'desktop/Tests.cs', 'desktop/build.py',
     'desktop/Integration.cs', 'desktop/FolderForegroundTests.cs', 'desktop/Set-OpenWith.ps1', 'desktop/LifecycleTests.cs',
+    'desktop/SingleInstanceTests.cs',
     'desktop/Capture.cs', 'desktop/CaptureTests.cs',
     'tools/canvas-editor/Excalidraw-LICENSE.txt', 'tools/canvas-editor/FONT-LICENSES.txt',
     'tools/canvas-editor/package.json', 'tools/canvas-editor/pnpm-lock.yaml', 'tools/canvas-editor/build.mjs', 'tools/canvas-editor/host.css', 'tools/canvas-editor/entry.jsx',

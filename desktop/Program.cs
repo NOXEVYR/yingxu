@@ -49,10 +49,11 @@ namespace YingXu.Desktop
                 InitialFiles = launch.Paths;
                 Hub.Port = 8791;
                 Hub.Url = "http://127.0.0.1:" + Hub.Port + "/";
-                string id = Hub.Identity((Hub.Root + "|" + Hub.Data).ToUpperInvariant()).Substring(0, 24);
+                // All installations sharing this catalogue must share its window,
+                // activation event and file inbox, just as they share the backend.
+                string id = Hub.InstanceId().Substring(0, 24);
                 InstanceKey = id;
-                // Keep the desktop profile with this installation. Packaged launchers
-                // can virtualize LocalAppData, producing a different profile from Explorer.
+                // Keep the browser profile with the catalogue as well.
                 Hub.Cache = Path.Combine(Hub.Data, "desktop");
                 Directory.CreateDirectory(Hub.Cache);
                 using (var mutex = new Mutex(false, @"Local\YingXu-desktop-" + id))

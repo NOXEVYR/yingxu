@@ -838,9 +838,25 @@ function renderTabs() {
 function renderWorkspace() {
   window.chrome?.webview?.postMessage({action:'image-preview',active:['image','svg'].includes(activeTab()?.item?.kind)});
   const tab = activeTab(); if(documentSearchKey!==tab?.key){documentSearchUI?.close(false);documentSearchKey=tab?.key || null;} const editing = !!tab; $('#workspace').classList.toggle('editing',editing); $('#editor').hidden = !editing; $('#editorDivider').hidden = !editing;
+  applyReadingLayout(tab);
   discardUnusedMarkdownEditors(); renderTabs(); renderInspector(); if (state.section === 'assets') $$('#resourceItems [data-item]').forEach(node => node.classList.toggle('selected',state.activeKey === `file:${node.dataset.item}`));
   if (!tab) { if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=true;$('#editorContent').hidden=false;unmountDocxPreview();unmountDocxEditor(); stopImageZoomTracking(); stopPreviewMedia(true); $('#editorContent').replaceChildren(); return; }
   renderEditorToolbar(tab); renderEditorBody(tab); renderEditorStatus(tab);
+}
+function readingDocument(tab) {
+  return ['markdown','text','skill','docx','pdf','html'].includes(tab?.item?.kind);
+}
+function applyReadingLayout(tab = activeTab()) {
+  // Only change layout: keep the editor, selection, undo history and IME alive.
+  $('#workspace').classList.toggle('reading-document',readingDocument(tab));
+  $('#workspace').classList.toggle('reading-focused',readingDocument(tab) && !tab.showLibrary);
+}
+function toggleReadingLibrary() {
+  const tab = activeTab(); if (!readingDocument(tab)) return;
+  tab.showLibrary = !tab.showLibrary;
+  applyReadingLayout(tab);
+  renderEditorToolbar(tab);
+  $('[data-action="toggle-reading-library"]')?.focus();
 }
 let imageZoomObserver = null;
 let imagePreviewCleanup = null;
@@ -949,7 +965,7 @@ function renderEditorToolbar(tab) {
   const text = ['markdown','text','skill'].includes(tab.item.kind); const editable = tab.content?.editable || (tab.source === 'skill' && tab.item.editable);
   const htmlModes = tab.item.kind === 'html' ? `<div class="editor-mode-switch" role="group" aria-label="HTML 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">静态预览</button><button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">查看源码</button></div>` : '';
   const wordModes = tab.item.kind === 'docx' ? `<div class="editor-mode-switch" role="group" aria-label="Word 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">文档预览</button>${editable ? `<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">编辑文字</button>` : ''}</div>` : '';
-  $('#editorToolbar').innerHTML = `${htmlModes}${wordModes}${text ? `<div class="editor-mode-switch" role="group" aria-label="文档视图">${canUseMarkdownEditor(tab) ? `<button data-editor-mode="live" class="${tab.mode === 'live' ? 'active' : ''}">实时预览</button>` : ''}<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">${editableMarkdown(tab) ? '源码' : '编辑'}</button><button data-editor-mode="split" class="${tab.mode === 'split' ? 'active' : ''}">双栏</button><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">预览</button></div>${markdownToolbarHtml(tab)}` : `<span class="editor-type-label">${icon(kindIcons[tab.item.kind])}${kindLabels[tab.item.kind] || '资源预览'}</span>`}<div class="editor-tool-actions">${documentSearchable(tab)?`<button type="button" class="icon-button" data-action="find-document" title="查找当前正文 · Ctrl+F" aria-label="查找正文">${icon('search')}</button>`:''}<button type="button" class="icon-button" data-action="capture-screen" title="截图到当前项目并复制图片" aria-label="截图">${icon('image')}</button>${['image','svg'].includes(tab.item.kind) ? `<button class="icon-button" data-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button class="button button-ghost button-small" data-action="zoom-fit">适应</button><span id="imageZoomPercent" class="image-zoom-percent" aria-live="polite" title="图片相对于原始尺寸的比例">图片 —</span><button class="icon-button" data-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button>` : ''}${editable && !tab.loading ? `<button class="button button-primary button-small" id="saveContentButton" data-action="save-content" ${!tab.dirty || tab.saving ? 'disabled' : ''}>${icon('save')}${tab.saving ? '保存中' : '保存'}</button>` : ''}${tab.source === 'file' ? `<button class="icon-button" data-action="open-native" title="用本机应用打开" aria-label="用本机应用打开">${icon('open')}</button>` : ''}<button class="icon-button inspector-toggle" data-action="toggle-inspector" title="显示资源信息与关联" aria-label="显示资源信息与关联">${icon('panel')}</button></div>`;
+  $('#editorToolbar').innerHTML = `${htmlModes}${wordModes}${text ? `<div class="editor-mode-switch" role="group" aria-label="文档视图">${canUseMarkdownEditor(tab) ? `<button data-editor-mode="live" class="${tab.mode === 'live' ? 'active' : ''}">实时预览</button>` : ''}<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">${editableMarkdown(tab) ? '源码' : '编辑'}</button><button data-editor-mode="split" class="${tab.mode === 'split' ? 'active' : ''}">双栏</button><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">预览</button></div>${markdownToolbarHtml(tab)}` : `<span class="editor-type-label">${icon(kindIcons[tab.item.kind])}${kindLabels[tab.item.kind] || '资源预览'}</span>`}<div class="editor-tool-actions">${readingDocument(tab)?`<button type="button" class="button button-ghost button-small" data-action="toggle-reading-library" aria-controls="library" aria-expanded="${!!tab.showLibrary}" title="${tab.showLibrary ? '收起文件列表，扩大阅读区域' : '显示文件列表，浏览其他文件'}">${icon('list')}${tab.showLibrary ? '专注阅读' : '显示列表'}</button>`:''}${documentSearchable(tab)?`<button type="button" class="icon-button" data-action="find-document" title="查找当前正文 · Ctrl+F" aria-label="查找正文">${icon('search')}</button>`:''}<button type="button" class="icon-button" data-action="capture-screen" title="截图到当前项目并复制图片" aria-label="截图">${icon('image')}</button>${['image','svg'].includes(tab.item.kind) ? `<button class="icon-button" data-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button class="button button-ghost button-small" data-action="zoom-fit">适应</button><span id="imageZoomPercent" class="image-zoom-percent" aria-live="polite" title="图片相对于原始尺寸的比例">图片 —</span><button class="icon-button" data-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button>` : ''}${editable && !tab.loading ? `<button class="button button-primary button-small" id="saveContentButton" data-action="save-content" ${!tab.dirty || tab.saving ? 'disabled' : ''}>${icon('save')}${tab.saving ? '保存中' : '保存'}</button>` : ''}${tab.source === 'file' ? `<button class="icon-button" data-action="open-native" title="用本机应用打开" aria-label="用本机应用打开">${icon('open')}</button>` : ''}<button class="icon-button inspector-toggle" data-action="toggle-inspector" title="显示资源信息与关联" aria-label="显示资源信息与关联">${icon('panel')}</button></div>`;
 }
 function renderEditorBody(tab) {
   if (tab.textComposing || tab.markdownEditor?.isComposing() || activeDocxEditorTab?.docxEditor?.isComposing() || [...canvasTabs].some(value=>value.canvasEditor?.isComposing())) return;
@@ -1418,6 +1434,7 @@ async function handleAction(action,target) {
     if (action === 'retry-detail') { const tab = activeTab(); if (!tab || tab.loading) return; persistDrafts(true); state.tabs = state.tabs.filter(value => value.key !== tab.key); if (tab.source === 'skill') return openSkill(tab.id); if (tab.source === 'external') return openExternal(tab.id); return openItem(tab.id); }
     if (action === 'demo') { target.disabled = true; const project = await api('/api/demo',{method:'POST',body:{}}); await refreshProjects(); await selectProject(project.id); toast('已打开示例项目，所有示例文件都可以放心体验。'); return; }
     if (action === 'clear-search' || action === 'clear-filters') { state.q = ''; $('#searchInput').value = ''; if (action === 'clear-filters') { state.status = ''; state.kind = ''; $('#statusFilter').value = ''; $('#kindFilter').value = ''; } state.offset = 0; return loadSection(); }
+    if (action === 'toggle-reading-library') return toggleReadingLibrary();
     if (action === 'toggle-inspector') { $('#workspace').classList.toggle('show-inspector'); return; }
     if (action === 'open-native') return runNative('open'); if (action === 'reveal') return runNative('reveal');
     if (action === 'rename-title') return renameDialog({titleOnly:true});

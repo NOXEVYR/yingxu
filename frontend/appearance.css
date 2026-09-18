@@ -82,3 +82,39 @@
 @media(max-width:900px){.breadcrumb{max-width:90px;overflow:hidden}.topbar{padding-left:12px;padding-right:12px}.topbar-right>.button{padding:0 8px}.topbar-utilities{gap:0;margin-left:0;padding-left:3px}.workspace-tools summary{padding:0 6px}}
 @media(prefers-reduced-motion:reduce){.nav-item::before{transition:none}}
 @media(max-width:1090px){.global-search-trigger{width:30px;min-width:30px}}
+
+/* Documents get the workspace by default; the list can be restored per tab. */
+.workspace.editing.reading-document{grid-template-columns:minmax(190px,var(--browser-width,24%)) 5px minmax(0,1fr)}
+.workspace.editing.reading-document>.inspector{display:none}
+.workspace.editing.reading-document .inspector-toggle{display:inline-flex}
+.workspace.editing.reading-document.show-inspector{grid-template-columns:minmax(190px,var(--browser-width,24%)) 5px minmax(0,1fr) var(--inspector)}
+.workspace.editing.reading-document.show-inspector>.inspector{display:block}
+.workspace.editing.reading-focused{grid-template-columns:minmax(0,1fr)}
+.workspace.editing.reading-focused>.library,.workspace.editing.reading-focused>.editor-divider{display:none}
+.workspace.editing.reading-focused.show-inspector{grid-template-columns:minmax(0,1fr) var(--inspector)}
+.reading-document .editor-toolbar{flex-wrap:wrap}
+.reading-document .editor-mode-switch,.reading-document .editor-tool-actions{flex-shrink:0}
+.reading-document .editor-tool-actions{flex-wrap:wrap}
+/* Use a comfortable line length while leaving tables and code scrollable. */
+.reading-document .document-heading{padding:18px max(28px,calc((100% - 920px)/2)) 14px}
+.reading-document .document-heading h1{font-size:22px;line-height:1.5;overflow-wrap:anywhere}
+.reading-document .text-workspace:not(.split)>.markdown-preview,
+.reading-document .text-workspace:not(.split)>.text-editor{padding:28px max(28px,calc((100% - 920px)/2)) 88px}
+.reading-document .yx-markdown-editor .cm-content{box-sizing:border-box;max-width:980px;width:100%;margin:0 auto;padding:28px 30px 88px}
+.reading-document .markdown-preview{line-height:1.9}
+.reading-document .markdown-preview h2{margin:1.6em 0 .65em;line-height:1.5}
+.reading-document .markdown-preview h3{margin:1.4em 0 .6em;line-height:1.5}
+.reading-document .markdown-preview p{margin:0 0 1em}
+.reading-document .markdown-preview li{margin:.35em 0}
+.reading-document .markdown-preview pre{font-size:14px;line-height:1.7}
+.reading-document .markdown-preview blockquote{padding:12px 18px;border-radius:0 6px 6px 0}
+.reading-document .markdown-preview img{max-width:100%;height:auto}
+@media(max-width:1090px){
+  .workspace.editing.reading-document.show-inspector{grid-template-columns:minmax(170px,var(--browser-width,24%)) 5px minmax(0,1fr) var(--inspector)}
+  .workspace.editing.reading-focused.show-inspector{grid-template-columns:minmax(0,1fr) var(--inspector)}
+  .workspace.editing.reading-document.show-inspector>.inspector{position:static;width:auto;box-shadow:none}
+  .reading-document .document-heading{padding:14px 22px 12px}
+  .reading-document .text-workspace:not(.split)>.markdown-preview,
+  .reading-document .text-workspace:not(.split)>.text-editor{padding:22px 22px 70px}
+  .reading-document .yx-markdown-editor .cm-content{padding:22px 22px 70px}
+}
