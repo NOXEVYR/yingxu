@@ -395,6 +395,7 @@ namespace YingXu.Desktop
         internal bool Chosen;
         internal bool Primary;
         internal float StrokeWidth;
+        internal bool WidthMenuIndicator;
         internal float UiScale=1;
         private bool hover;
         private bool pressed;
@@ -437,9 +438,10 @@ namespace YingXu.Desktop
             }
             else if(Icon=="width")
             {
-                Color ink=Enabled?CaptureVisuals.Ink:Color.Gray;
-                using(var pen=new Pen(ink,Math.Max(1.5f,Math.Min(StrokeWidth,8)))){pen.StartCap=LineCap.Round;pen.EndCap=LineCap.Round;e.Graphics.DrawLine(pen,10,height/2,30,height/2);}
-                using(var pen=new Pen(Color.FromArgb(125,131,140),1.4f))e.Graphics.DrawLines(pen,new[]{new PointF(38,height/2-2),new PointF(41,height/2+1),new PointF(44,height/2-2)});
+                Color ink=!Enabled?Color.Gray:solid?Color.White:CaptureVisuals.Ink;
+                float center=WidthMenuIndicator?20:width/2;
+                using(var pen=new Pen(ink,Math.Max(1.5f,Math.Min(StrokeWidth,12)))){pen.StartCap=LineCap.Round;pen.EndCap=LineCap.Round;e.Graphics.DrawLine(pen,center-8,height/2,center+8,height/2);}
+                if(WidthMenuIndicator)using(var pen=new Pen(ink,1.4f))e.Graphics.DrawLines(pen,new[]{new PointF(38,height/2-2),new PointF(41,height/2+1),new PointF(44,height/2-2)});
             }
             else
             {
@@ -455,6 +457,8 @@ namespace YingXu.Desktop
         private readonly Bitmap screen;
         private readonly bool quick;
         private readonly CaptureToolbar toolbar;
+        private readonly CaptureToolbar widthPicker;
+        private readonly CaptureToolButton widthButton;
         private readonly Button undo;
         private readonly ToolTip tips=new ToolTip();
         private readonly List<Button> toolButtons=new List<Button>();
@@ -496,14 +500,25 @@ namespace YingXu.Desktop
                 if(i==0)button.Margin=new Padding(14,2,2,2);tips.SetToolTip(button,colorNames[i]);colorButtons.Add(button);
                 button.Click+=(s,e)=>{DrawingColor=color;RefreshChoices();};toolbar.Controls.Add(button);
             }
-            var width=new CaptureToolButton {Width=52,Icon="width",AccessibleName="画笔粗细：4 像素，点击切换",StrokeWidth=DrawingWidth,Margin=new Padding(14,2,2,2)};
-            tips.SetToolTip(width,"画笔粗细：4 像素，点击切换");width.Click+=(s,e)=>{int[] values={2,4,8,12};int index=Array.IndexOf(values,(int)DrawingWidth);DrawingWidth=values[(index+1)%values.Length];width.StrokeWidth=DrawingWidth;width.AccessibleName="画笔粗细："+DrawingWidth+" 像素，点击切换";tips.SetToolTip(width,width.AccessibleName);width.Invalidate();};
+            widthButton=new CaptureToolButton {Width=52,Icon="width",WidthMenuIndicator=true,AccessibleName="画笔粗细：4 像素，展开选项",StrokeWidth=DrawingWidth,Margin=new Padding(14,2,2,2)};
+            tips.SetToolTip(widthButton,widthButton.AccessibleName);widthButton.Click+=(s,e)=>{if(widthPicker.Visible)HideWidthPicker();else ShowWidthPicker();};
+            widthPicker=new CaptureToolbar {UiScale=uiScale,Visible=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default,AccessibleName="选择画笔粗细"};
+            foreach(int value in new[]{2,4,8,12})
+            {
+                int pixels=value;var choice=new CaptureToolButton {Icon="width",StrokeWidth=pixels,AccessibleName=pixels+" 像素",Tag=pixels};
+                tips.SetToolTip(choice,pixels+" 像素");
+                choice.Click+=(s,e)=>{DrawingWidth=pixels;widthButton.StrokeWidth=pixels;widthButton.AccessibleName="画笔粗细："+pixels+" 像素，展开选项";tips.SetToolTip(widthButton,widthButton.AccessibleName);HideWidthPicker();};
+                widthPicker.Controls.Add(choice);
+            }
             undo=IconButton("undo","撤销（Ctrl+Z）");undo.Enabled=false;undo.Click+=(s,e)=>UndoStroke();
             undo.Margin=new Padding(14,2,2,2);
             var pin=IconButton("pin","确认并置顶到桌面（同时复制并保存到项目）");pin.Click+=(s,e)=>Confirm(true);
             var confirm=IconButton("confirm","确认（复制并保存到项目）");((CaptureToolButton)confirm).Primary=true;confirm.Click+=(s,e)=>Confirm();
             var cancel=IconButton("cancel","取消（Esc）");cancel.Click+=(s,e)=>CancelCapture();
-            toolbar.Controls.AddRange(new Control[]{width,undo,pin,confirm,cancel});
+            toolbar.Controls.AddRange(new Control[]{widthButton,undo,pin,confirm,cancel});
+            foreach(Button button in toolButtons)button.Click+=(s,e)=>HideWidthPicker(false);
+            foreach(Button button in colorButtons)button.Click+=(s,e)=>HideWidthPicker(false);
+            undo.Click+=(s,e)=>HideWidthPicker(false);
             if(bounds.Width/uiScale<680)
             {
                 // A compact density avoids an orphaned cancel button on small desktop displays.
@@ -514,12 +529,31 @@ namespace YingXu.Desktop
                     button.Margin=new Padding(button.Margin.Left>=12?12:1,2,1,2);
                 }
             }
-            Controls.Add(toolbar);RefreshChoices();
+            Controls.Add(toolbar);Controls.Add(widthPicker);RefreshChoices();
             if(uiScale!=1)
             {
                 toolbar.MaximumSize=Size.Empty;toolbar.Scale(new SizeF(uiScale,uiScale));toolbar.MaximumSize=new Size(bounds.Width,0);
                 foreach(CaptureToolButton button in toolbar.Controls)button.UiScale=uiScale;
+                widthPicker.MaximumSize=Size.Empty;widthPicker.Scale(new SizeF(uiScale,uiScale));widthPicker.MaximumSize=new Size(bounds.Width,0);
+                foreach(CaptureToolButton button in widthPicker.Controls)button.UiScale=uiScale;
             }
+        }
+        private void ShowWidthPicker()
+        {
+            widthPicker.PerformLayout();int edge=(int)(8*uiScale);
+            int left=toolbar.Left+widthButton.Left+widthButton.Width-widthPicker.Width;
+            int top=toolbar.Top-widthPicker.Height-edge;
+            if(top<edge)top=toolbar.Bottom+edge;
+            widthPicker.Location=new Point(Math.Max(0,Math.Min(left,ClientSize.Width-widthPicker.Width)),Math.Max(0,Math.Min(top,ClientSize.Height-widthPicker.Height)));
+            CaptureToolButton selected=null;
+            foreach(CaptureToolButton choice in widthPicker.Controls){choice.Chosen=choice.StrokeWidth==DrawingWidth;choice.Invalidate();if(choice.Chosen)selected=choice;}
+            widthButton.Chosen=true;widthButton.Invalidate();widthPicker.Show();widthPicker.BringToFront();
+            if(selected!=null)selected.Focus();
+        }
+        private void HideWidthPicker(bool restoreFocus=true)
+        {
+            bool visible=widthPicker.Visible;widthPicker.Hide();widthButton.Chosen=false;widthButton.Invalidate();
+            if(visible&&restoreFocus)widthButton.Focus();
         }
         private Button IconButton(string icon,string name)
         {
@@ -633,6 +667,7 @@ namespace YingXu.Desktop
         }
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            if(widthPicker.Visible){HideWidthPicker();return;}
             if (e.Button==MouseButtons.Right) { CancelCapture(); return; }
             if (e.Button!=MouseButtons.Left) return;
             if(Annotating)
@@ -668,7 +703,7 @@ namespace YingXu.Desktop
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if(e.KeyCode==Keys.ShiftKey){shiftHeld=true;if(pending!=null&&pending.Tool=="pen"){Extend(pending.Points[pending.Points.Count-1]);Invalidate();}}
-            else if (e.KeyCode==Keys.Escape) { e.Handled=true;CancelCapture(); }
+            else if (e.KeyCode==Keys.Escape) { e.Handled=true;if(widthPicker.Visible)HideWidthPicker();else CancelCapture(); }
             else if(e.Control&&e.KeyCode==Keys.Z&&Annotating){e.Handled=true;UndoStroke();}
             base.OnKeyDown(e);
         }
@@ -682,8 +717,8 @@ namespace YingXu.Desktop
         }
         protected override bool ProcessCmdKey(ref Message message,Keys keyData)
         {
-            // Escape also cancels while a toolbar combo box owns keyboard focus.
-            if(keyData==Keys.Escape){CancelCapture();return true;}
+            // Dismiss the width choices first; a second Escape cancels the capture.
+            if(keyData==Keys.Escape){if(widthPicker.Visible)HideWidthPicker();else CancelCapture();return true;}
             if(keyData==(Keys.Control|Keys.Z)&&Annotating){UndoStroke();return true;}
             return base.ProcessCmdKey(ref message,keyData);
         }

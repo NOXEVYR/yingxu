@@ -238,7 +238,10 @@ namespace YingXu.Desktop
                 Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,240,100,0));
                 Fire(selector,"OnKeyUp",new KeyEventArgs(Keys.ShiftKey));
                 typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[10],new object[]{EventArgs.Empty});
-                Check(selector.DrawingWidth==8&&((CaptureToolButton)toolbar.Controls[10]).StrokeWidth==8,"width preview button changes the actual brush width");
+                Check(selector.DrawingWidth==4,"opening width choices does not silently cycle brush width");
+                var widthPicker=(CaptureToolbar)typeof(CaptureSelector).GetField("widthPicker",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(selector);
+                typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(widthPicker.Controls[2],new object[]{EventArgs.Empty});
+                Check(selector.DrawingWidth==8&&((CaptureToolButton)toolbar.Controls[10]).StrokeWidth==8,"choosing eight pixels updates the actual brush width and preview");
                 selector.Confirm(true);
                 using(var result=selector.CreateResult())
                 {
@@ -521,6 +524,29 @@ namespace YingXu.Desktop
                         NativeCheck(selector.DrawingTool=="arrow",name+" real button mouse down/up invokes tool action");
                         for(int repeat=0;repeat<3;repeat++)PumpNative(toolbar);
                         SaveNative(toolbar,folder,name+"-released");CheckNativeButtons(toolbar,name+" released after repeated paint");
+                        var widthButton=(Button)toolbar.Controls[10];float previousWidth=selector.DrawingWidth;
+                        widthButton.PerformClick();PumpNative(selector);
+                        var widthPicker=(CaptureToolbar)typeof(CaptureSelector).GetField("widthPicker",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(selector);
+                        NativeCheck(widthPicker.Visible&&selector.DrawingWidth==previousWidth,name+" width click opens choices without changing width");
+                        bool pickerInside=selector.ClientRectangle.Contains(widthPicker.Bounds);
+                        foreach(Control choice in widthPicker.Controls)pickerInside&=widthPicker.ClientRectangle.Contains(choice.Bounds);
+                        NativeCheck(pickerInside,name+" width choices fit screen at this scale");
+                        SaveNative(selector,folder,name+"-width-open");CheckNativeButtons(widthPicker,name+" width choices");
+                        foreach(CaptureToolButton choice in widthPicker.Controls)
+                        {
+                            if(!widthPicker.Visible)widthButton.PerformClick();
+                            choice.PerformClick();PumpNative(toolbar);
+                            NativeCheck(!widthPicker.Visible&&selector.DrawingWidth==choice.StrokeWidth&&((CaptureToolButton)widthButton).StrokeWidth==choice.StrokeWidth,name+" choose "+choice.StrokeWidth+" pixels closes choices and updates model");
+                        }
+                        widthButton.PerformClick();PumpNative(selector);Message key=Message.Create(selector.Handle,0x0100,(IntPtr)Keys.Escape,IntPtr.Zero);
+                        typeof(CaptureSelector).GetMethod("ProcessCmdKey",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(selector,new object[]{key,Keys.Escape});
+                        NativeCheck(!widthPicker.Visible&&selector.DialogResult!=DialogResult.Cancel,name+" Escape closes only width choices");
+                        widthButton.PerformClick();int strokeCount=selector.StrokeCount;
+                        Fire(selector,"OnMouseDown",new MouseEventArgs(MouseButtons.Left,1,selector.Area.Left+10,selector.Area.Top+10,0));
+                        Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,selector.Area.Left+10,selector.Area.Top+10,0));
+                        NativeCheck(!widthPicker.Visible&&selector.StrokeCount==strokeCount,name+" outside click dismisses choices without drawing");
+                        widthButton.PerformClick();widthButton.PerformClick();
+                        NativeCheck(!widthPicker.Visible,name+" second width click dismisses choices");
                         selector.Close();Application.DoEvents();
                     }
                 }
