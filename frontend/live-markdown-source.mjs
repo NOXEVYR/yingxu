@@ -5,6 +5,17 @@ import {defaultKeymap,history,historyKeymap,indentWithTab,isolateHistory,undo,re
 import {syntaxTree,indentOnInput} from '@codemirror/language';
 import {markdown,markdownKeymap} from '@codemirror/lang-markdown';
 import {GFM} from '@lezer/markdown';
+import './obsidian-images.js';
+
+const obsidianImages = {
+  defineNodes:['ObsidianImage'],
+  parseInline:[{name:'ObsidianImage',before:'Image',parse(cx,next,pos){
+    if(next!==33 || cx.char(pos+1)!==91 || cx.char(pos+2)!==91)return -1;
+    const match=/^!\[\[[^\]\r\n]+\]\]/.exec(cx.slice(pos,Math.min(cx.end,pos+4200)));
+    if(!match || !globalThis.YingXuObsidian.parseImage(match[0]))return -1;
+    return cx.addElement(cx.elt('ObsidianImage',pos,pos+match[0].length));
+  }}]
+};
 
 const MAX_LENGTH = 500000;
 const liveMode = Facet.define({combine:values => values[0] || 'live'});
@@ -41,14 +52,16 @@ class SymbolWidget extends WidgetType {
 }
 
 class LocalImageWidget extends WidgetType {
-  constructor(src,alt) { super(); this.src = src; this.alt = alt; }
-  eq(other) { return this.src === other.src && this.alt === other.alt; }
+  constructor(src,alt,size = {}) { super(); this.src = src; this.alt = alt; this.width=size.width; this.height=size.height; }
+  eq(other) { return this.src === other.src && this.alt === other.alt && this.width===other.width && this.height===other.height; }
   get estimatedHeight() { return 220; }
   toDOM(view) {
     const doc = view.dom.ownerDocument,span = doc.createElement('span'),img = doc.createElement('img');
     span.className = 'yx-md-image'; span.contentEditable = 'false'; span.tabIndex = 0;
     span.setAttribute('role','button'); span.setAttribute('aria-label',`编辑图片 Markdown：${this.alt || '图片'}`);
     img.alt = this.alt; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+    if(this.width)img.style.width=this.width+'px';
+    if(this.height){img.style.height=this.height+'px';img.style.objectFit='contain';}
     const measure = () => { if (view.dom.isConnected) view.requestMeasure(); };
     img.addEventListener('load',measure);
     img.addEventListener('error',() => { img.hidden = true; span.classList.add('yx-md-image-error'); span.appendChild(doc.createTextNode(`图片暂不可用${this.alt ? ' · '+this.alt : ''}`)); measure(); },{once:true});
@@ -88,6 +101,14 @@ function imageWidget(state,node) {
   // protocol-relative, data/blob/file URLs or browser navigation are inferred.
   if (typeof src !== 'string' || !src.startsWith('/') || /^\/[\\/]/.test(src) || /[\x00-\x20\x7f\\]/.test(src)) return null;
   return new LocalImageWidget(src,alt);
+}
+
+function obsidianImageWidget(state,node) {
+  const resolve=state.facet(localImageResolver),spec=globalThis.YingXuObsidian.parseImage(state.doc.sliceString(node.from,node.to));
+  if(!resolve || !spec)return null;
+  let src;try{src=resolve(encodeURIComponent(spec.path).replace(/%2F/gi,'/'),spec.alt,{wiki:true});}catch{return null;}
+  if(typeof src!=='string' || !src.startsWith('/') || /^\/[\\/]/.test(src) || /[\x00-\x20\x7f\\]/.test(src))return null;
+  return new LocalImageWidget(src,spec.alt,spec);
 }
 
 class DocumentLinkWidget extends WidgetType {
@@ -307,6 +328,10 @@ function previewDecorations(state,visibleRanges = [{from:0,to:state.doc.length}]
       if (!touched(node)) { const widget = imageWidget(state,node); if (widget) decorations.push(Decoration.replace({widget,inclusive:false}).range(node.from,node.to)); }
       return;
     }
+    if(node.name==='ObsidianImage') {
+      if(!touched(node)){const widget=obsidianImageWidget(state,node);if(widget)decorations.push(Decoration.replace({widget,inclusive:false}).range(node.from,node.to));}
+      return;
+    }
     if (node.name === 'ListItem') active = touched(node);
     const heading = /^ATXHeading([1-6])$/.exec(node.name);
     if (heading) lineStyle(node.from,`yx-md-heading yx-md-heading-${heading[1]}`);
@@ -448,7 +473,7 @@ function buildEditorState(value,mode,label,onChange,imageResolver,onLink) {
   const state = EditorState.create({doc:source.text,extensions:[
     lineSlot.of(EditorState.lineSeparator.of(source.separator)), modeSlot.of(liveMode.of(mode)),localImageResolver.of(typeof imageResolver === 'function' ? imageResolver : null),documentLinkHandler.of(typeof onLink === 'function' ? onLink : null),
     EditorState.allowMultipleSelections.of(true), history(), drawSelection(), highlightActiveLine(), indentOnInput(),
-    markdown({extensions:GFM,addKeymap:false,completeHTMLTags:false}),
+    markdown({extensions:[GFM,obsidianImages],addKeymap:false,completeHTMLTags:false}),
     keymap.of([{key:'Mod-b',run:formatCommand('bold'),preventDefault:true},{key:'Mod-i',run:formatCommand('italic'),preventDefault:true},...markdownKeymap,...defaultKeymap,...historyKeymap,indentWithTab]),
     EditorView.clipboardInputFilter.of((text,state) => text.replace(/\r\n|\r|\n/g,state.lineBreak)),
     EditorView.lineWrapping, EditorView.contentAttributes.of({'aria-label':label,spellcheck:'false'}),

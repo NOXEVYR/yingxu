@@ -140,7 +140,7 @@ function deleteSelectionShortcut(event) {
 }
 function renderResourceGroups() { groupController()?.render($('#resourceItems')); const ids = new Set(selectableResourceIds()); state.selectedIds = new Set([...state.selectedIds].filter(id => ids.has(String(id)))); updateSelection(); }
 let captureUI;
-function markdownImageURL(tab,url) { return window.YingXuCapture?.imageURL(tab?.source === 'file' && tab.item.kind === 'markdown' ? tab.id : null,url) || null; }
+function markdownImageURL(tab,url,options) { return window.YingXuCapture?.imageURL(tab?.source === 'file' && tab.item.kind === 'markdown' ? tab.id : null,url,options) || null; }
 function captureTarget() {
   const tab = activeTab(), target = {projectId:state.projectId || '',itemId:''};
   if ($('#appDialog').open || groupsIsOpen() || globalSearchIsOpen() || tab?.source !== 'file' || tab.item.kind !== 'markdown' || !tab.content?.editable || tab.loading || tab.saving || tab.mode === 'preview' || !tab.markdownEditor || !markdownInputReady(tab)) return target;
@@ -804,7 +804,7 @@ function unmountDocxEditor() { if (!activeDocxEditorTab) return; const tab = act
 function discardUnusedMarkdownEditors() { for (const tab of canvasTabs) { if (!state.tabs.includes(tab)) { tab.canvasEditor.destroy(); tab.canvasHost?.remove(); delete tab.canvasHost; delete tab.canvasEditor;canvasTabs.delete(tab); } } for (const tab of markdownEditorTabs) { if (!state.tabs.includes(tab)) { tab.markdownEditor.destroy(); delete tab.markdownEditor; markdownEditorTabs.delete(tab); } } }
 function mountMarkdownEditor(tab,parent) {
   if (!tab.markdownEditor) {
-    tab.markdownEditor = window.YingXuMarkdown.create({parent,value:tab.draft,mode:tab.mode === 'live' ? 'live' : 'source',label:`${tab.item.name} Markdown 编辑`,imageResolver:url => markdownImageURL(tab,url),onLink:url=>openDocumentLink(tab,url).catch(report),onChange:(value,meta) => {
+    tab.markdownEditor = window.YingXuMarkdown.create({parent,value:tab.draft,mode:tab.mode === 'live' ? 'live' : 'source',label:`${tab.item.name} Markdown 编辑`,imageResolver:(url,alt,options) => markdownImageURL(tab,url,options),onLink:url=>openDocumentLink(tab,url).catch(report),onChange:(value,meta) => {
       if (meta?.origin === 'setValue') return; tab.draft = value; markDirty(tab); if (state.activeKey === tab.key && $('#markdownPreview')) updatePreview(tab);
     }}); markdownEditorTabs.add(tab);
   } else { tab.markdownEditor.setValue(tab.draft); tab.markdownEditor.setMode(tab.mode === 'live' ? 'live' : 'source'); tab.markdownEditor.mount(parent); }
@@ -965,7 +965,7 @@ function renderEditorToolbar(tab) {
   const text = ['markdown','text','skill'].includes(tab.item.kind); const editable = tab.content?.editable || (tab.source === 'skill' && tab.item.editable);
   const htmlModes = tab.item.kind === 'html' ? `<div class="editor-mode-switch" role="group" aria-label="HTML 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">静态预览</button><button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">查看源码</button></div>` : '';
   const wordModes = tab.item.kind === 'docx' ? `<div class="editor-mode-switch" role="group" aria-label="Word 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">文档预览</button>${editable ? `<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">编辑文字</button>` : ''}</div>` : '';
-  $('#editorToolbar').innerHTML = `${htmlModes}${wordModes}${text ? `<div class="editor-mode-switch" role="group" aria-label="文档视图">${canUseMarkdownEditor(tab) ? `<button data-editor-mode="live" class="${tab.mode === 'live' ? 'active' : ''}">实时预览</button>` : ''}<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">${editableMarkdown(tab) ? '源码' : '编辑'}</button><button data-editor-mode="split" class="${tab.mode === 'split' ? 'active' : ''}">双栏</button><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">预览</button></div>${markdownToolbarHtml(tab)}` : `<span class="editor-type-label">${icon(kindIcons[tab.item.kind])}${kindLabels[tab.item.kind] || '资源预览'}</span>`}<div class="editor-tool-actions">${readingDocument(tab)?`<button type="button" class="button button-ghost button-small" data-action="toggle-reading-library" aria-controls="library" aria-expanded="${!!tab.showLibrary}" title="${tab.showLibrary ? '收起文件列表，扩大阅读区域' : '显示文件列表，浏览其他文件'}">${icon('list')}${tab.showLibrary ? '专注阅读' : '显示列表'}</button>`:''}${documentSearchable(tab)?`<button type="button" class="icon-button" data-action="find-document" title="查找当前正文 · Ctrl+F" aria-label="查找正文">${icon('search')}</button>`:''}<button type="button" class="icon-button" data-action="capture-screen" title="截图到当前项目并复制图片" aria-label="截图">${icon('image')}</button>${['image','svg'].includes(tab.item.kind) ? `<button class="icon-button" data-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button class="button button-ghost button-small" data-action="zoom-fit">适应</button><span id="imageZoomPercent" class="image-zoom-percent" aria-live="polite" title="图片相对于原始尺寸的比例">图片 —</span><button class="icon-button" data-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button>` : ''}${editable && !tab.loading ? `<button class="button button-primary button-small" id="saveContentButton" data-action="save-content" ${!tab.dirty || tab.saving ? 'disabled' : ''}>${icon('save')}${tab.saving ? '保存中' : '保存'}</button>` : ''}${tab.source === 'file' ? `<button class="icon-button" data-action="open-native" title="用本机应用打开" aria-label="用本机应用打开">${icon('open')}</button>` : ''}<button class="icon-button inspector-toggle" data-action="toggle-inspector" title="显示资源信息与关联" aria-label="显示资源信息与关联">${icon('panel')}</button></div>`;
+  $('#editorToolbar').innerHTML = `${htmlModes}${wordModes}${text ? `<div class="editor-mode-switch" role="group" aria-label="文档视图">${canUseMarkdownEditor(tab) ? `<button data-editor-mode="live" class="${tab.mode === 'live' ? 'active' : ''}">实时预览</button>` : ''}<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">${editableMarkdown(tab) ? '源码' : '编辑'}</button><button data-editor-mode="split" class="${tab.mode === 'split' ? 'active' : ''}">双栏</button><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">预览</button></div>${markdownToolbarHtml(tab)}` : `<span class="editor-type-label">${icon(kindIcons[tab.item.kind])}${kindLabels[tab.item.kind] || '资源预览'}</span>`}<div class="editor-tool-actions">${tab.source==='file' && tab.item.kind==='markdown' && editable && tab.mode!=='preview' ? `<button type="button" class="button button-ghost button-small" data-action="insert-note-image" title="选择图片插入笔记，也可拖入或粘贴图片">${icon('image')}插入图片</button>` : ''}${readingDocument(tab)?`<button type="button" class="button button-ghost button-small" data-action="toggle-reading-library" aria-controls="library" aria-expanded="${!!tab.showLibrary}" title="${tab.showLibrary ? '收起文件列表，扩大阅读区域' : '显示文件列表，浏览其他文件'}">${icon('list')}${tab.showLibrary ? '专注阅读' : '显示列表'}</button>`:''}${documentSearchable(tab)?`<button type="button" class="icon-button" data-action="find-document" title="查找当前正文 · Ctrl+F" aria-label="查找正文">${icon('search')}</button>`:''}<button type="button" class="icon-button" data-action="capture-screen" title="截图到当前项目并复制图片" aria-label="截图">${icon('image')}</button>${['image','svg'].includes(tab.item.kind) ? `<button class="icon-button" data-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button class="button button-ghost button-small" data-action="zoom-fit">适应</button><span id="imageZoomPercent" class="image-zoom-percent" aria-live="polite" title="图片相对于原始尺寸的比例">图片 —</span><button class="icon-button" data-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button>` : ''}${editable && !tab.loading ? `<button class="button button-primary button-small" id="saveContentButton" data-action="save-content" ${!tab.dirty || tab.saving ? 'disabled' : ''}>${icon('save')}${tab.saving ? '保存中' : '保存'}</button>` : ''}${tab.source === 'file' ? `<button class="icon-button" data-action="open-native" title="用本机应用打开" aria-label="用本机应用打开">${icon('open')}</button>` : ''}<button class="icon-button inspector-toggle" data-action="toggle-inspector" title="显示资源信息与关联" aria-label="显示资源信息与关联">${icon('panel')}</button></div>`;
 }
 function renderEditorBody(tab) {
   if (tab.textComposing || tab.markdownEditor?.isComposing() || activeDocxEditorTab?.docxEditor?.isComposing() || [...canvasTabs].some(value=>value.canvasEditor?.isComposing())) return;
@@ -1029,7 +1029,13 @@ function updatePreview(tab) { clearTimeout(previewTimer); previewTimer = setTime
 function inlineMarkdown(text,imageResolver = () => null,linkResolver = () => null) {
   const tokens = []; let raw = String(text).replace(/\u0000/g,'');
   const token = html => { const key = `\u0000${tokens.length}\u0000`; tokens.push(html); return key; };
-  raw = raw.replace(/`([^`]+)`/g,(_,code) => token(`<code>${escapeHtml(code)}</code>`));
+  raw = raw.replace(/(`+)([\s\S]*?)\1(?!`)/g,(_,marks,code) => token(`<code>${escapeHtml(code)}</code>`));
+  raw = raw.replace(/\\([\\!])/g,(_,character)=>token(escapeHtml(character)));
+  raw = raw.replace(/!\[\[[^\]\r\n]+\]\]/g,source => {
+    const spec=window.YingXuObsidian?.parseImage(source);if(!spec)return source;
+    const resolved=imageResolver(encodeURIComponent(spec.path).replace(/%2F/gi,'/'),{wiki:true});
+    return token(resolved ? `<img class="markdown-attachment" src="${escapeHtml(resolved)}" alt="${escapeHtml(spec.alt)}"${spec.width ? ` width="${spec.width}"` : ''}${spec.height ? ` height="${spec.height}" style="height:${spec.height}px;object-fit:contain"` : ''} loading="lazy" decoding="async">` : escapeHtml(source));
+  });
   raw = raw.replace(/!\[([^\]\n]*)\]\((?:<([^>\n]+)>|([^\s)]+))\)/g,(source,alt,angle,url) => {
     const resolved = imageResolver(angle || url);
     return token(resolved ? `<img class="markdown-attachment" src="${escapeHtml(resolved)}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async">` : escapeHtml(source));
@@ -1044,7 +1050,7 @@ function inlineMarkdown(text,imageResolver = () => null,linkResolver = () => nul
   return value.replace(/\u0000(\d+)\u0000/g,(_,index) => tokens[Number(index)] || '');
 }
 function markdown(raw,tab) {
-  const inline = text => inlineMarkdown(text,url => markdownImageURL(tab,url),(name,url)=>tab?.source==='file' && window.YingXuDocumentLinks?.relativeLink(url) ? window.YingXuDocumentLinks.renderLink(name,url,tab.id) : null);
+  const inline = text => inlineMarkdown(text,(url,options) => markdownImageURL(tab,url,options),(name,url)=>tab?.source==='file' && window.YingXuDocumentLinks?.relativeLink(url) ? window.YingXuDocumentLinks.renderLink(name,url,tab.id) : null);
   const maximum = 140000; const source = String(raw || ''); const truncated = source.length > maximum; const lines = source.slice(0,maximum).replace(/\r\n?/g,'\n').split('\n'); let output = truncated ? '<div class="preview-notice">为保持流畅，预览显示前 14 万字符。编辑区保留完整内容。</div>' : ''; let code = false,buffer = [],list = '';
   const closeList = () => { if (list) { output += `</${list}>`; list = ''; } };
   for (let index = 0; index < lines.length; index++) {
@@ -1420,6 +1426,7 @@ async function handleAction(action,target) {
   if(action==='find-document')return openDocumentSearch();
   if(action==='maintenance-preview' || action==='maintenance-cleanup')return maintenanceAction(action==='maintenance-cleanup');
   if (action === 'capture-screen') return captureScreen();
+  if (action === 'insert-note-image') return chooseNoteImages();
   if (action === 'global-search') return globalSearchDialog();
   if (action === 'settings') return settingsDialog();
   if (action === 'project-library') return projectLibraryDialog();
@@ -1486,6 +1493,7 @@ function wireEvents() {
     if (!event.target.matches('[data-markdown-heading]') || !event.target.value) return;
     applyMarkdownFormat(event.target.value); event.target.value = '';
   });
+  document.addEventListener('paste',event => { if (!event.defaultPrevented) pasteNoteImages(event); },true);
   document.addEventListener('paste',event => {
     if (event.defaultPrevented || !resourcePasteAllowed(event.target)) return;
     event.preventDefault();
@@ -1564,14 +1572,30 @@ function documentLinkTarget() {
   const position=tab.markdownEditor?.getSelection()?.to ?? (field ? field.selectionEnd : tab.draft.length);
   return {tab,key:tab.key,projectId:tab.item.project_id,draft:tab.draft,position,enhanced:!!tab.markdownEditor};
 }
-async function insertDocumentFileLinks(ids=[],files=[]) {
+function pasteNoteImages(event) {
+  if (!event.target.closest('#editorContent') || !documentLinkTarget()) return false;
+  const files=[...(event.clipboardData?.files || [])].filter(file=>/\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name));
+  if (!files.length) return false;
+  event.preventDefault();insertDocumentFileLinks([],files).catch(report);return true;
+}
+function chooseNoteImages() {
+  const target=documentLinkTarget();if(!target)return;
+  const input=document.createElement('input');input.type='file';input.accept='.png,.jpg,.jpeg,.webp,.gif,.bmp';input.multiple=true;
+  input.addEventListener('change',()=>{
+    const current=documentLinkTarget();
+    if(!current || current.tab!==target.tab || current.draft!==target.draft){toast('笔记已切换或发生修改，请重新选择图片。','info');return;}
+    insertDocumentFileLinks([],Array.from(input.files || []),target).catch(report);
+  },{once:true});input.click();
+}
+async function insertDocumentFileLinks(ids=[],files=[],expectedTarget=null) {
   const target=documentLinkTarget();if(!target){toast('请先打开当前项目中可编辑的 Markdown 笔记，再拖入文件建立链接。','info');return;}
+  if(expectedTarget){if(target.tab!==expectedTarget.tab || target.draft!==expectedTarget.draft)return;target.position=expectedTarget.position;}
   if(files.some(file=>/\.zip$/i.test(file.name))){toast('ZIP 请先导入项目，再将解压后的文件拖进笔记。','info');return;}
   documentLinkBusy=true;
   try {
     if(files.length){const result=await uploadFiles(files,'references',null,target.projectId);ids=(result||[]).map(item=>item.id);}
     const texts=[];let failed=0;
-    for(const id of [...new Set(ids)].slice(0,200)){try{texts.push((await api(window.YingXuDocumentLinks.linkRequest(target.tab.id,id))).markdown);}catch(error){failed++;report(error);}}
+    for(const id of [...new Set(ids)].slice(0,200)){try{const link=await api(window.YingXuDocumentLinks.linkRequest(target.tab.id,id));texts.push(link.image_markdown || link.markdown);}catch(error){failed++;report(error);}}
     if(!texts.length)return;
     const tab=target.tab;
     if(!state.tabs.includes(tab) || state.activeKey!==target.key || String(state.projectId)!==String(target.projectId) || tab.draft!==target.draft || !tab.content?.editable || tab.mode==='preview' || tab.saving || tab.textComposing || tab.markdownEditor?.isComposing()){
@@ -1580,7 +1604,7 @@ async function insertDocumentFileLinks(ids=[],files=[]) {
     const separator=tab.draft.match(/\r\n|\r|\n/)?.[0]||'\n';
     if(target.enhanced){const at=target.position,text=(at&&!/[\r\n]$/.test(tab.draft.slice(0,at))?separator:'')+texts.join(separator)+separator;tab.markdownEditor.insertText(text,at,at);}
     else {const field=$('#textEditor');if(!field)return;const at=target.position,text=(at&&field.value[at-1]!=='\n'?'\n':'')+texts.join('\n')+'\n';field.setRangeText(text,at,at,'end');tab.draft=preserveTextNewlines(tab.draft,field.value);markDirty(tab);updatePreview(tab);field.focus();}
-    toast(`已插入 ${texts.length} 个文件链接${failed?'，部分文件未通过校验':''}。`);
+    toast(`已插入 ${texts.length} 个图片或文件链接${failed?'，部分文件未通过校验':''}。`);
   } finally {documentLinkBusy=false;}
 }
 

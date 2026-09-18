@@ -1,0 +1,30 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),Module=require('node:module');
+const root=path.resolve(__dirname,'..'),{parseImage}=require('../frontend/obsidian-images.js');
+assert.deepEqual(parseImage('![[附件/图 片.png|320x200]]'),{path:'附件/图 片.png',alt:'图 片.png',width:320,height:200});
+assert.equal(parseImage('![[a.jpg|说明]]').alt,'说明');
+for(const raw of ['![[../a.png]]','![[/a.png]]','![[https://a/a.png]]','![[a.png|0]]','![[a.png|3000]]','![[a.md]]'])assert.equal(parseImage(raw),null,raw);
+const app=fs.readFileSync(path.join(root,'frontend/app.js'),'utf8');
+const inline=app.slice(app.indexOf('function inlineMarkdown('),app.indexOf('\nfunction markdown(',app.indexOf('function inlineMarkdown(')));
+const context={window:{YingXuObsidian:{parseImage}},escapeHtml:s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')};
+vm.createContext(context);vm.runInContext(inline+';this.render=inlineMarkdown;',context);
+let calls=0;const resolver=(url,options)=>{calls++;assert.equal(options.wiki,true);return '/api/markdown-assets/image?path='+url;};
+assert.match(context.render('![[图 片.png|120]]',resolver),/width="120"/);assert.equal(calls,1);
+for(const raw of ['`![[a.png]]`','``![[a.png]]``','\\![[a.png]]'])assert.doesNotMatch(context.render(raw,resolver),/<img/);
+assert.equal(calls,1);
+assert.match(context.render('![[a.png|120x80]]',resolver),/height:80px;object-fit:contain/);
+const deps=path.join(root,'tools/markdown-editor/node_modules'),esbuild=require(path.join(deps,'esbuild'));
+const source=fs.readFileSync(path.join(root,'frontend/live-markdown-source.mjs'),'utf8');
+const built=esbuild.buildSync({stdin:{contents:source+'\nexport {buildEditorState,previewDecorations,LocalImageWidget};',resolveDir:path.join(root,'frontend'),loader:'js'},nodePaths:[deps],bundle:true,write:false,platform:'node',format:'cjs'});
+const loaded=new Module(path.join(root,'obsidian-test.cjs'),module);loaded.filename=path.join(root,'obsidian-test.cjs');loaded._compile(built.outputFiles[0].text,loaded.filename);const api=loaded.exports;
+function widgets(raw,resolve=()=>'/api/markdown-assets/image?wiki=1'){
+ let state=api.buildEditorState(raw,'live','测试',null,resolve).state;state=state.update({selection:{anchor:state.doc.length}}).state;
+ const found=[];api.previewDecorations(state,undefined,true).between(0,state.doc.length,(_f,_t,d)=>{if(d.spec.widget instanceof api.LocalImageWidget)found.push(d.spec.widget);});
+ assert.equal(state.sliceDoc(),raw);return found;
+}
+let seen;const found=widgets('![[图 片.png|320x200]]\n\n末尾',(url,alt,options)=>{seen={url,alt,options};return '/api/markdown-assets/image?wiki=1';});
+assert.equal(found.length,1);assert.equal(found[0].width,320);assert.equal(found[0].height,200);assert.equal(seen.options.wiki,true);
+for(const raw of ['`![[a.png]]`','\\![[a.png]]','```\n![[a.png]]\n```','![[../a.png]]'])assert.equal(widgets(raw+'\n\n末尾').length,0,raw);
+assert.equal(widgets('![[a.png]]\n\n末尾',null).length,0);
+assert.equal(widgets('![[a.png]]\n\n末尾',()=> 'https://example.invalid/a.png').length,0);
+console.log('Obsidian image parsing, rendering, escaping, dimensions and source preservation passed');

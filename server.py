@@ -458,8 +458,8 @@ class Handler(BaseHTTPRequestHandler):
                     if set(query)-{'note','image'}:raise UserError('图片引用仅接受笔记与素材 ID。')
                     return self.json(self.app.markdown_assets.link(query.get('note',''),query.get('image','')))
                 if path=='/api/markdown-assets/image':
-                    if set(query)-{'note','path'}:raise UserError('笔记图片仅接受笔记 ID 与相对路径。')
-                    with self.app.markdown_assets.open_image(query.get('note',''),query.get('path','')) as opened:
+                    if set(query)-{'note','path','wiki'} or query.get('wiki','0') not in ('0','1'):raise UserError('笔记图片参数无效。')
+                    with self.app.markdown_assets.open_image(query.get('note',''),query.get('path',''),wiki=query.get('wiki')=='1') as opened:
                         return self.file(opened.name,media=True,opened=opened)
                 if path=='/api/resource-groups':
                     if set(query)-{'project'}:raise UserError('素材组列表仅接受项目参数。')

@@ -43,7 +43,11 @@ class MarkdownAssets:
             destination = relative + '#yx-item=' + item['id']
             label = re.sub(r'[\r\n\t]', ' ', item['name'])[:180] or '文件'
             label = re.sub(r'([\\`*_\[\]<>])', r'\\\1', label)
-            return {'relative_path': relative, 'item_id': item['id'], 'markdown': f'[{label}]({destination})'}
+            result = {'relative_path': relative, 'item_id': item['id'], 'markdown': f'[{label}]({destination})'}
+            if item['kind'] == 'image' and path.suffix.lower() in RASTER_EXTENSIONS and path.stat().st_size <= MAX_IMAGE_BYTES:
+                self._image(item['id'], note['project_id'], root)
+                result['image_markdown'] = self.link(note_id, item['id'])['markdown']
+            return result
 
     def resolve_file(self, note_id, relative):
         """Resolve only registered local project files; this never opens or writes them."""
@@ -103,17 +107,38 @@ class MarkdownAssets:
             return {'relative_path': encoded, 'markdown': f'![{alt}]({encoded})',
                     'preview_url': '/api/markdown-assets/image?' + urlencode({'note': note_id, 'path': encoded})}
 
+    def _wiki_image_path(self, note, note_path, root, relative):
+        # Obsidian permits shortest unique names and vault-relative subpaths.
+        # Search catalogue rows only, never another project or arbitrary disk files.
+        parts = relative.split('/')
+        if any(part in ('', '.', '..') for part in parts):
+            raise UserError('图片引用必须位于当前项目中。', 403)
+        with self.store.connection() as db:
+            rows = db.execute('SELECT id,path FROM items WHERE project_id=? AND kind=? AND removed=0',
+                              (note['project_id'], 'image')).fetchall()
+        wanted = tuple(part.casefold() for part in parts)
+        matches = [row for row in rows if tuple(part.casefold() for part in Path(row['path']).parts[-len(parts):]) == wanted]
+        for candidate in (note_path.parent / relative, root / relative):
+            exact = [row for row in matches if os.path.normcase(row['path']) == os.path.normcase(str(candidate))]
+            if exact:
+                return self._image(exact[0]['id'], note['project_id'], root)[1]
+        if len(matches) != 1:
+            raise UserError('项目中有多张同名图片，请在引用中补全子文件夹路径。' if matches else
+                            '未找到笔记引用的图片，请将原附件导入当前项目。', 409 if matches else 404)
+        return self._image(matches[0]['id'], note['project_id'], root)[1]
+
     @contextmanager
-    def open_image(self, note_id, relative):
+    def open_image(self, note_id, relative, *, wiki=False):
         if not isinstance(relative, str) or len(relative) > 4096:
             raise UserError('图片引用路径无效。')
         relative = unquote(relative)
         if (not relative or relative.startswith(('/', '\\')) or ':' in relative
-                or '\\' in relative or any(ord(c) < 32 for c in relative)):
+                or '\\' in relative or any(ord(c) < 32 or ord(c) == 127 for c in relative)):
             raise UserError('只允许项目内的相对图片路径。', 403)
         with self.store.lock:
             note, note_path, root = self._note(note_id)
-            path = clean_path(note_path.parent / relative)
+            path = (self._wiki_image_path(note, note_path, root, relative) if wiki else
+                    clean_path(note_path.parent / relative))
             if not path.is_relative_to(root):
                 raise UserError('图片不在当前项目中。', 403)
             with self.store.connection() as db:

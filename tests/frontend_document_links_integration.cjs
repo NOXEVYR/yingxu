@@ -29,11 +29,19 @@ test('real app DOM inserts project links from drops and guards asynchronous docu
  const count=calls.length,raw=md.draft;md.source='external';drop([item]);await tick();check('external Markdown is explicitly rejected without API or edits',calls.length===count&&md.draft===raw&&notices.at(-1)[0].includes('当前项目'));md.source='file';
  window.YingXuMarkdown=markdownModule;md.mode='live';md.draft='光标行\n\n'+link(item)+'\n';renderWorkspace();await tick();const live=document.querySelector('.yx-md-document-link');check('live Markdown renders escaped label without rewriting source',live?.textContent==='文件[1]'&&md.markdownEditor.getValue()===md.draft);live?.click();await tick();check('live link click invokes authorized resolver and open',opened.length===2&&opened.at(-1)===item);
  hold='resolve-file?';document.querySelector('.yx-md-document-link')?.click();await tick();state.activeKey=second.key;renderWorkspace();const oldOpens=opened.length;pending();await tick();check('late live link resolution does not reopen target after switching documents',opened.length===oldOpens);
+ state.activeKey=md.key;md.mode='live';md.draft='保留正文\n';renderWorkspace();await tick();
+ api=async()=>({markdown:link(uploaded),image_markdown:'![粘贴图片](../附件/图.png)'});
+ const clip=new DataTransfer();clip.items.add(new File(['synthetic png'],'粘贴.png',{type:'image/png'}));clip.setData('text/plain','不应插入的剪贴板文字');
+ const content=document.querySelector('.cm-content'),paste=new ClipboardEvent('paste',{clipboardData:clip,bubbles:true,cancelable:true});content.dispatchEvent(paste);await tick();
+ check('live image paste uploads once and embeds image without clipboard text',paste.defaultPrevented&&uploads.length===2&&md.draft.includes('![粘贴图片]')&&!md.draft.includes('不应插入')&&md.draft.includes('保留正文'));
+ check('image paste stays an unsaved editor draft',md.dirty&&md.markdownEditor.getValue()===md.draft);
+ check('editable note exposes image picker',!!document.querySelector('[data-action="insert-note-image"]'));
+ const plain=new DataTransfer();plain.setData('text/plain','普通文字');check('plain text paste is delegated to editor',pasteNoteImages({target:content,clipboardData:plain,preventDefault(){throw Error('text paste stolen');}})===false);
  check('no integration exceptions',errors.length===0);$('#auditResult').textContent=JSON.stringify(checks);
  })().catch(error=>document.querySelector('#auditResult').textContent=JSON.stringify({error:String(error),stack:error.stack}));`);
  let html=fs.readFileSync(path.join(front,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<link\b[^>]*>/gi,'');
  html=html.replace('</head>','<link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="live-markdown.css"></head>').replace('</body>','<pre id="auditResult"></pre><script src="document-links.js"></script><script src="live-markdown.js"></script><script src="app.js"></script><script src="runner.js"></script></body>');fs.writeFileSync(path.join(tmp,'fixture.html'),html);
  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(tmp,'profile')}`,'--virtual-time-budget=10000','--dump-dom',pathToFileURL(path.join(tmp,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:3*1024*1024});
- const match=stdout.match(/<pre id="auditResult">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1800));const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,19);for(const row of result)assert.equal(row.ok,true,row.name);
+ const match=stdout.match(/<pre id="auditResult">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1800));const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,23);for(const row of result)assert.equal(row.ok,true,row.name);
 });
 

@@ -2,13 +2,13 @@
 (() => {
   'use strict';
   const validId = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
-  function imageURL(noteId,url) {
+  function imageURL(noteId,url,options = {}) {
     if (!validId(noteId) || typeof url !== 'string' || !url || url.length > 4096) return null;
     let decoded;
     try { decoded = decodeURIComponent(url); } catch { return null; }
     if (/^[\/\\]|[:\\\x00-\x1f]/.test(decoded)) return null;
     if (!/\.(png|jpe?g|webp|gif|bmp)$/i.test(decoded)) return null;
-    return `/api/markdown-assets/image?note=${noteId}&path=${encodeURIComponent(url)}`;
+    return `/api/markdown-assets/image?note=${noteId}&path=${encodeURIComponent(url)}${options.wiki ? '&wiki=1' : ''}`;
   }
   function install({api,getTarget,insert,refresh,toast,send}) {
     const pending = new Map();
