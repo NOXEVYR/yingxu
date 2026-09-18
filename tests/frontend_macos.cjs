@@ -40,7 +40,7 @@ function appFixture(isMac=true){
 }
 test('macOS uses shared version and maintenance settings without unsupported controls',async()=>{
   const s=appFixture();await s.settingsDialog();const body=s.dialogs[0].body;
-  assert.match(body,/0\.4\.13-mac\.1/);assert.match(body,/界面与后台版本一致/);assert.match(body,/maintenance-preview/);assert.match(body,/手动更新/);assert.match(body,/data-action="check-update"/);assert.match(body,/maintenanceKeep/);assert.match(body,/macOS 废纸篓/);assert.match(body,/⌘F/);
+  assert.match(body,/0\.4\.14-mac\.1/);assert.match(body,/界面与后台版本一致/);assert.match(body,/maintenance-preview/);assert.match(body,/手动更新/);assert.match(body,/data-action="check-update"/);assert.match(body,/maintenanceKeep/);assert.match(body,/macOS 废纸篓/);assert.match(body,/⌘F/);
   assert.doesNotMatch(body,/name="(?:close_to_tray|capture_enabled|capture_hotkey|capture_mode)"|data-action="(?:un)?register-open-with"/);
   await s.dialogs[0].onSubmit({confirm_delete:true,confirm_trash_delete:true,autoplay_media:true,default_view:'list',default_sort:'name'});
   assert.deepEqual(Object.keys(s.calls[1].options.body).sort(),['appearance_theme','autoplay_media','confirm_delete','confirm_trash_delete','default_sort','default_view']);
