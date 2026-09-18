@@ -18,6 +18,8 @@
 
 [下载 macOS M 系列 0.4.12-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
+**0.4.13 待发布：回收站清理确认修复。** 失败后可重新预览并再次确认，被保留的条目显示名称与原因。保留 0.4.12 功能；上方下载入口暂指向已验证的现有安装包。
+
 **0.4.12 已发布：笔记图片兼容、阅读布局与手动更新。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
 - 设置顶部新增“手动更新 → 检查更新”，按当前平台显示发布版本、说明和下载入口。只在点击时连接 GitHub，不自动下载安装。

@@ -110,7 +110,7 @@ namespace YingXu.Desktop
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.12',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.13',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+

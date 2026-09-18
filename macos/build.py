@@ -40,7 +40,7 @@ def main():
     app = output / 'YingXu.app'
     info = app / 'Contents/Info.plist'
     values = plistlib.loads(info.read_bytes())
-    values.update(CFBundleShortVersionString=__version__, CFBundleVersion='41201',
+    values.update(CFBundleShortVersionString=__version__, CFBundleVersion='41301',
                   LSMinimumSystemVersion='14.0', NSHighResolutionCapable=True,
                   NSDocumentsFolderUsageDescription='选择和管理您明确指定的视频创作项目与素材。')
     info.write_bytes(plistlib.dumps(values))
