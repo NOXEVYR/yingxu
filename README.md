@@ -12,18 +12,20 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-**[下载 Windows x64 完整包 · v0.4.14](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.14/YingXu-v0.4.14-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14)
+**[下载 Windows x64 完整包 · v0.4.15](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.15/YingXu-v0.4.15-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.14-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.15-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
-**0.4.15 待发布：Windows 截图线宽选择。** 当前下载仍为已验证的 0.4.14 完整包，待新版发布并完成回检后切换。
+**0.4.15 已发布：Windows 截图线宽选择。** Windows 与 macOS 分别完成完整包验证和上传后下载回检。
 
 - 点击截图工具栏的线宽按钮，可在弹层中直接选择 2、4、8、12 像素，并查看各档粗细；不再只能逐次点击循环切换。
 - 选择后自动收起弹层；弹层打开时，按 Esc 或点击外部只收起选项，保留当前截图，也不会因这次点击误画笔迹。
 - 已通过 930 项实际窗口绘制与交互检查；使用合成截图内容，不代表已完成人工多显示器及真实剪贴板验收。
 - macOS 仅同步版本，未新增截图或标注功能。无新增运行依赖、启动联网或后台轮询。
+
+[Windows 0.4.14 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14) · [macOS 0.4.14-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14-mac.1)
 
 **0.4.14 已发布：Windows 截图工具栏与绘制修复。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
