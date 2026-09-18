@@ -306,11 +306,44 @@ namespace YingXu.Desktop
                 Fire(selector,"OnMouseMove",new MouseEventArgs(MouseButtons.Left,0,150,200,0));Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,240,100,0));
                 selector.Confirm();using(var result=selector.CreateResult())Check(result.GetPixel(110,150).B>200,"losing focus clears Shift so a later brush stroke remains freehand");
             }
-            if(previewPath!=null)PreviewAnnotation(previewPath);
+            foreach(var size in new[]{new Size(640,480),new Size(1024,768),new Size(1920,1080)})
+            foreach(float scale in new[]{1f,1.5f,2.5f})
+            using(var image=Picture(size.Width,size.Height))
+            using(var selector=new CaptureSelector(image,new Rectangle(-size.Width,0,size.Width,size.Height),"annotate",scale))
+            {
+                // Full-screen selections force an inside placement. Controls must remain usable,
+                // while the output still contains the exact screenshot, never toolbar pixels.
+                Drag(selector,Point.Empty,new Point(size.Width,size.Height));var toolbar=(CaptureToolbar)selector.Controls[0];
+                bool visible=selector.ClientRectangle.Contains(toolbar.Bounds);
+                foreach(Control button in toolbar.Controls)visible&=toolbar.ClientRectangle.Contains(button.Bounds);
+                Check(visible,"full-screen selection keeps every action on screen at "+size+" scale "+scale);
+                selector.Confirm();using(var result=selector.CreateResult())
+                {
+                    bool clean=result.Size==size;
+                    foreach(Control button in toolbar.Controls)
+                    {
+                        int x=toolbar.Left+button.Left+button.Width/2,y=toolbar.Top+button.Top+button.Height/2;
+                        clean&=result.GetPixel(x,y).ToArgb()==image.GetPixel(x,y).ToArgb();
+                    }
+                    Check(clean,"floating controls never enter confirmed crop at "+size+" scale "+scale);
+                }
+            }
+            using(var image=Picture(1060,730))using(var selector=new CaptureSelector(image,new Rectangle(0,0,1060,730)))
+            {
+                Drag(selector,new Point(122,122),new Point(938,590));var toolbar=(CaptureToolbar)selector.Controls[0];
+                Check(toolbar.Right==selector.Area.Right&&toolbar.Top>selector.Area.Bottom,"normal selection anchors toolbar to selection's lower right without obscuring pixels");
+            }
+            if(previewPath!=null)
+            {
+                PreviewAnnotation(previewPath);
+                string folder=Path.GetDirectoryName(Path.GetFullPath(previewPath)),name=Path.GetFileNameWithoutExtension(previewPath);
+                PreviewAnnotation(Path.Combine(folder,name+"-150.png"),1060,730,1.5f);
+                PreviewAnnotation(Path.Combine(folder,name+"-narrow.png"),640,480,1f);
+            }
         }
-        private static void PreviewAnnotation(string path)
+        private static void PreviewAnnotation(string path,int width=1060,int height=730,float scale=1)
         {
-            using(var image=new Bitmap(1060,730))
+            using(var image=new Bitmap(width,height))
             {
                 using(var g=Graphics.FromImage(image))
                 using(var title=new Font("Microsoft YaHei UI",25,FontStyle.Bold,GraphicsUnit.Pixel))
@@ -319,7 +352,7 @@ namespace YingXu.Desktop
                 using(var muted=new SolidBrush(Color.FromArgb(127,134,145)))
                 using(var paper=new SolidBrush(Color.FromArgb(247,248,250)))
                 {
-                    g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.FromArgb(231,234,239));
+                    g.ScaleTransform(width/1060f,height/730f);g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.FromArgb(231,234,239));
                     using(var card=CaptureVisuals.Rounded(new RectangleF(100,102,860,510),18))g.FillPath(Brushes.White,card);
                     g.DrawString("创作工作台",title,ink,142,142);g.DrawString("项目素材 / 视觉参考",body,muted,144,188);
                     using(var line=new Pen(Color.FromArgb(232,235,239)))g.DrawLine(line,144,222,916,222);
@@ -335,12 +368,13 @@ namespace YingXu.Desktop
                     }
                     g.DrawString("素材备注",body,ink,145,523);g.DrawString("scene_reference_001  /  internal_notes",body,muted,145,550);
                 }
-                using(var selector=new CaptureSelector(image,new Rectangle(0,0,image.Width,image.Height)))
+                using(var selector=new CaptureSelector(image,new Rectangle(0,0,image.Width,image.Height),"annotate",scale))
                 {
-                    Drag(selector,new Point(122,122),new Point(938,590));selector.DrawingTool="rectangle";selector.DrawingWidth=3;
-                    Drag(selector,new Point(136,235),new Point(385,494));selector.DrawingTool="arrow";
-                    Drag(selector,new Point(640,185),new Point(397,252));selector.DrawingTool="mosaic";selector.DrawingWidth=4;
-                    Drag(selector,new Point(144,545),new Point(408,570));selector.DrawingTool="arrow";
+                    Func<int,int,Point> point=(x,y)=>new Point(x*width/1060,y*height/730);
+                    Drag(selector,point(122,122),point(938,590));selector.DrawingTool="rectangle";selector.DrawingWidth=3;
+                    Drag(selector,point(136,235),point(385,494));selector.DrawingTool="arrow";
+                    Drag(selector,point(640,185),point(397,252));selector.DrawingTool="mosaic";selector.DrawingWidth=4;
+                    Drag(selector,point(144,545),point(408,570));selector.DrawingTool="arrow";
                     var toolbar=(CaptureToolbar)selector.Controls[0];
                     typeof(Button).GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(toolbar.Controls[2],new object[]{EventArgs.Empty});
                     using(var preview=new Bitmap(image.Width,image.Height))

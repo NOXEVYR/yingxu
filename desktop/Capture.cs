@@ -359,20 +359,33 @@ namespace YingXu.Desktop
     }
     internal sealed class CaptureToolbar : FlowLayoutPanel
     {
+        internal float UiScale=1;
         internal CaptureToolbar()
         {
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor,true);
-            BackColor=Color.Transparent;Padding=new Padding(14,12,14,14);
+            BackColor=Color.Transparent;Padding=new Padding(16,14,16,16);
         }
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             base.OnPaintBackground(e);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
-            for(int i=4;i>=1;i--)using(var shadow=CaptureVisuals.Rounded(new RectangleF(5-i,6-i,Width-10+i*2,Height-11+i*2),14))using(var shade=new SolidBrush(Color.FromArgb(6,0,0,0)))e.Graphics.FillPath(shade,shadow);
-            using(var panel=CaptureVisuals.Rounded(new RectangleF(3,2,Width-7,Height-8),13))
-            using(var fill=new SolidBrush(Color.FromArgb(252,252,253)))using(var edge=new Pen(Color.FromArgb(224,227,231)))
+            float scale=UiScale;
+            // Inset the complete shadow; no clipped square edge at the panel boundary.
+            for(int i=5;i>=1;i--)
+                using(var shadow=CaptureVisuals.Rounded(new RectangleF((7-i)*scale,(8-i)*scale,Width-(14-i*2)*scale,Height-(17-i*2)*scale),15*scale))
+                using(var shade=new SolidBrush(Color.FromArgb(4,22,26,32)))e.Graphics.FillPath(shade,shadow);
+            using(var panel=CaptureVisuals.Rounded(new RectangleF(6*scale,4*scale,Width-12*scale,Height-14*scale),13*scale))
+            using(var fill=new SolidBrush(Color.FromArgb(253,253,254)))using(var edge=new Pen(Color.FromArgb(220,223,229),scale))
             {e.Graphics.FillPath(fill,panel);e.Graphics.DrawPath(edge,panel);}
-            using(var pen=new Pen(Color.FromArgb(225,227,231)))foreach(Control item in Controls)
-                if(item.Margin.Left>=12&&item.Left>Padding.Left+12)e.Graphics.DrawLine(pen,item.Left-8,item.Top+9,item.Left-8,item.Bottom-9);
+            // Preserve grouping when narrow monitors wrap the toolbar onto multiple rows.
+            for(int first=0;first<Math.Min(4,Controls.Count);)
+            {
+                int last=first;while(last+1<4&&last+1<Controls.Count&&Controls[last+1].Top==Controls[first].Top)last++;
+                Rectangle area=Rectangle.Union(Controls[first].Bounds,Controls[last].Bounds);area.Inflate((int)(3*scale),(int)(3*scale));
+                using(var group=CaptureVisuals.Rounded(area,10*scale))using(var fill=new SolidBrush(Color.FromArgb(241,243,246)))e.Graphics.FillPath(fill,group);
+                first=last+1;
+            }
+            using(var pen=new Pen(Color.FromArgb(229,231,235),scale))foreach(Control item in Controls)
+                if(item.Margin.Left>=12*scale&&item.Left>Padding.Left+12*scale)e.Graphics.DrawLine(pen,item.Left-8*scale,item.Top+11*scale,item.Left-8*scale,item.Bottom-11*scale);
         }
     }
     internal sealed class CaptureToolButton : Button
@@ -384,6 +397,7 @@ namespace YingXu.Desktop
         internal float StrokeWidth;
         internal float UiScale=1;
         private bool hover;
+        private bool pressed;
         internal CaptureToolButton()
         {
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor,true);
@@ -392,20 +406,30 @@ namespace YingXu.Desktop
         }
         protected override void OnMouseEnter(EventArgs e) {hover=true;Invalidate();base.OnMouseEnter(e);}
         protected override void OnMouseLeave(EventArgs e) {hover=false;Invalidate();base.OnMouseLeave(e);}
+        protected override void OnMouseDown(MouseEventArgs e) {if(e.Button==MouseButtons.Left){pressed=true;Invalidate();}base.OnMouseDown(e);}
+        protected override void OnMouseUp(MouseEventArgs e) {pressed=false;Invalidate();base.OnMouseUp(e);}
+        protected override void OnMouseCaptureChanged(EventArgs e) {if(!Capture){pressed=false;Invalidate();}base.OnMouseCaptureChanged(e);}
         protected override void OnGotFocus(EventArgs e) {Invalidate();base.OnGotFocus(e);}
         protected override void OnLostFocus(EventArgs e) {Invalidate();base.OnLostFocus(e);}
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;var original=e.Graphics.Save();e.Graphics.ScaleTransform(UiScale,UiScale);
             float width=Width/UiScale,height=Height/UiScale;
-            if(Primary||Chosen||hover)
-                using(var shape=CaptureVisuals.Rounded(new RectangleF(1,1,width-3,height-3),8))using(var fill=new SolidBrush(Primary?CaptureVisuals.Ink:Chosen?Color.FromArgb(229,232,237):Color.FromArgb(241,243,246)))e.Graphics.FillPath(fill,shape);
+            bool solid=Primary||(Chosen&&!Swatch.HasValue);
+            if(solid||hover||pressed)
+                using(var shape=CaptureVisuals.Rounded(new RectangleF(1,1,width-3,height-3),9))
+                using(var fill=new SolidBrush(solid?(pressed?Color.FromArgb(11,14,18):hover?Color.FromArgb(56,61,68):CaptureVisuals.Ink):pressed?Color.FromArgb(221,225,231):Color.FromArgb(232,235,240)))e.Graphics.FillPath(fill,shape);
             if(Swatch.HasValue)
             {
                 var circle=new RectangleF((width-17)/2f,(height-17)/2f,17,17);
                 using(var fill=new SolidBrush(Swatch.Value))e.Graphics.FillEllipse(fill,circle);
                 using(var edge=new Pen(Color.FromArgb(35,0,0,0)))e.Graphics.DrawEllipse(edge,circle);
-                if(Chosen)using(var ring=new Pen(CaptureVisuals.Ink,1.5f))e.Graphics.DrawEllipse(ring,circle.X-3,circle.Y-3,circle.Width+6,circle.Height+6);
+                if(Chosen)
+                {
+                    using(var ring=new Pen(CaptureVisuals.Ink,1.5f))e.Graphics.DrawEllipse(ring,circle.X-3,circle.Y-3,circle.Width+6,circle.Height+6);
+                    using(var mark=new Pen(Swatch.Value.GetBrightness()>.65f?CaptureVisuals.Ink:Color.White,1.5f))
+                    {mark.StartCap=LineCap.Round;mark.EndCap=LineCap.Round;e.Graphics.DrawLines(mark,new[]{new PointF(width/2-3,height/2),new PointF(width/2-1,height/2+2),new PointF(width/2+3,height/2-2)});}
+                }
             }
             else if(Icon=="width")
             {
@@ -416,7 +440,7 @@ namespace YingXu.Desktop
             else
             {
                 var saved=e.Graphics.Save();e.Graphics.TranslateTransform((width-34)/2f,(height-32)/2f);
-                CaptureSelector.DrawIcon(e.Graphics,Icon,!Enabled?Color.FromArgb(178,183,190):Primary?Color.White:CaptureVisuals.Ink);e.Graphics.Restore(saved);
+                CaptureSelector.DrawIcon(e.Graphics,Icon,!Enabled?Color.FromArgb(178,183,190):solid?Color.White:CaptureVisuals.Ink);e.Graphics.Restore(saved);
             }
             if(Focused&&ShowFocusCues)using(var outline=CaptureVisuals.Rounded(new RectangleF(2,2,width-5,height-5),7))using(var pen=new Pen(Color.FromArgb(111,119,131))){pen.DashStyle=DashStyle.Dot;e.Graphics.DrawPath(pen,outline);}
             e.Graphics.Restore(original);
@@ -426,7 +450,7 @@ namespace YingXu.Desktop
     {
         private readonly Bitmap screen;
         private readonly bool quick;
-        private readonly FlowLayoutPanel toolbar;
+        private readonly CaptureToolbar toolbar;
         private readonly Button undo;
         private readonly ToolTip tips=new ToolTip();
         private readonly List<Button> toolButtons=new List<Button>();
@@ -447,11 +471,12 @@ namespace YingXu.Desktop
         internal Rectangle Area { get; private set; }
         internal CaptureSelector(Bitmap image,Rectangle bounds,string mode = "annotate",float scale=1)
         {
-            uiScale=Math.Max(1,Math.Min(2.5f,scale));
+            // Keep all actions reachable when a high DPI setting leaves a very small logical desktop.
+            uiScale=Math.Max(1,Math.Min(Math.Min(2.5f,scale),Math.Min(bounds.Width/320f,bounds.Height/240f)));
             screen=image; quick=mode=="quick"; AutoScaleMode=AutoScaleMode.None; FormBorderStyle=FormBorderStyle.None;
             StartPosition=FormStartPosition.Manual; Bounds=bounds; TopMost=true; ShowInTaskbar=false;
             DoubleBuffered=true; KeyPreview=true; Cursor=Cursors.Cross; Text="映序截图 · 拖动选择区域，Esc 取消";
-            toolbar=new CaptureToolbar { Visible=false,Size=new Size(Math.Min(640,bounds.Width),66),WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default };
+            toolbar=new CaptureToolbar { UiScale=uiScale,Visible=false,Size=new Size(Math.Min(660,bounds.Width),70),WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default };
             string[] names={"画笔（按住 Shift 画直线）","矩形","箭头","马赛克（拖动框选区域）"};
             string[] tools={"pen","rectangle","arrow","mosaic"};
             for(int i=0;i<tools.Length;i++)
@@ -463,7 +488,7 @@ namespace YingXu.Desktop
             string[] colorNames={"红色","黄色","绿色","蓝色","黑色","白色"};
             for(int i=0;i<palette.Length;i++)
             {
-                Color color=palette[i];var button=new CaptureToolButton {Width=26,AccessibleName=colorNames[i],Tag=color,Swatch=color};
+                Color color=palette[i];var button=new CaptureToolButton {Width=28,AccessibleName=colorNames[i],Tag=color,Swatch=color};
                 if(i==0)button.Margin=new Padding(14,2,2,2);tips.SetToolTip(button,colorNames[i]);colorButtons.Add(button);
                 button.Click+=(s,e)=>{DrawingColor=color;RefreshChoices();};toolbar.Controls.Add(button);
             }
@@ -474,7 +499,18 @@ namespace YingXu.Desktop
             var pin=IconButton("pin","确认并置顶到桌面（同时复制并保存到项目）");pin.Click+=(s,e)=>Confirm(true);
             var confirm=IconButton("confirm","确认（复制并保存到项目）");((CaptureToolButton)confirm).Primary=true;confirm.Click+=(s,e)=>Confirm();
             var cancel=IconButton("cancel","取消（Esc）");cancel.Click+=(s,e)=>CancelCapture();
-            toolbar.Controls.AddRange(new Control[]{width,undo,pin,confirm,cancel});Controls.Add(toolbar);RefreshChoices();
+            toolbar.Controls.AddRange(new Control[]{width,undo,pin,confirm,cancel});
+            if(bounds.Width/uiScale<680)
+            {
+                // A compact density avoids an orphaned cancel button on small desktop displays.
+                toolbar.Padding=new Padding(14,12,14,14);
+                foreach(CaptureToolButton button in toolbar.Controls)
+                {
+                    Color? swatch=button.Swatch;button.Width=swatch.HasValue?24:button.Icon=="width"?48:36;button.Height=36;
+                    button.Margin=new Padding(button.Margin.Left>=12?12:1,2,1,2);
+                }
+            }
+            Controls.Add(toolbar);RefreshChoices();
             if(uiScale!=1)
             {
                 toolbar.MaximumSize=Size.Empty;toolbar.Scale(new SizeF(uiScale,uiScale));toolbar.MaximumSize=new Size(bounds.Width,0);
@@ -491,10 +527,10 @@ namespace YingXu.Desktop
             using(var pen=new Pen(color,1.7f))
             {
                 pen.StartCap=LineCap.Round;pen.EndCap=LineCap.Round;
-                if(icon=="rectangle")graphics.DrawRectangle(pen,8,8,17,15);
+                if(icon=="rectangle")using(var rectangle=CaptureVisuals.Rounded(new RectangleF(8,8,17,15),2))graphics.DrawPath(pen,rectangle);
                 else if(icon=="arrow") {graphics.DrawLine(pen,8,24,25,7);graphics.DrawLines(pen,new[]{new Point(16,7),new Point(25,7),new Point(25,16)});}
                 else if(icon=="pen") {graphics.DrawLine(pen,10,23,23,9);graphics.DrawLine(pen,8,25,12,24);graphics.DrawLine(pen,20,8,24,12);}
-                else if(icon=="mosaic") {for(int y=0;y<3;y++)for(int x=0;x<3;x++)using(var brush=new SolidBrush((x+y)%2==0?color:Color.Silver))graphics.FillRectangle(brush,8+x*6,7+y*6,6,6);}
+                else if(icon=="mosaic") {for(int y=0;y<3;y++)for(int x=0;x<3;x++)using(var brush=new SolidBrush((x+y)%2==0?color:Color.FromArgb(100,color)))graphics.FillRectangle(brush,8+x*6,7+y*6,4.5f,4.5f);}
                 else if(icon=="confirm")graphics.DrawLines(pen,new[]{new Point(8,16),new Point(14,22),new Point(25,9)});
                 else if(icon=="cancel") {graphics.DrawLine(pen,10,9,24,23);graphics.DrawLine(pen,24,9,10,23);}
                 else if(icon=="undo") {graphics.DrawArc(pen,10,10,16,14,210,230);graphics.DrawLines(pen,new[]{new Point(8,9),new Point(8,16),new Point(15,16)});}
@@ -617,8 +653,12 @@ namespace YingXu.Desktop
             if(quick){DialogResult=DialogResult.OK;Close();return;}
             Annotating=true;
             toolbar.PerformLayout();
-            int top=Area.Bottom+10;if(top+toolbar.Height>ClientSize.Height)top=Math.Max(0,Area.Top-toolbar.Height-10);
-            toolbar.Location=new Point(Math.Max(0,Math.Min(Area.Left,ClientSize.Width-toolbar.Width)),top);
+            int gap=(int)(8*uiScale),edge=(int)(8*uiScale);
+            int top=Area.Bottom+gap;
+            if(top+toolbar.Height+edge>ClientSize.Height)top=Area.Top-toolbar.Height-gap;
+            if(top<edge)top=Math.Max(0,ClientSize.Height-toolbar.Height-edge);
+            int left=Area.Right-toolbar.Width;
+            toolbar.Location=new Point(Math.Max(0,Math.Min(Math.Max(edge,left),ClientSize.Width-toolbar.Width-edge)),Math.Max(0,Math.Min(top,ClientSize.Height-toolbar.Height)));
             toolbar.Visible=true;toolbar.BringToFront();Invalidate();
         }
         protected override void OnKeyDown(KeyEventArgs e)
