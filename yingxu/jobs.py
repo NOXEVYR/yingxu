@@ -59,6 +59,40 @@ class Jobs:
             raise UserError('临时 ZIP 路径无效。')
         return self._enqueue(pid,category,[{'archive':str(path),'name':name or path.name,'cleanup':cleanup}],True,folder_id)
 
+    def open_project_folder(self,path,folder_id=None):
+        from .project_folder_import import validate
+        root,_=validate(self.store,path,folder_id)
+        # Reuse an in-flight import when the response was lost or drop repeated.
+        with self.lock:
+            for job in self.jobs.values():
+                if job.get('source_folder')==str(root) and job['state'] in ('queued','running'):
+                    return {'job_id':job['id']}
+            if not self.slots.acquire(False):raise UserError('导入队列已满，请等当前任务完成。',429)
+            jid=uid()
+            self.jobs[jid]={'id':jid,'state':'queued','done':0,'skipped':0,'errors':[],
+                            'message':'等待复制项目文件夹','project_id':None,'source_folder':str(root)}
+            if len(self.jobs)>100:
+                old=[key for key,val in self.jobs.items() if val['state'] in ('done','error')]
+                for key in old[:len(self.jobs)-100]:self.jobs.pop(key,None)
+        try:self.pool.submit(self._run_project_folder,jid,str(root),folder_id)
+        except BaseException:
+            with self.lock:self.jobs.pop(jid,None)
+            self.slots.release();raise
+        return {'job_id':jid}
+
+    def _run_project_folder(self,jid,path,folder_id):
+        self._update(jid,state='running',message='正在准备项目副本')
+        try:
+            from .project_folder_import import copy_project
+            project,created=copy_project(self.store,path,folder_id,lambda message:self._update(jid,message=message))
+            self._update(jid,project_id=project['id'],created=created,warnings=project.get('import_warnings',[]))
+            sources=self.store.sources(project['id'])
+        except Exception as error:
+            message=str(error) if isinstance(error,(UserError,OSError)) else '项目文件夹导入失败，原文件保留；请查看服务日志。'
+            self._update(jid,state='error',message=message,errors=[message]);self.slots.release()
+            return
+        self._run(jid,project['id'],sources,False)
+
     def _enqueue(self,pid,category,sources,restore_removed,folder_id):
         if not self.slots.acquire(False):raise UserError('导入队列已满，请等当前任务完成。',429)
         jid=uid()

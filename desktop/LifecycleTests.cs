@@ -229,6 +229,18 @@ namespace YingXu.Desktop
                     "native drop response preserves actual Unicode full paths and order");
                 Check(File.ReadAllText(first)=="Synthetic drop metadata fixture one" && File.ReadAllText(second)=="Synthetic drop metadata fixture two",
                     "native resolver leaves both temporary source contents unchanged");
+                // A dropped directory must resolve as the directory itself, not
+                // an empty byte-upload or the first file inside it.
+                string directory=Path.Combine(Hub.Data,"合成 项目文件夹");
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory,"剧本.md"),"Synthetic project folder");
+                const string directoryId="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+                await web.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles",json.Serialize(new {nodeId=node["nodeId"],files=new[]{directory}}));
+                await web.CoreWebView2.ExecuteScriptAsync("window.chrome.webview.postMessageWithAdditionalObjects({action:'resolve-drop-files',requestId:'"+directoryId+"'},Array.from(document.getElementById('drop-fixture-input').files));");
+                var directoryResponse=await DropFixtureResponse(web,directoryId);
+                var directoryPaths=directoryResponse.ContainsKey("paths")?directoryResponse["paths"] as System.Collections.ArrayList:null;
+                Check(!directoryResponse.ContainsKey("error") && directoryPaths!=null && directoryPaths.Count==1 && (string)directoryPaths[0]==directory,
+                    "real WebView attached directory preserves project root path for library import");
                 const string syntheticId="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
                 string syntheticSend=await web.CoreWebView2.ExecuteScriptAsync("(function(){try{window.chrome.webview.postMessageWithAdditionalObjects({action:'resolve-drop-files',requestId:'"+syntheticId+"'},[new File(['synthetic browser bytes'],'generated.png',{type:'image/png'})]);return 'sent';}catch(e){return e.name+': '+e.message;}})()");
                 if(syntheticSend=="\"sent\"")

@@ -260,6 +260,7 @@ async function projectLibraryDialog(projectId) {
   if ($('#appDialog').open) return;
   if (!window.YingXuProjectLibrary) throw new Error('项目库尚未载入，请重新打开工作台。');
   if (!projectLibraryUI) projectLibraryUI = window.YingXuProjectLibrary.install({api,showDialog,choose,toast,escapeHtml,refreshProjects:async () => { await refreshProjects(); renderInspector(); },
+    openFolder:projectFolderImportDialog,
     getSelectedFolder:sidebarProjectFolder,onFolderChange:(folder,data) => { if (state.projectLibraryFolder !== folder) $('#projectList').scrollTop = 0; state.projectLibraryFolder = folder; state.projectLibrary = data; storage.set('yingxu:project-library-folder',folder); renderNavigation(); },
     selectProject:async id => { if (!await guardProperties()) return false; state.section = 'assets'; state.activeKey = null; await selectProject(id); renderWorkspace(); configureSection(); return true; }});
   return projectLibraryUI.open(projectId ? {projectId} : undefined);
@@ -1686,11 +1687,67 @@ async function importResourceDrop(files,category,folderId = null) {
   }
 }
 
+function projectFolderImportDialog() {
+  if (state.uploading || state.migrationBusy || state.exitBusy) { toast('请等待当前文件操作完成。','info'); return; }
+  const dialog=showDialog({title:'从文件夹导入项目',subtitle:'复制到设置中的项目存放位置，保留原件。文本、角色、场景等目录自动归类，其他内容放入未分类；复制校验后打开。',submit:'复制并打开',body:'<div class="field"><label for="projectFolderPath">项目文件夹路径</label><input id="projectFolderPath" name="path" required autocomplete="off" placeholder="选择本地项目文件夹"><button type="button" class="button button-secondary" id="pickProjectFolder">选择文件夹</button></div><p class="field-hint">项目归入当前项目库分类。再次导入同一路径将打开已有副本，不覆盖副本中的编辑。非 Markdown 文档内的自定义文件路径可能需要手动调整。</p>',onSubmit:async form=>{await importProjectFolders([String(new FormData(form).get('path')).trim()]);}});
+  $('#pickProjectFolder').addEventListener('click',async()=>{
+    const button=$('#pickProjectFolder');button.disabled=true;
+    try { const result=await api('/api/pick',{method:'POST',body:{kind:'folder'}});if(dialog.open && $('#pickProjectFolder')===button && result.paths?.[0])$('#projectFolderPath').value=result.paths[0]; }
+    catch(error){report(error);} finally{if(dialog.open && $('#pickProjectFolder')===button)button.disabled=false;}
+  });
+}
+
+async function importProjectFolders(paths,files=null) {
+  if(state.uploading || state.migrationBusy || state.exitBusy){toast('请等待当前文件操作完成。','info');return;}
+  const folder=sidebarProjectFolder(),folderId=folder && folder!=='*'?folder:null;
+  state.uploading=true;
+  let lastProject=null;
+  try {
+    if(!await guardProperties())return;
+    if(files) {
+      if(files.length<1 || files.length>20)throw new Error('一次请拖入 1 至 20 个项目文件夹。');
+      paths=await resolveDroppedPaths(files);
+      if(paths===null){state.uploading=false;projectFolderImportDialog();return;}
+    }
+    if(!Array.isArray(paths) || !paths.length || paths.length>20)throw new Error('请选择 1 至 20 个项目文件夹。');
+    for(const path of [...new Set(paths)]) {
+      const result=await api('/api/project-library/open-folder',{method:'POST',body:{path,folder_id:folderId}});
+      if(!result.job_id)throw new Error('未能确认项目导入任务，请先查看项目库，避免重复导入。');
+      const job=await monitorJob(result.job_id,'正在复制并识别项目文件夹',true);
+      if(job?.project_id)lastProject=job.project_id;
+      if(job?.warnings?.length)toast(String(job.warnings[0]),'info',8000);
+    }
+    if(lastProject && await guardProperties()) {
+      // A reused project may belong to another library category; keep it visible.
+      const project=state.projectLibrary?.projects?.find(p=>String(p.id)===String(lastProject));
+      if(project){state.projectLibraryFolder=project.folder_id||'';storage.set('yingxu:project-library-folder',state.projectLibraryFolder);}
+      state.section='assets';state.category='all';state.q='';state.status='';state.kind='';state.activeKey=null;
+      await selectProject(lastProject);renderWorkspace();configureSection();
+      toast('项目已打开。原文件夹保留，后续编辑保存到项目副本。');
+    }
+  } finally {state.uploading=false;}
+}
+
 function wireDragAndDrop() {
   let dragDepth = 0;
   let nativeDrag = null;
   const isInternal = transfer => Boolean(nativeDrag) || Array.from(transfer?.types || []).includes('application/x-yingxu-item');
   const isExternal = transfer => !isInternal(transfer) && Array.from(transfer?.types || []).includes('Files');
+  const libraryDrop=event=>event.target?.closest?.('#projectLibraryButton') && isExternal(event.dataTransfer);
+  document.addEventListener('dragover',event=>{
+    document.body.classList.toggle('project-library-file-drag',Boolean(libraryDrop(event)));
+    if(!libraryDrop(event))return;
+    event.preventDefault();event.stopImmediatePropagation?.();event.stopPropagation();event.dataTransfer.dropEffect='copy';
+  },true);
+  document.addEventListener('dragleave',event=>{if(event.target?.closest?.('#projectLibraryButton'))document.body.classList.remove('project-library-file-drag');},true);
+  document.addEventListener('dragend',()=>document.body.classList.remove('project-library-file-drag'),true);
+  document.addEventListener('drop',event=>{
+    document.body.classList.remove('project-library-file-drag');
+    if(!libraryDrop(event))return;
+    event.preventDefault();event.stopImmediatePropagation?.();event.stopPropagation();
+    document.body.classList.remove('external-drag');dragDepth=0;
+    importProjectFolders(null,[...event.dataTransfer.files]).catch(report);
+  },true);
   const clearDrag = () => { resourceGroups?.endDrag(); nativeDrag = null; dragDepth = 0; $$('.dragging-card,.drop-category,.drop-project').forEach(node => node.classList.remove('dragging-card','drop-category','drop-project')); document.body.classList.remove('external-drag'); };
   const startNativeDrag = (ids,item,{grouping = true} = {}) => {
     nativeDrag = {ids:ids.slice(0,200)};

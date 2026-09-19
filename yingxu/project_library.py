@@ -17,6 +17,8 @@ class ProjectLibrary:
               folder_id TEXT REFERENCES project_library_folders(id), last_opened TEXT);
             CREATE INDEX IF NOT EXISTS project_library_parent ON project_library_folders(parent_id);
             CREATE INDEX IF NOT EXISTS project_library_folder ON project_library_entries(folder_id);
+            CREATE TABLE IF NOT EXISTS project_folder_imports(
+              source_path TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id));
             ''')
 
     @staticmethod

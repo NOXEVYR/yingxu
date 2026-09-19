@@ -213,3 +213,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .media-stage.image-panning,.media-stage.image-panning>img{cursor:grabbing;user-select:none}
 
 .project-button.drop-project{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-dim);color:var(--text)}
+.project-library-file-drag #projectLibraryButton{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-dim);position:relative}
+.project-library-file-drag #projectLibraryButton::after{content:"松开，复制文件夹为新项目";position:absolute;left:0;top:calc(100% + 6px);z-index:100;padding:10px 12px;background:var(--surface,#fff);border:1px solid var(--panel-3);border-radius:8px;box-shadow:var(--shadow);color:var(--text);font-size:13px;white-space:nowrap;pointer-events:none}
+.project-library-file-drag .resource-viewport{outline:none;background:transparent}
+.project-library-file-drag .resource-viewport::after{display:none}

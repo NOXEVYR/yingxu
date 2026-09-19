@@ -9,7 +9,7 @@ function setup(desktop = false, groups = false) {
   const listeners = new Map(), nodes = [], moves = [], uploads = [], messages = [], groupEvents = [], projectMoves = [];
   function node(dataset = {}) {
     const classes = new Set();
-    const element = {dataset, classList:{add:(...names)=>names.forEach(n=>classes.add(n)), remove:(...names)=>names.forEach(n=>classes.delete(n)), contains:n=>classes.has(n)},
+    const element = {dataset, classList:{add:(...names)=>names.forEach(n=>classes.add(n)), remove:(...names)=>names.forEach(n=>classes.delete(n)), contains:n=>classes.has(n), toggle:(n,force)=>{const on=force===undefined?!classes.has(n):force;if(on)classes.add(n);else classes.delete(n);return on;}},
       hasAttribute:name=>name==='data-folder-drop' && 'folderDrop' in dataset,
       closest:selector=>selector==='[data-project]' && dataset.project ? element : selector==='[data-item]' && dataset.item ? element : selector==='[data-drag-file]' && dataset.dragFile ? element : selector==='[data-folder-drop],[data-category]' && ('folderDrop' in dataset || 'category' in dataset) ? element : null};
     nodes.push(element); return element;

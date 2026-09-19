@@ -573,6 +573,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json(self.app.skills.add_source(data),201)
                 if path=='/api/resource-groups':return self.json(self.app.resource_groups.create(data),201)
                 if path=='/api/project-folders':return self.json(self.app.project_library.create_folder(data),201)
+                if path=='/api/project-library/open-folder':
+                    if set(data)-{'path','folder_id'} or query:raise UserError('打开项目文件夹参数无效。')
+                    return self.json(self.app.jobs.open_project_folder(data.get('path'),data.get('folder_id')),202)
                 if path=='/api/external-open':return self.json(self.app.external.open(data))
                 external_save=re.fullmatch(r'/api/external/([a-f0-9]{32})/content',path)
                 if external_save:return self.json(self.app.external.save(external_save[1],data))

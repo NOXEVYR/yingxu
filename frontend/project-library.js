@@ -154,7 +154,7 @@
     listen(dialog,'close',destroy,{once:true});
     return {cancel,destroy};
   }
-  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects,getSelectedFolder=()=>null,onFolderChange=()=>{}}) {
+  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects,openFolder,getSelectedFolder=()=>null,onFolderChange=()=>{}}) {
     let data = {folders:[],projects:[]}, folder = '*', query = '', page = 0, sequence = 0, activeDialog = null, dialogGeneration = 0, dragController = null;
     const size = 40;
     const error = e => toast(e.message || '项目库操作未完成。', 'error');
@@ -276,6 +276,11 @@
         body:`<div class="project-library-toolbar"><label class="project-library-search"><span class="sr-only">搜索全部项目</span><input type="search" data-library-search placeholder="搜索全部项目…" value="${esc(query)}"></label><button type="button" class="button button-secondary" data-library-new>＋ 新建分类</button></div><div class="project-library-layout"><nav class="project-library-folders" aria-label="项目分类">${foldersHtml()}</nav><section class="project-library-content"><div class="project-library-section-head"><strong data-library-heading></strong><div data-library-folder-tools><button type="button" class="button button-ghost" data-library-edit>编辑分类</button><button type="button" class="button button-ghost" data-library-delete>删除空分类</button></div></div><div class="project-library-results" data-library-results></div><div class="project-library-pagination"><button type="button" class="button button-ghost" data-library-prev>上一页</button><span data-library-page></span><button type="button" class="button button-ghost" data-library-next>下一页</button></div></section></div>`,
         actions:'<button type="button" class="button button-primary" data-dialog-cancel>完成</button>'});
       activeDialog = dialog; dialogGeneration++;
+      if(openFolder){
+        const button=dialog.ownerDocument.createElement('button');button.type='button';button.className='button button-secondary';button.textContent='从文件夹导入项目';
+        button.addEventListener('click',async()=>{await closeCurrent();openFolder();});
+        dialog.querySelector('.project-library-toolbar').appendChild(button);
+      }
       const search = dialog.querySelector('[data-library-search]');
       search.addEventListener('input',() => { if (busy) return; dragController?.cancel(); query = search.value; page = 0; drawResults(dialog); });
       let busy = false;
