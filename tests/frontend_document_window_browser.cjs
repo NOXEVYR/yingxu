@@ -32,6 +32,7 @@ test('document-only layout preserves editor and exposes a fixed workbench toggle
   const drop=new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true});button.dispatchEvent(drop);
   check('toolbar drop cannot import into hidden project',drop.defaultPrevented&&imported===0);
   check('hidden project capture is not exposed',!visible('[data-action=capture-screen]'));
+  check('global screenshot shortcut only copies without a hidden project target',captureTarget().projectId==='');
   const before=button.getBoundingClientRect();
   document.querySelector('.cm-scroller').scrollTop=600;
   await new Promise(r=>requestAnimationFrame(r));

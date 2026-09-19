@@ -145,6 +145,7 @@ function renderResourceGroups() { groupController()?.render($('#resourceItems'))
 let captureUI;
 function markdownImageURL(tab,url,options) { return window.YingXuCapture?.imageURL(tab?.source === 'file' && tab.item.kind === 'markdown' ? tab.id : null,url,options) || null; }
 function captureTarget() {
+  if (documentOnlyActive()) return {projectId:'',itemId:''};
   const tab = activeTab(), target = {projectId:state.projectId || '',itemId:''};
   if ($('#appDialog').open || groupsIsOpen() || globalSearchIsOpen() || tab?.source !== 'file' || tab.item.kind !== 'markdown' || !tab.content?.editable || tab.loading || tab.saving || tab.mode === 'preview' || !tab.markdownEditor || !markdownInputReady(tab)) return target;
   if (String(tab.item.project_id) !== String(state.projectId)) return target;
