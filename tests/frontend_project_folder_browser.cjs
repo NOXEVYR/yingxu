@@ -34,10 +34,29 @@ test('real browser library drop is exclusive, shows project hint, and opens copi
    document.querySelector('#dialogForm').requestSubmit();
    for(let i=0;i<100&&document.querySelector('#appDialog').open;i++)await new Promise(r=>setTimeout(r,10));
    check('picker submission copies once and closes dialog',sent.filter(r=>r.url==='/api/project-library/open-folder').length===2&&!document.querySelector('#appDialog').open);
+   Object.assign(state,{projectId:'original',section:'assets',category:'characters',folderId:'target',bootstrap:{token:'synthetic'}});
+   window.yingxuDesktopDropPaths=false;
+   const folders=[];
+   api=async(url,opt)=>{if(url!=='/api/folders')throw Error(url);folders.push(opt.body);return {id:'created-'+folders.length};};
+   const fileEntry={name:'note.md',isFile:true,file:ok=>ok(new File(['# synthetic'],'note.md'))};
+   const entry={name:'resource-folder',isDirectory:true,createReader(){let read=false;return {readEntries:ok=>{ok(read?[]:[fileEntry]);read=true;}};}};
+   const resourceTransfer=new DataTransfer();resourceTransfer.items.add(new File([],'resource-folder'));
+   // Synthetic directory entry exercises the real DOM drop route and byte-upload XHR.
+   const itemPrototype=Object.getPrototypeOf(resourceTransfer.items[0]),originalEntry=itemPrototype.webkitGetAsEntry;
+   itemPrototype.webkitGetAsEntry=function(){return this.getAsFile()?.name==='resource-folder'?entry:originalEntry.call(this);};
+   viewport.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:resourceTransfer}));
+   itemPrototype.webkitGetAsEntry=originalEntry;
+   for(let i=0;i<100&&state.uploading;i++)await new Promise(r=>setTimeout(r,10));
+   check('resource drop creates folder at captured destination '+JSON.stringify(folders),folders.length===1&&folders[0].name==='resource-folder'&&folders[0].parent_id==='target');
+   const received=await fetch('/uploads').then(r=>r.json());
+   check('nested file uploads as bytes into new folder',received.length===1&&received[0].folder==='created-1'&&received[0].body==='# synthetic');
+   check('resource folder import releases busy state',!state.uploading);
    await fetch('/result',{method:'POST',body:JSON.stringify({results})});
   }catch(e){await fetch('/result',{method:'POST',body:JSON.stringify({results,error:String(e)})});}
  })();`;
  const server=http.createServer((req,res)=>{
+  if(req.url.startsWith('/api/upload?')){let body='';req.on('data',c=>body+=c);req.on('end',()=>{requests.push({folder:new URL(req.url,'http://localhost').searchParams.get('folder_id'),body});res.setHeader('Content-Type','application/json');res.end(JSON.stringify({id:'uploaded'}));});return;}
+  if(req.url==='/uploads'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(requests));return;}
   if(req.url==='/result') {let body='';req.on('data',c=>body+=c);req.on('end',()=>{res.end('ok');finish(JSON.parse(body));});return;}
   let body;
   if(req.url==='/')body=fs.readFileSync(path.join(front,'index.html'),'utf8').replace('</body>','<script src="/folder-runner.js" defer></script></body>');

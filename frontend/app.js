@@ -1663,12 +1663,68 @@ function resolveDroppedPaths(files) {
   });
 }
 
-async function importResourceDrop(files,category,folderId = null) {
-  if (!window.yingxuDesktopDropPaths || !window.chrome?.webview?.postMessageWithAdditionalObjects) return uploadFiles(files,category,folderId);
+// Capture entries during the drop event: the browser clears DataTransfer after it returns.
+function droppedEntries(transfer) {
+  return [...(transfer.items || [])].filter(item=>item.kind==='file').map(item=>{
+    try { return item.webkitGetAsEntry?.() || null; } catch { return null; }
+  });
+}
+
+async function browserFolderPlan(entries) {
+  const plan=[];let count=0,folders=0,files=0,bytes=0;plan.skipped=0;
+  const read=operation=>new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('读取文件夹超时，请确认原目录仍可访问。')),10000);
+    const finish=(error,value)=>{clearTimeout(timer);error?reject(error):resolve(value);};
+    try{operation(value=>finish(null,value),error=>finish(error));}catch(error){finish(error);}
+  });
+  const supported=/\.(excalidraw|md|markdown|txt|json|csv|srt|vtt|yaml|yml|png|jpg|jpeg|webp|gif|bmp|tif|tiff|avif|mp4|mov|webm|mkv|avi|m4v|wav|mp3|ogg|flac|m4a|aac|blend|fbx|obj|glb|gltf|stl|html|htm|svg|docx|pdf|doc|pptx|xlsx|rtf|zip)$/i;
+  const visit=async(entry,parent=null,depth=0)=>{
+    if(!entry)throw new Error('无法读取完整的拖入内容，请重新拖入文件夹，或使用“导入 → 选择文件夹”。');
+    if(++count>20000 || depth>18)throw new Error('文件夹超过 20000 个条目或 18 层，请分批导入。');
+    if(!entry.name || /[\\/]/.test(entry.name) || entry.name==='.' || entry.name==='..')throw new Error('文件夹包含无效名称。');
+    if(entry.name.startsWith('.') || ['node_modules','__pycache__','venv'].includes(entry.name))return;
+    const key=plan.length;
+    if(entry.isDirectory){
+      if(++folders>2000)throw new Error('一次最多导入 2000 个文件夹，请分批拖入。');
+      plan.push({directory:true,name:entry.name,parent});
+      const reader=entry.createReader();
+      while(true){
+        const batch=await read((ok,fail)=>reader.readEntries(ok,fail));
+        if(!batch.length)break;
+        for(const child of batch)await visit(child,key,depth+1);
+      }
+    }else if(entry.isFile){
+      if(!supported.test(entry.name)){plan.skipped++;return;}
+      if(++files>10000)throw new Error('一次最多导入 10000 个文件，请分批拖入。');
+      const file=await read((ok,fail)=>entry.file(ok,fail));
+      bytes+=file.size;
+      if(file.size>16*1024**3 || bytes>64*1024**3)throw new Error('单文件超过 16 GiB 或总大小超过 64 GiB，请分批导入。');
+      plan.push({file,parent});
+    }else throw new Error('无法读取拖入的文件夹条目。');
+  };
+  for(const entry of entries)await visit(entry);
+  return plan;
+}
+
+async function uploadResourceEntries(files,category,folderId,projectId,entries) {
+  if(!entries?.some(entry=>entry?.isDirectory))return uploadFiles(files,category,folderId,projectId);
+  if(state.uploading)return;
+  state.uploading=true;
+  const tray=$('#jobTray');tray.hidden=false;tray.textContent='正在读取文件夹目录…';
+  let plan;
+  try { plan=await browserFolderPlan(entries); }
+  finally { state.uploading=false;tray.hidden=true; }
+  // No await between releasing the read phase and acquiring the upload guard.
+  return uploadFiles([],category,folderId,projectId,plan);
+}
+
+async function importResourceDrop(files,category,folderId = null,entries = []) {
   if (state.uploading) { toast('当前正在导入一批文件，请等这批完成后继续。','info'); return; }
   if (state.migrationBusy || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再导入。');
-  if (!files.length || files.length > 200) throw new Error('一次请拖入 1 至 200 个文件。');
-  const projectId = state.projectId, tray = $('#jobTray');
+  if (!files.length || files.length > 200) throw new Error('一次请拖入 1 至 200 个文件或文件夹。');
+  const projectId = state.projectId;
+  if (!window.yingxuDesktopDropPaths || !window.chrome?.webview?.postMessageWithAdditionalObjects) return uploadResourceEntries(files,category,folderId,projectId,entries);
+  const tray = $('#jobTray');
   state.uploading = true; tray.hidden = false;
   tray.innerHTML = '<span class="spinner"></span><span>正在读取拖拽文件…</span>';
   let uploadOwnsBusy = false;
@@ -1676,7 +1732,7 @@ async function importResourceDrop(files,category,folderId = null) {
     const paths = await resolveDroppedPaths(files);
     if (paths === null) {
       state.uploading = false; uploadOwnsBusy = true;
-      return await uploadFiles(files,category,folderId,projectId);
+      return await uploadResourceEntries(files,category,folderId,projectId,entries);
     }
     // Use the same bounded copy/import queue as the file picker. No browser byte upload.
     const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category,folder_id:folderId,paths,mode:'copy'}});
@@ -1796,6 +1852,7 @@ function wireDragAndDrop() {
   document.addEventListener('drop',event=>{
     if(!editorFileDrop(event))return;event.preventDefault();event.stopImmediatePropagation?.();event.stopPropagation();
     const transfer=event.dataTransfer;let ids=[];
+    if(!isInternal(transfer) && droppedEntries(transfer).some(entry=>entry?.isDirectory)){clearDrag();toast('请把文件夹拖到资源区或左侧分类；拖到“项目库”可以创建项目。','info');return;}
     if(isInternal(transfer)){try{ids=nativeDrag?.ids || JSON.parse(transfer.getData('application/x-yingxu-items')||'[]');}catch{}if(!ids.length)ids=[transfer.getData('application/x-yingxu-item')].filter(Boolean);if(nativeDrag)nativeDrag.handled=true;}
     const files=ids.length?[]:[...transfer.files];clearDrag();insertDocumentFileLinks(ids,files).catch(report);
   },true);
@@ -1835,7 +1892,7 @@ function wireDragAndDrop() {
     // Internal moves take precedence even if WebView2 also exposes a Files payload.
     const id = nativeDrag?.ids[0] || transfer.getData('application/x-yingxu-item');
     if (isInternal(transfer) || id) { event.preventDefault(); if (!id || !valid) return; let ids = [id]; try { const parsed = nativeDrag?.ids || JSON.parse(transfer.getData('application/x-yingxu-items') || '[]'); if (Array.isArray(parsed) && parsed.length) ids = [...new Set(parsed.map(String))].slice(0,200); if (nativeDrag) nativeDrag.handled = true; await performMove(ids,category,folderId); } catch(error) { report(error); } return; }
-    if (transfer.files.length) { event.preventDefault(); if (!state.projectId) { toast('先创建或选择一个项目，再拖入文件。','info'); return; } if (state.section !== 'assets' && !valid) { toast('请把文件拖到左侧资源分类，或打开一个资源文件夹。','info'); return; } importResourceDrop([...transfer.files],category,folderId).catch(report); }
+    if (transfer.files.length) { event.preventDefault(); if (!state.projectId) { toast('先创建或选择一个项目；要从文件夹创建项目，请拖到左侧“项目库”。','info'); return; } if (state.section !== 'assets' && !valid) { toast('请把文件或文件夹拖到左侧资源分类，或打开一个资源文件夹。','info'); return; } importResourceDrop([...transfer.files],category,folderId,droppedEntries(transfer)).catch(report); }
   });
   document.addEventListener('pointerdown',event => { const handle = event.target.closest('[data-drag-file]'); if (!handle || event.button !== 0) return; event.preventDefault(); event.stopPropagation(); if (window.yingxuDesktopDrag && window.chrome?.webview?.postMessage) { const id = String(handle.dataset.dragFile); startNativeDrag(state.selectedIds.has(id) ? [...state.selectedIds] : [id],handle.closest('[data-item]'),{grouping:false}); } else if (window.chrome?.webview?.postMessage) { window.chrome.webview.postMessage({action:'drag-file',id:handle.dataset.dragFile}); } else toast('桌面版支持直接拖出。当前浏览器请使用“定位文件”。','info',6000); });
 }
@@ -1902,20 +1959,30 @@ async function uploadFailure(fileName) {
     : `「${fileName}」的上传结果未能确认，本地服务连接检查也未通过。请确认映序仍在运行；恢复后先查看当前分类，再决定是否重新导入。`);
 }
 
-async function uploadFiles(files,category,folderId = null,projectId = state.projectId) {
+async function uploadFiles(files,category,folderId = null,projectId = state.projectId,folderPlan = null) {
   if (state.uploading) { toast('当前正在导入一批文件，请等这批完成后继续。','info'); return; }
   state.uploading = true; const items=[],project = projectId; let cancelled = false,xhr = null,completed = 0; const tray = $('#jobTray'); tray.hidden = false;
+  const folderIds=new Map();let createdFolders=0;
+  const entries=folderPlan || files.map(file=>({file,parent:null}));
   try {
-    for (let index = 0; index < files.length && !cancelled; index++) {
-      const file = files[index]; tray.innerHTML = `<span class="spinner"></span><span id="uploadProgress">正在保存项目副本 ${index+1}/${files.length} · ${escapeHtml(file.name)}</span><button class="button button-ghost button-small" id="cancelUpload">取消</button>`; $('#cancelUpload').onclick = () => { cancelled = true; xhr?.abort(); };
+    for (let index = 0; index < entries.length && !cancelled; index++) {
+      const entry=entries[index],destination=entry.parent===null?folderId:folderIds.get(entry.parent);
+      if(entry.parent!==null && !destination)throw new Error('上级文件夹未创建，已停止后续导入。');
+      const file=entry.file;
+      tray.innerHTML = `<span class="spinner"></span><span id="uploadProgress">正在保存项目副本 ${index+1}/${entries.length} · ${escapeHtml(entry.name || file.name)}</span><button class="button button-ghost button-small" id="cancelUpload">取消</button>`; $('#cancelUpload').onclick = () => { cancelled = true; xhr?.abort(); };
+      if(entry.directory){
+        const created=await api('/api/folders',{method:'POST',body:{project_id:project,category,parent_id:destination,name:entry.name}});
+        if(!created.id)throw new Error('未能确认文件夹是否创建，请核对当前分类后再操作。');
+        folderIds.set(index,created.id);createdFolders++;continue;
+      }
       const result = await new Promise((resolve,reject) => {
         xhr = new XMLHttpRequest();
         const params = new URLSearchParams({project,category,name:file.name});
-        if (folderId) params.set('folder_id',folderId);
+        if (destination) params.set('folder_id',destination);
         xhr.open('POST',`/api/upload?${params}`);
         xhr.setRequestHeader('X-YingXu-Token',state.bootstrap.token);
         xhr.setRequestHeader('Content-Type','application/octet-stream');
-        xhr.upload.onprogress = event => { if (event.lengthComputable && $('#uploadProgress')) $('#uploadProgress').textContent = `正在保存 ${index+1}/${files.length} · ${file.name} · ${Math.round(event.loaded/event.total*100)}%`; };
+        xhr.upload.onprogress = event => { if (event.lengthComputable && $('#uploadProgress')) $('#uploadProgress').textContent = `正在保存 ${index+1}/${entries.length} · ${file.name} · ${Math.round(event.loaded/event.total*100)}%`; };
         const uncertain = () => { uploadFailure(file.name).then(reject,reject); };
         xhr.onload = () => {
           if (!xhr.status) { uncertain(); return; }
@@ -1939,8 +2006,8 @@ async function uploadFiles(files,category,folderId = null,projectId = state.proj
       if (result.job_id) { const job = await monitorJob(result.job_id,'正在解压 ZIP',true); if (!job || job.errors?.length) throw new Error(job?.errors?.[0] || 'ZIP 导入未完成。'); }
       if(result.id)items.push(result);completed++;
     }
-    toast(`已将 ${completed} 个文件或 ZIP 导入项目，分类为${categoryLabel(category)}。`);
-  } catch(error) { if (cancelled) toast(error.message,'info'); else report(error); }
+    toast(`${cancelled?'已停止后续导入。':''}已将 ${completed} 个文件或 ZIP${createdFolders?`、${createdFolders} 个文件夹`:''}导入项目，分类为${categoryLabel(category)}。${folderPlan?.skipped?`跳过 ${folderPlan.skipped} 个不支持的文件。`:''}`);
+  } catch(error) { if (cancelled) toast(error.message,'info'); else report(folderPlan ? new Error(`${error.message} 已完成的副本保留（${completed} 个文件、${createdFolders} 个文件夹）；请核对后再重试。`) : error); }
   finally { tray.hidden = true; try { await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems(); } finally { state.uploading = false; } }
   return items;
 }

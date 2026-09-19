@@ -23,6 +23,12 @@ test('resolution keeps import busy and blocks a second drop',async()=>{
  const s=setup(),task=s.app.importResourceDrop([{name:'a.png'}],'props');await s.app.importResourceDrop([{name:'b.png'}],'scenes');
  assert.equal(s.messages.length,1);s.reply(['C:\\a.png']);await task;assert.equal(s.requests.length,1);
 });
+test('desktop directory uses original root path without browser traversal or flattening',async()=>{
+ const s=setup(),entry={isDirectory:true,createReader(){throw new Error('native drop must not enumerate in browser');}};
+ const task=s.app.importResourceDrop([{name:'素材'}],'characters','selected',[entry]);
+ s.reply(['C:\\synthetic\\素材']);await task;
+ assert.equal(s.requests.length,1);assert.equal(s.requests[0][1].body.paths[0],'C:\\synthetic\\素材');assert.equal(s.requests[0][1].body.folder_id,'selected');assert.equal(s.uploads.length,0);
+});
 for(const options of [{native:false},{supported:false}])test(`browser/old host retains byte upload ${JSON.stringify(options)}`,async()=>{
  const s=setup(options);await s.app.importResourceDrop([{name:'a.png'}],'scenes','folder');assert.equal(s.uploads.length,1);assert.equal(s.requests.length,0);
 });
