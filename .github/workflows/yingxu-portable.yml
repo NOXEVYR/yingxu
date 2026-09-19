@@ -105,7 +105,7 @@ jobs:
             if (-not $taskReplaceIcons) {
             $taskTagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha
             if ($LASTEXITCODE -or $taskTagSha -ne $env:GITHUB_SHA) { throw 'Draft tag differs from this verified source commit; preserve it for review' }
-            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.16 · 文件夹拖入与项目导入'
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title '映序 0.4.16 · 文件夹导入与独立文档'
             if ($LASTEXITCODE) { throw 'Draft title refresh failed' }
             $taskExistingDraft = $true
             }
@@ -119,6 +119,8 @@ jobs:
           - 文件夹拖到项目库后，复制到设置的项目存放位置，归入当前项目分类，识别文本、角色、场景等目录后打开副本。
           - 文件夹拖到资源区或具体分类，保留文件夹、子目录和空文件夹；原件保留，失败不自动重传。
           - Windows 桌面复用原生路径与后台导入队列；浏览器目录上传保留层级。macOS 项目导入提供选择文件夹入口。
+          - 外部文档默认使用独立阅读/编辑视图，右上角可展开完整工作台；布局切换复用编辑器与工具栏，保留未保存内容和撤销记录。
+          - 独立文档中的 Delete、资源粘贴与标题栏拖放不会误操作隐藏项目；中文组词期间的外部打开请求会保留到输入完成。
           - 同一路径再次导入项目时打开已有副本，不覆盖修改。不新增运行依赖、启动扫描或常驻监控。
 
           本次附件为 Windows x64 0.4.16；macOS M 系列试用包独立验证，下载请查看本仓库对应 macOS 发布页。
@@ -135,7 +137,7 @@ jobs:
             if ($LASTEXITCODE) { throw 'Draft notes refresh failed' }
             gh release upload $tag releases/YingXu-v0.4.16-Windows-x64.zip releases/YingXu-v0.4.16-SHA256.txt releases/YingXu-v0.4.16-manifest.json releases/YingXu-v0.4.16-verification.json --repo $env:GITHUB_REPOSITORY --clobber
           } else {
-          gh release create $tag releases/YingXu-v0.4.16-Windows-x64.zip releases/YingXu-v0.4.16-SHA256.txt releases/YingXu-v0.4.16-manifest.json releases/YingXu-v0.4.16-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.16 · 文件夹拖入与项目导入' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
+          gh release create $tag releases/YingXu-v0.4.16-Windows-x64.zip releases/YingXu-v0.4.16-SHA256.txt releases/YingXu-v0.4.16-manifest.json releases/YingXu-v0.4.16-verification.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title '映序 0.4.16 · 文件夹导入与独立文档' --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft
           }
           if ($LASTEXITCODE) { throw 'Draft upload failed' }
           gh release download $tag --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP/published-check"

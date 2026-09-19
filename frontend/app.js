@@ -118,6 +118,7 @@ function groupController() {
 function selectableResourceIds() { const hidden = new Set($$('#resourceItems [data-yx-group-hidden]').map(node => String(node.dataset.item))); return state.items.map(item => String(item.id)).filter(id => !hidden.has(id)); }
 function deleteSelectionShortcut(event) {
   if (event.key !== 'Delete' || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  if (documentOnlyActive()) return false;
   const editing = node => {
     if (node?.isContentEditable || node?.closest?.('textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.cm-editor')) return true;
     const input = node?.closest?.('input');
@@ -214,7 +215,7 @@ function searchShortcut(event) {
   event.preventDefault();
   if (event.key.toLowerCase() === 'k') { globalSearchDialog(); return true; }
   if ($('#appDialog').open || groupsIsOpen() || globalSearchIsOpen()) return true;
-  const documentOnly=activeTab()?.source==='external' && activeTab()?.documentOnly && readingDocument(activeTab());
+  const documentOnly=documentOnlyActive();
   if (documentSearchable() && (documentOnly || event.target?.closest?.('#editor'))) { openDocumentSearch(); return true; }
   if (documentOnly) return true;
   if ($('#searchInput').disabled) return true;hideMenu(); $('#searchInput').focus(); $('#searchInput').select(); return true;
@@ -877,11 +878,12 @@ function renderWorkspace() {
 function readingDocument(tab) {
   return ['markdown','text','skill','docx','pdf','html'].includes(tab?.item?.kind);
 }
+function documentOnlyActive(tab = activeTab()) { return tab?.source==='external' && tab.documentOnly===true && readingDocument(tab); }
 function applyReadingLayout(tab = activeTab()) {
   // Only change layout: keep the editor, selection, undo history and IME alive.
   $('#workspace').classList.toggle('reading-document',readingDocument(tab));
   $('#workspace').classList.toggle('reading-focused',readingDocument(tab) && !tab.showLibrary);
-  const eligible=tab?.source==='external' && readingDocument(tab), focused=eligible && tab.documentOnly===true;
+  const eligible=tab?.source==='external' && readingDocument(tab), focused=documentOnlyActive(tab);
   $('.app-shell')?.classList?.toggle('document-only',focused);
   const button=$('#documentWindowToggle');
   if(button){button.hidden=!eligible;button.title=button.ariaLabel=focused?'展开到完整工作台':'切换到独立文档窗口';button.innerHTML=icon(focused?'expandWorkspace':'focusDocument');}
@@ -889,8 +891,10 @@ function applyReadingLayout(tab = activeTab()) {
 function toggleDocumentWindow() {
   const tab=activeTab();if(tab?.source!=='external' || !readingDocument(tab))return;
   tab.documentOnly=!tab.documentOnly;
+  const restoreLibrary=!tab.documentOnly && !tab.showLibrary;
   if(!tab.documentOnly){tab.showLibrary=true;$('#workspace').classList.toggle('show-inspector',true);}
-  applyReadingLayout(tab);renderEditorToolbar(tab);
+  applyReadingLayout(tab);
+  if(restoreLibrary)renderEditorToolbar(tab);
   $('#documentWindowToggle')?.focus();
 }
 function toggleReadingLibrary() {
@@ -1805,6 +1809,10 @@ function wireDragAndDrop() {
   let nativeDrag = null;
   const isInternal = transfer => Boolean(nativeDrag) || Array.from(transfer?.types || []).includes('application/x-yingxu-item');
   const isExternal = transfer => !isInternal(transfer) && Array.from(transfer?.types || []).includes('Files');
+  // A collapsed workbench must never import into its invisible project from the tab strip or toolbar.
+  const hiddenProjectDrop=event=>documentOnlyActive() && !event.target?.closest?.('#editorContent') && (isInternal(event.dataTransfer)||isExternal(event.dataTransfer));
+  document.addEventListener('dragover',event=>{if(!hiddenProjectDrop(event))return;event.preventDefault();event.stopImmediatePropagation();event.dataTransfer.dropEffect='none';},true);
+  document.addEventListener('drop',event=>{if(!hiddenProjectDrop(event))return;event.preventDefault();event.stopImmediatePropagation();clearDrag();toast('请先展开完整工作台，再把文件拖入目标项目。','info');},true);
   const libraryDrop=event=>event.target?.closest?.('#projectLibraryButton') && isExternal(event.dataTransfer);
   document.addEventListener('dragover',event=>{
     document.body.classList.toggle('project-library-file-drag',Boolean(libraryDrop(event)));
@@ -1914,7 +1922,7 @@ function wireDragAndDrop() {
 }
 
 function resourcePasteAllowed(target) {
-  return state.section === 'assets' && !!state.projectId && !state.uploading && !state.modalBusy && !state.exitBusy && !state.loadingItems && !state.jobs.size &&
+  return !documentOnlyActive() && state.section === 'assets' && !!state.projectId && !state.uploading && !state.modalBusy && !state.exitBusy && !state.loadingItems && !state.jobs.size &&
     !$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() &&
     !target?.closest('input,textarea,select,[contenteditable],#editorContent,#appDialog');
 }
@@ -2314,7 +2322,7 @@ async function queueExternalFiles(entries) {
   if (state.externalDraining) return state.externalDraining;
   state.externalDraining = (async () => {
     while (state.externalQueue.length) {
-      while ($('#appDialog').open || globalSearchIsOpen() || groupsIsOpen() || captureUI?.isBusy() || state.globalOpening || state.modalBusy || state.exitBusy) await new Promise(resolve => setTimeout(resolve,150));
+      while ($('#appDialog').open || globalSearchIsOpen() || groupsIsOpen() || captureUI?.isBusy() || state.globalOpening || state.modalBusy || state.exitBusy || activeTab()?.textComposing || activeTab()?.markdownEditor?.isComposing() || activeTab()?.docxEditor?.isComposing() || activeTab()?.canvasEditor?.isComposing()) await new Promise(resolve => setTimeout(resolve,150));
       const id = state.externalQueue.shift();
       try { await openExternal(id); } catch(error) { report(error); }
     }

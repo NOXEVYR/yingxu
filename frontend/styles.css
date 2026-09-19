@@ -227,3 +227,4 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .app-shell.document-only #library,.app-shell.document-only #editorDivider,.app-shell.document-only #inspector{display:none}
 .app-shell.document-only #editor{grid-column:1;min-width:0}
 .app-shell.document-only #editor [data-action="toggle-reading-library"],.app-shell.document-only #editor [data-action="toggle-inspector"]{display:none}
+.app-shell.document-only #editor [data-action="capture-screen"]{display:none}

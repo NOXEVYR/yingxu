@@ -36,11 +36,11 @@ test('capture-phase library drop is exclusive and has its own copy hint',async()
  const s=setup();vm.runInContext('importProjectFolders=async(paths,files)=>calls.push(["library",files])',s.c);s.app.wireDragAndDrop();
  const target={closest:q=>q==='#projectLibraryButton'?{}:null};let stopped=false,prevented=false;
  const event={target,dataTransfer:{types:['Files'],files:[{name:'folder'}]},preventDefault(){prevented=true},stopImmediatePropagation(){stopped=true},stopPropagation(){}};
- s.events.dragover.find(e=>e.capture).fn(event);assert.equal(s.classes.has('project-library-file-drag'),true);
- s.events.drop.find(e=>e.capture).fn(event);assert.ok(stopped&&prevented);assert.equal(s.calls[0][0],'library');assert.equal(s.classes.has('project-library-file-drag'),false);
+ for(const listener of s.events.dragover.filter(e=>e.capture)){listener.fn(event);if(stopped)break;}assert.equal(s.classes.has('project-library-file-drag'),true);
+ stopped=false;for(const listener of s.events.drop.filter(e=>e.capture)){listener.fn(event);if(stopped)break;}assert.ok(stopped&&prevented);assert.equal(s.calls[0][0],'library');assert.equal(s.classes.has('project-library-file-drag'),false);
 });
 test('internal resource drags are not intercepted as project folders',()=>{
  const s=setup();s.app.wireDragAndDrop();let prevented=false;
- s.events.drop.find(e=>e.capture).fn({target:{closest:()=>({})},dataTransfer:{types:['Files','application/x-yingxu-item'],files:[{}]},preventDefault(){prevented=true}});
+ for(const listener of s.events.drop.filter(e=>e.capture))listener.fn({target:{closest:q=>q==='#projectLibraryButton'?{}:null},dataTransfer:{types:['Files','application/x-yingxu-item'],files:[{}]},preventDefault(){prevented=true}});
  assert.equal(prevented,false);assert.equal(s.calls.length,0);
 });
