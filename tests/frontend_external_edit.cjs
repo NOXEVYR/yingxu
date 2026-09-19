@@ -28,7 +28,9 @@ test('explicitly opened writable Markdown enters live editor with external capab
   const s=setup();await s.openExternal(id);const t=s.state.tabs[0];
   assert.equal(t.source,'external');assert.equal(t.mode,'live');assert.equal(t.content.editable,true);
   assert.equal(t.detailReady,true);assert.equal(s.canUseMarkdownEditor(t),true);assert.equal(t.draft,'原文\r\n');
+  assert.equal(t.documentOnly,true);t.documentOnly=false;
   await s.openExternal(id);assert.equal(s.state.tabs.length,1);assert.equal(s.calls.length,1);
+  assert.equal(t.documentOnly,false);
 });
 test('readonly capability stays preview and save cannot bypass it',async()=>{
   const s=setup(detail({content:{editable:false,content:'只读',etag:'old'}}));await s.openExternal(id);const t=dirtyTab(s);

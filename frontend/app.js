@@ -4,6 +4,8 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const iconPaths = {
+  expandWorkspace:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 3l6 6m12-6-6 6M3 21l6-6m12 6-6-6"/>',
+  focusDocument:'<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
   toolbox:'<path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M3 12h18M8 10v4M16 10v4"/>',
   searchAll:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="13" y="3" width="6" height="6" rx="1"/><rect x="3" y="13" width="6" height="6" rx="1"/><circle cx="16" cy="16" r="3.5"/><path d="m18.5 18.5 3 3"/>',
   plus:'<path d="M12 5v14M5 12h14"/>', close:'<path d="m6 6 12 12M18 6 6 18"/>', chevron:'<path d="m9 5 7 7-7 7"/>', left:'<path d="m15 5-7 7 7 7"/>', down:'<path d="m6 9 6 6 6-6"/>',
@@ -212,7 +214,9 @@ function searchShortcut(event) {
   event.preventDefault();
   if (event.key.toLowerCase() === 'k') { globalSearchDialog(); return true; }
   if ($('#appDialog').open || groupsIsOpen() || globalSearchIsOpen()) return true;
-  if (documentSearchable() && event.target?.closest?.('#editor')) { openDocumentSearch(); return true; }
+  const documentOnly=activeTab()?.source==='external' && activeTab()?.documentOnly && readingDocument(activeTab());
+  if (documentSearchable() && (documentOnly || event.target?.closest?.('#editor'))) { openDocumentSearch(); return true; }
+  if (documentOnly) return true;
   if ($('#searchInput').disabled) return true;hideMenu(); $('#searchInput').focus(); $('#searchInput').select(); return true;
 }
 function globalSearchLocation() {
@@ -877,6 +881,17 @@ function applyReadingLayout(tab = activeTab()) {
   // Only change layout: keep the editor, selection, undo history and IME alive.
   $('#workspace').classList.toggle('reading-document',readingDocument(tab));
   $('#workspace').classList.toggle('reading-focused',readingDocument(tab) && !tab.showLibrary);
+  const eligible=tab?.source==='external' && readingDocument(tab), focused=eligible && tab.documentOnly===true;
+  $('.app-shell')?.classList?.toggle('document-only',focused);
+  const button=$('#documentWindowToggle');
+  if(button){button.hidden=!eligible;button.title=button.ariaLabel=focused?'展开到完整工作台':'切换到独立文档窗口';button.innerHTML=icon(focused?'expandWorkspace':'focusDocument');}
+}
+function toggleDocumentWindow() {
+  const tab=activeTab();if(tab?.source!=='external' || !readingDocument(tab))return;
+  tab.documentOnly=!tab.documentOnly;
+  if(!tab.documentOnly){tab.showLibrary=true;$('#workspace').classList.toggle('show-inspector',true);}
+  applyReadingLayout(tab);renderEditorToolbar(tab);
+  $('#documentWindowToggle')?.focus();
 }
 function toggleReadingLibrary() {
   const tab = activeTab(); if (!readingDocument(tab)) return;
@@ -1470,6 +1485,7 @@ async function handleAction(action,target) {
     if (action === 'demo') { target.disabled = true; const project = await api('/api/demo',{method:'POST',body:{}}); await refreshProjects(); await selectProject(project.id); toast('已打开示例项目，所有示例文件都可以放心体验。'); return; }
     if (action === 'clear-search' || action === 'clear-filters') { state.q = ''; $('#searchInput').value = ''; if (action === 'clear-filters') { state.status = ''; state.kind = ''; $('#statusFilter').value = ''; $('#kindFilter').value = ''; } state.offset = 0; return loadSection(); }
     if (action === 'toggle-reading-library') return toggleReadingLibrary();
+    if (action === 'toggle-document-window') return toggleDocumentWindow();
     if (action === 'toggle-inspector') { $('#workspace').classList.toggle('show-inspector'); return; }
     if (action === 'open-native') return runNative('open'); if (action === 'reveal') return runNative('reveal');
     if (action === 'rename-title') return renameDialog({titleOnly:true});
@@ -2273,7 +2289,7 @@ async function openExternal(id) {
   try {
     const detail = await api(`/api/external/${encodeURIComponent(id)}`); tab.item = {...detail}; delete tab.item.content;
     tab.content = ['markdown','text','docx','svg','html','excalidraw'].includes(detail.kind) ? detail.content : null; if (tab.content) { tab.draft = String(tab.content.content ?? ''); await ensureMarkdownLoaded(tab.item.kind); tab.paragraphs = (tab.content.paragraphs || []).map(value => ({...value})); tab.mode = tab.item.kind === 'docx' ? 'preview' : tab.content.editable ? (canUseMarkdownEditor(tab) ? 'live' : 'edit') : 'preview'; }
-    applyDraft(tab);
+    applyDraft(tab);tab.documentOnly=readingDocument(tab);
     tab.detailReady = true; tab.loading = false;
   } catch(error) { tab.loading = false; tab.error = error.message; report(error); }
   if (state.activeKey === key) renderWorkspace(); else renderTabs();

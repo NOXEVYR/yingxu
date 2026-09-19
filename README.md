@@ -14,6 +14,8 @@
 
 0.4.16 源码新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；此功能尚未包含在下方 0.4.15 发布包中。
 
+同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
+
 **[下载 Windows x64 完整包 · v0.4.15](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.15/YingXu-v0.4.15-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。

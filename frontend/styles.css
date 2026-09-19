@@ -217,3 +217,13 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .project-library-file-drag #projectLibraryButton::after{content:"松开，复制文件夹为新项目";position:absolute;left:0;top:calc(100% + 6px);z-index:100;padding:10px 12px;background:var(--surface,#fff);border:1px solid var(--panel-3);border-radius:8px;box-shadow:var(--shadow);color:var(--text);font-size:13px;white-space:nowrap;pointer-events:none}
 .project-library-file-drag .resource-viewport{outline:none;background:transparent}
 .project-library-file-drag .resource-viewport::after{display:none}
+.editor-tabs-row{display:flex;flex:none;min-width:0;min-height:41px;background:var(--panel);border-bottom:1px solid var(--line)}
+.editor-tabs-row>.editor-tabs{flex:1;min-width:0;border-bottom:0}
+.document-window-toggle{flex:none;align-self:center;margin:0 8px;width:32px;height:32px;border:1px solid var(--line);background:var(--bg)}
+.document-window-toggle[hidden]{display:none}
+.app-shell.document-only{min-width:0}
+.app-shell.document-only>.sidebar,.app-shell.document-only .topbar{display:none}
+.app-shell.document-only #workspace{grid-template-columns:minmax(0,1fr)}
+.app-shell.document-only #library,.app-shell.document-only #editorDivider,.app-shell.document-only #inspector{display:none}
+.app-shell.document-only #editor{grid-column:1;min-width:0}
+.app-shell.document-only #editor [data-action="toggle-reading-library"],.app-shell.document-only #editor [data-action="toggle-inspector"]{display:none}
