@@ -12,7 +12,7 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-源码新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；此功能尚未包含在下方 0.4.15 发布包中。
+0.4.16 源码新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；此功能尚未包含在下方 0.4.15 发布包中。
 
 **[下载 Windows x64 完整包 · v0.4.15](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.15/YingXu-v0.4.15-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15)
 

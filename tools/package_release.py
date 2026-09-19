@@ -8,7 +8,7 @@ import re
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.15'
+VERSION = '0.4.16'
 FIXED = (
     'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore', '.gitattributes',
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
@@ -25,7 +25,7 @@ FIXED = (
     'desktop/app.manifest', 'desktop/WebView2-LICENSE.txt',
     'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'THIRD_PARTY_NOTICES.md',
-    'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
+    'docs/project-folder-import.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
 )
 PATTERNS = ('yingxu/*.py', 'frontend/*.html', 'frontend/*.css', 'frontend/*.js',
             'tests/test_*.py', 'tests/frontend_*.cjs', 'frontend/canvas/**/*.js', 'frontend/canvas/**/*.css', 'frontend/canvas/**/*.html', 'frontend/canvas/**/*.woff2', 'frontend/canvas/**/*.woff', 'frontend/canvas/**/*.ttf', 'frontend/canvas/**/*.json', 'frontend/canvas/**/*.txt', 'frontend/canvas/**/*.yaml', 'frontend/canvas/**/*.LEGAL.txt')
