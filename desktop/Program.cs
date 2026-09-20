@@ -372,10 +372,10 @@ namespace YingXu.Desktop
             finally { openingFiles = false; }
         }
 
-        internal void OpenFromReader(string[] paths)
+        internal void OpenFromReader(string[] paths,bool fullWorkspace = true)
         {
             BringToUser();
-            if (paths.Length != 0) { pendingFiles.Enqueue(paths); workspaceRequests.Add(paths); }
+            if (paths.Length != 0) { pendingFiles.Enqueue(paths); if(fullWorkspace)workspaceRequests.Add(paths); }
             DrainFiles();
         }
 

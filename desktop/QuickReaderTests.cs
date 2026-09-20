@@ -146,6 +146,8 @@ namespace YingXu.Desktop
                     context.OpenStudio(new[]{file});
                     Check(Application.OpenForms.OfType<StudioWindow>().Count()==1 && Application.OpenForms.OfType<StudioWindow>().Single()==studio,"handoff reuses the same workspace instance");
                     Check(((System.Collections.Generic.Queue<string[]>)Field(studio,"pendingFiles")).Count==2,"workspace queues both handoffs until its editor is ready");
+                    context.Open(new[]{Path.Combine(temporary,"synthetic.pdf")});
+                    Check(((System.Collections.Generic.HashSet<string[]>)Field(studio,"workspaceRequests")).Count==2,"non-text shell opens retain the existing document-only preference");
                     studio.GetType().GetField("exitApproved",BindingFlags.NonPublic|BindingFlags.Instance).SetValue(studio,true);
                     studio.Close();
                     Check(!first.IsDisposed,"closing workspace leaves quick readers available");

@@ -60,10 +60,12 @@ namespace YingXu.Desktop
                 if (reader.WindowState == FormWindowState.Minimized) reader.WindowState = FormWindowState.Normal;
                 reader.Activate();
             }
-            if (full.Count != 0) OpenStudio(full.ToArray());
+            if (full.Count != 0) OpenWorkspace(full.ToArray(),false);
         }
 
-        internal void OpenStudio(string[] paths)
+        internal void OpenStudio(string[] paths) { OpenWorkspace(paths,true); }
+
+        private void OpenWorkspace(string[] paths,bool fullWorkspace)
         {
             if (studio == null || studio.IsDisposed)
             {
@@ -71,7 +73,7 @@ namespace YingXu.Desktop
                 studio.FormClosed += delegate { studio = null; FinishIfEmpty(); };
                 studio.Show();
             }
-            studio.OpenFromReader(paths);
+            studio.OpenFromReader(paths,fullWorkspace);
         }
 
         private void FinishIfEmpty()
