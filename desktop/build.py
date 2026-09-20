@@ -40,7 +40,7 @@ def cleanup_integration_fixture(value):
                 raise
             time.sleep(0.2)
         except OSError as error:
-            if getattr(error, 'winerror', None) not in (32, 33) or attempt == 25:
+            if getattr(error, 'winerror', None) not in (32, 33, 145) or attempt == 25:
                 raise
             time.sleep(0.2)
 
@@ -104,9 +104,11 @@ def main():
             f"/reference:{folder / 'Microsoft.Web.WebView2.WinForms.dll'}",
             f"/win32manifest:{DESKTOP / 'app.manifest'}", f"/win32icon:{DESKTOP / 'brand.ico'}",
             f"/resource:{DESKTOP / 'brand.ico'},brand.ico"]
+        for name in ('quick-reader.html', 'quick-reader.css', 'quick-reader.js', 'markdown-preview.js', 'obsidian-images.js'):
+            command.append(f"/resource:{ROOT / 'frontend' / name},{name}")
         for name in members:
             command.append(f"/resource:{folder / name},{name}")
-        subprocess.run(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs")], check=True)
+        subprocess.run(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs")], check=True)
         if args.test:
             instance_tests = folder / "single-instance-tests.exe"
             subprocess.run(common + ["/target:exe", f"/out:{instance_tests}", str(DESKTOP / "Core.cs"),
@@ -115,9 +117,21 @@ def main():
             lifecycle = folder / "lifecycle-tests.exe"
             lifecycle_command = [value for value in command if not value.startswith('/target:') and not value.startswith('/out:')]
             subprocess.run(lifecycle_command + ["/target:exe", f"/out:{lifecycle}", "/main:YingXu.Desktop.LifecycleTests",
-                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
                 str(DESKTOP / "LifecycleTests.cs")], check=True)
             subprocess.run([str(lifecycle),str(ROOT)],check=True,timeout=30)
+            reader_tests = folder / "quick-reader-tests.exe"
+            subprocess.run(lifecycle_command + ["/target:exe", f"/out:{reader_tests}", "/main:YingXu.Desktop.QuickReaderTests",
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),
+                str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickReaderTests.cs")], check=True)
+            reader_result = subprocess.run([str(reader_tests), str(ROOT)], capture_output=True, text=True, encoding='utf-8', timeout=90)
+            print(reader_result.stdout, end='')
+            if reader_result.stderr: print(reader_result.stderr, end='')
+            for line in reader_result.stdout.splitlines():
+                if line.startswith('ZOOM_FIXTURE_CLEANUP_AFTER_EXIT='):
+                    cleanup_integration_fixture(line.split('=', 1)[1])
+            reader_result.check_returncode()
+
             if (ROOT / 'runtime/webview2/msedgewebview2.exe').is_file():
                 for mode in ('--zoom-integration', '--startup-integration'):
                     integration = subprocess.run([str(lifecycle), str(ROOT), mode,

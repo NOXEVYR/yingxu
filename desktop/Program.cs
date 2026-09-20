@@ -63,8 +63,8 @@ namespace YingXu.Desktop
                     try { owner = mutex.WaitOne(0); } catch (AbandonedMutexException) { owner = true; }
                     if (!owner)
                     {
-                        ActivateEvent.Set();
                         if (InitialFiles.Length != 0) OpenInbox.Send(id,InitialFiles);
+                        else ActivateEvent.Set();
                         Hub.Log("desktop_reused"); return 0;
                     }
                     try
@@ -126,7 +126,7 @@ namespace YingXu.Desktop
         private static void RunWindow()
         {
             CoreWebView2Environment.SetLoaderDllFolderPath(LoaderFolder);
-            Application.Run(new StudioWindow());
+            using (var context = new DesktopContext()) Application.Run(context);
         }
 
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
@@ -159,6 +159,7 @@ namespace YingXu.Desktop
         private readonly NotifyIcon tray;
         private readonly OpenInbox inbox;
         private readonly Queue<string[]> pendingFiles = new Queue<string[]>();
+        private readonly HashSet<string[]> workspaceRequests = new HashSet<string[]>();
         private bool pageReady;
         private bool closeToTray = true;
         private bool exitApproved;
@@ -176,7 +177,7 @@ namespace YingXu.Desktop
         private int settingsRevision;
         private bool showAfterCapture;
 
-        internal StudioWindow(bool initialize = true, Func<bool> failedExitConfirmation = null)
+        internal StudioWindow(bool initialize = true, Func<bool> failedExitConfirmation = null, bool routed = false)
         {
             confirmUnavailableExit = failedExitConfirmation ?? (() => MessageBox.Show(this,
                 "工作台页面已失去响应，无法完成页面保存。已落盘的草稿会保留，尚未保存的内容可能丢失。\n\n仍要退出映序吗？",
@@ -215,21 +216,24 @@ namespace YingXu.Desktop
             bar.Items.Add(zoomStatus);
             Controls.Add(bar);
             RestoreWindow();
-            if (Program.InitialFiles != null && Program.InitialFiles.Length != 0) pendingFiles.Enqueue(Program.InitialFiles);
+            if (!routed && Program.InitialFiles != null && Program.InitialFiles.Length != 0) pendingFiles.Enqueue(Program.InitialFiles);
             // Create the window handle before receiving requests from other instances.
             IntPtr initializedHandle = Handle;
             captureHotkey = new CaptureHotkey();
             capture = new CaptureCoordinator(PostCapture,CaptureNotice);
-            inbox = new OpenInbox(Program.InstanceKey,delegate(string[] paths)
+            if (!routed)
             {
-                if (IsDisposed || closing.IsCancellationRequested) throw new IOException("映序正在退出，请重新打开。");
-                BeginInvoke((Action)(() => { BringToUser(); if (paths.Length != 0) pendingFiles.Enqueue(paths); DrainFiles(); }));
-            });
-            activation = ThreadPool.RegisterWaitForSingleObject(Program.ActivateEvent, delegate
-            {
-                if (IsDisposed || !IsHandleCreated) return;
-                try { BeginInvoke((Action)BringToUser); } catch (InvalidOperationException) { }
-            }, null, Timeout.Infinite, false);
+                inbox = new OpenInbox(Program.InstanceKey,delegate(string[] paths)
+                {
+                    if (IsDisposed || closing.IsCancellationRequested) throw new IOException("映序正在退出，请重新打开。");
+                    BeginInvoke((Action)(() => { BringToUser(); if (paths.Length != 0) pendingFiles.Enqueue(paths); DrainFiles(); }));
+                });
+                activation = ThreadPool.RegisterWaitForSingleObject(Program.ActivateEvent, delegate
+                {
+                    if (IsDisposed || !IsHandleCreated) return;
+                    try { BeginInvoke((Action)BringToUser); } catch (InvalidOperationException) { }
+                }, null, Timeout.Infinite, false);
+            }
             if (initialize) Shown += async delegate { await InitializeAsync(); };
         }
 
@@ -355,16 +359,24 @@ namespace YingXu.Desktop
                 while (pendingFiles.Count != 0 && !closing.IsCancellationRequested)
                 {
                     string[] paths = pendingFiles.Dequeue();
+                    bool workspace = workspaceRequests.Remove(paths);
                     try
                     {
                         object entries = await Task.Run(() => DesktopApi.OpenFiles(paths));
-                        if (!pageReady) { pendingFiles.Enqueue(paths); break; }
-                        Post(new { action = "external-open", entries = entries });
+                        if (!pageReady) { pendingFiles.Enqueue(paths); if(workspace)workspaceRequests.Add(paths); break; }
+                        Post(new { action = "external-open", entries = entries, workspace = workspace });
                     }
                     catch (Exception error) { Notice("文件未能打开：" + error.Message,true); }
                 }
             }
             finally { openingFiles = false; }
+        }
+
+        internal void OpenFromReader(string[] paths)
+        {
+            BringToUser();
+            if (paths.Length != 0) { pendingFiles.Enqueue(paths); workspaceRequests.Add(paths); }
+            DrainFiles();
         }
 
         private void ChooseFiles()
@@ -764,8 +776,8 @@ namespace YingXu.Desktop
                 RequestExit(); return;
             }
             closing.Cancel();
-            activation.Unregister(null);
-            inbox.Dispose(); exitTimer.Stop(); exitTimer.Dispose();
+            if (activation != null) activation.Unregister(null);
+            if (inbox != null) inbox.Dispose(); exitTimer.Stop(); exitTimer.Dispose();
             tray.Visible = false; tray.ContextMenuStrip.Dispose(); tray.Dispose();
             try
             {

@@ -5,6 +5,7 @@ function setup(){
   const nodes=new Map(),opened=[],messages=[],visits=[],reports=[];
   const node=key=>{if(!nodes.has(key))nodes.set(key,{open:false,value:'old-filter',disabled:false,focus(){this.focused=true;},select(){this.selected=true;}});return nodes.get(key);};
   const context=vm.createContext({setTimeout,clearTimeout,console,AbortController,URLSearchParams,document:{querySelector:node},window:{chrome:{webview:{postMessage:m=>messages.push(m)}},YingXuGlobalSearch:{install:options=>({isOpen:()=>!!context.searchOpen,open:()=>{if(!options.canOpen())return false;context.searchOpen=true;return true;}})}},localStorage:{getItem:()=>null,setItem(){}},opened,visits,reports});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../frontend/markdown-preview.js'),'utf8'),context);
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
   vm.runInContext(source+`\nconst originalLoaders={loadItems,loadSkills,loadTrash,loadContext};renderNavigation=()=>{};renderHero=()=>{};configureSection=()=>{};renderWorkspace=()=>{};renderInspector=()=>{};renderQuery=()=>{};updateSelection=()=>{};refreshProjects=async()=>{};loadItems=async()=>{};loadSkills=async()=>{};recordProjectVisit=async id=>visits.push(id);guardProperties=async()=>true;openItem=async id=>opened.push(['item',id]);openSkill=async id=>opened.push(['skill',id]);hideMenu=()=>{};toast=()=>{};report=error=>reports.push(error);persistDrafts=()=>{};api=async url=>url.startsWith('/api/items/')?{id:'found',project_id:'other',category:'characters',folder_id:'nested'}:url==='/api/projects'?{projects:[{id:'other'}]}:{id:'skill-found'};globalThis.app={state,openGlobalSearchResult,globalSearchDialog,searchShortcut,handleDesktopMessage,originalLoaders};`,context);
   return {...context.app,context,nodes,node,opened,messages,visits,reports};
@@ -15,6 +16,7 @@ function realNavigationSetup(projectId) {
   const nodes=new Map(),opened=[],calls=[];
   const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',open:false,hidden:false,innerHTML:'',classList:{toggle(){},add(){},remove(){}},style:{setProperty(){}},addEventListener(){},querySelector:node,querySelectorAll:()=>[],insertAdjacentHTML(){},setAttribute(){},focus(){},select(){}});return nodes.get(key);};
   const context=vm.createContext({console,URLSearchParams,AbortController,setTimeout,clearTimeout,document:{querySelector:node,querySelectorAll:()=>[]},window:{},localStorage:{getItem:()=>null,setItem(){}},IntersectionObserver:class{observe(){}disconnect(){}},opened,calls});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../frontend/markdown-preview.js'),'utf8'),context);
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
   // Keep refreshProjects, renderNavigation, configureSection, renderWorkspace,
   // loadItems and renderItems real so internal rendering cannot be hidden by stubs.

@@ -58,6 +58,8 @@
 
 [Windows 0.4.12 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12) · [macOS 0.4.12-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)
 
+**源码新增，尚未包含在上方安装包：Windows 快速阅览。** 在资源管理器中以映序打开 Markdown、TXT、JSON、CSV 或字幕文本时，直接显示可调整大小、最大化和缩放的独立只读窗口；无需启动项目后台。右上角“在映序中打开”进入主端编辑原文件。重复打开同一文件复用窗口，关闭最后一个阅览窗口会退出仅阅览的进程。
+
 **0.4.12 已发布：笔记图片兼容、阅读布局与手动更新。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
 - 设置顶部新增“手动更新 → 检查更新”，按当前平台显示发布版本、说明和下载入口。只在点击时连接 GitHub，不自动下载安装。

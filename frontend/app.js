@@ -1074,46 +1074,10 @@ function renderEditorStatus(tab) { const dirty = tab.dirty || tab.propertiesDirt
 let previewTimer;
 function updatePreview(tab) { clearTimeout(previewTimer); previewTimer = setTimeout(() => { if ($('#markdownPreview') && state.activeKey === tab.key) $('#markdownPreview').innerHTML = markdown(tab.draft,tab); },120); }
 function inlineMarkdown(text,imageResolver = () => null,linkResolver = () => null) {
-  const tokens = []; let raw = String(text).replace(/\u0000/g,'');
-  const token = html => { const key = `\u0000${tokens.length}\u0000`; tokens.push(html); return key; };
-  raw = raw.replace(/(`+)([\s\S]*?)\1(?!`)/g,(_,marks,code) => token(`<code>${escapeHtml(code)}</code>`));
-  raw = raw.replace(/\\([\\!])/g,(_,character)=>token(escapeHtml(character)));
-  raw = raw.replace(/!\[\[[^\]\r\n]+\]\]/g,source => {
-    const spec=window.YingXuObsidian?.parseImage(source);if(!spec)return source;
-    const resolved=imageResolver(encodeURIComponent(spec.path).replace(/%2F/gi,'/'),{wiki:true});
-    return token(resolved ? `<img class="markdown-attachment" src="${escapeHtml(resolved)}" alt="${escapeHtml(spec.alt)}"${spec.width ? ` width="${spec.width}"` : ''}${spec.height ? ` height="${spec.height}" style="height:${spec.height}px;object-fit:contain"` : ''} loading="lazy" decoding="async">` : escapeHtml(source));
-  });
-  raw = raw.replace(/!\[([^\]\n]*)\]\((?:<([^>\n]+)>|([^\s)]+))\)/g,(source,alt,angle,url) => {
-    const resolved = imageResolver(angle || url);
-    return token(resolved ? `<img class="markdown-attachment" src="${escapeHtml(resolved)}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async">` : escapeHtml(source));
-  });
-  raw = raw.replace(/\[((?:\\.|[^\]\\\n])+)\]\((?:<([^>\n]+)>|([^\s)]+))\)/g,(source,label,angle,url)=>{
-    const path=angle||url, name=label.replace(/\\([\\`*_{}\[\]()#+\-.!])/g,'$1');
-    if(/^https?:\/\//i.test(path))return token(`<a href="${escapeHtml(path)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`);
-    return token(linkResolver(name,path)||escapeHtml(source));
-  });
-  let value = escapeHtml(raw);
-  value = value.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/__([^_]+)__/g,'<strong>$1</strong>').replace(/(?<!\*)\*([^*]+)\*(?!\*)/g,'<em>$1</em>').replace(/~~([^~]+)~~/g,'<del>$1</del>');
-  return value.replace(/\u0000(\d+)\u0000/g,(_,index) => tokens[Number(index)] || '');
+  return window.YingXuPreview.inline(text,imageResolver,linkResolver);
 }
 function markdown(raw,tab) {
-  const inline = text => inlineMarkdown(text,(url,options) => markdownImageURL(tab,url,options),(name,url)=>tab?.source==='file' && window.YingXuDocumentLinks?.relativeLink(url) ? window.YingXuDocumentLinks.renderLink(name,url,tab.id) : null);
-  const maximum = 140000; const source = String(raw || ''); const truncated = source.length > maximum; const lines = source.slice(0,maximum).replace(/\r\n?/g,'\n').split('\n'); let output = truncated ? '<div class="preview-notice">为保持流畅，预览显示前 14 万字符。编辑区保留完整内容。</div>' : ''; let code = false,buffer = [],list = '';
-  const closeList = () => { if (list) { output += `</${list}>`; list = ''; } };
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]; if (/^\s*```/.test(line)) { closeList(); if (code) { output += `<pre><code>${escapeHtml(buffer.join('\n'))}</code></pre>`; buffer = []; } code = !code; continue; }
-    if (code) { buffer.push(line); continue; }
-    if (!line.trim()) { closeList(); continue; }
-    if (/^\s*\|?.+\|.+/.test(line) && /^\s*\|?\s*:?-{3,}/.test(lines[index+1] || '')) {
-      closeList(); const cells = value => value.trim().replace(/^\||\|$/g,'').split('|').map(cell => cell.trim()); const headers = cells(line); output += `<table><thead><tr>${headers.map(cell => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>`; index += 2; let rowCount = 0;
-      while (index < lines.length && lines[index].includes('|') && rowCount < 1000) { output += `<tr>${cells(lines[index]).map(cell => `<td>${inline(cell)}</td>`).join('')}</tr>`; index++; rowCount++; } index--; output += '</tbody></table>'; continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.+)$/); if (heading) { closeList(); output += `<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`; continue; }
-    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) { closeList(); output += '<hr>'; continue; }
-    const li = line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/); if (li) { const kind = li[2] ? 'ol' : 'ul'; if (list !== kind) { closeList(); list = kind; output += `<${kind}>`; } const value = li[3].replace(/^\[ \]\s*/,'☐ ').replace(/^\[x\]\s*/i,'☑ '); output += `<li>${inline(value)}</li>`; continue; }
-    closeList(); if (/^>\s?/.test(line)) output += `<blockquote><p>${inline(line.replace(/^>\s?/,''))}</p></blockquote>`; else output += `<p>${inline(line)}</p>`;
-  }
-  closeList(); if (code) output += `<pre><code>${escapeHtml(buffer.join('\n'))}</code></pre>`; return output || '<p style="color:var(--subtle)">从第一句话开始。</p>';
+  return window.YingXuPreview.render(raw,text => inlineMarkdown(text,(url,options) => markdownImageURL(tab,url,options),(name,url)=>tab?.source==='file' && window.YingXuDocumentLinks?.relativeLink(url) ? window.YingXuDocumentLinks.renderLink(name,url,tab.id) : null));
 }
 
 async function saveTab(tab = activeTab()) {
@@ -2288,7 +2252,7 @@ async function settingsDialog() {
   if (state.bootstrap?.capabilities?.project_storage) bindProjectStorageSettings($('#appDialog'));
   for(const selector of ['#maintenanceCache','#maintenanceVersions','#maintenanceKeep','#maintenanceDays'])$(selector)?.addEventListener('input',invalidateMaintenancePreview);
 }
-async function openExternal(id) {
+async function openExternal(id, {workspace = false} = {}) {
   if (!/^[a-f0-9]{32}$/.test(String(id))) throw new Error('本地文件预览标识无效。');
   if (!await guardProperties()) return;
   const key = `external:${id}`; let tab = state.tabs.find(value => value.key === key);
@@ -2298,7 +2262,7 @@ async function openExternal(id) {
   try {
     const detail = await api(`/api/external/${encodeURIComponent(id)}`); tab.item = {...detail}; delete tab.item.content;
     tab.content = ['markdown','text','docx','svg','html','excalidraw'].includes(detail.kind) ? detail.content : null; if (tab.content) { tab.draft = String(tab.content.content ?? ''); await ensureMarkdownLoaded(tab.item.kind); tab.paragraphs = (tab.content.paragraphs || []).map(value => ({...value})); tab.mode = tab.item.kind === 'docx' ? 'preview' : tab.content.editable ? (canUseMarkdownEditor(tab) ? 'live' : 'edit') : 'preview'; }
-    applyDraft(tab);tab.documentOnly=readingDocument(tab);
+    applyDraft(tab);tab.documentOnly=!workspace && readingDocument(tab);if(workspace)tab.showLibrary=true;
     tab.detailReady = true; tab.loading = false;
   } catch(error) { tab.loading = false; tab.error = error.message; report(error); }
   if (state.activeKey === key) renderWorkspace(); else renderTabs();
@@ -2308,7 +2272,7 @@ async function handleDesktopMessage(data) {
   if (['capture-context-request','capture-result'].includes(data?.action)) { await captureController()?.handle(data); return; }
   if (data?.action === 'open-settings') return settingsDialog();
   if (data?.action === 'desktop-notice') return toast(String(data.message || '操作已完成。'),data.error ? 'error' : 'info',6500);
-  if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : []);
+  if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : [],data.workspace===true);
   if (data?.action === 'prepare-exit') {
     let allow = false;
     try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.moveBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving); persistDrafts(true); } }
@@ -2316,16 +2280,16 @@ async function handleDesktopMessage(data) {
     if (!allow) toast('退出已取消，请先完成当前操作或保存文稿。','info');
   }
 }
-async function queueExternalFiles(entries) {
+async function queueExternalFiles(entries, workspace = false) {
   state.externalQueue ||= [];
   if (state.externalQueue.length + entries.length > 256) { toast('等待打开的文件过多，请先处理当前窗口。','error'); return; }
-  state.externalQueue.push(...entries.slice(0,32).map(entry => entry.id));
+  state.externalQueue.push(...entries.slice(0,32).map(entry => ({id:entry.id,workspace})));
   if (state.externalDraining) return state.externalDraining;
   state.externalDraining = (async () => {
     while (state.externalQueue.length) {
       while ($('#appDialog').open || globalSearchIsOpen() || groupsIsOpen() || captureUI?.isBusy() || state.globalOpening || state.modalBusy || state.exitBusy || activeTab()?.textComposing || activeTab()?.markdownEditor?.isComposing() || activeTab()?.docxEditor?.isComposing() || activeTab()?.canvasEditor?.isComposing()) await new Promise(resolve => setTimeout(resolve,150));
-      const id = state.externalQueue.shift();
-      try { await openExternal(id); } catch(error) { report(error); }
+      const request = state.externalQueue.shift();
+      try { await openExternal(request.id,{workspace:request.workspace}); } catch(error) { report(error); }
     }
   })();
   try { await state.externalDraining; } finally { state.externalDraining = null; }

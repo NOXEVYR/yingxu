@@ -7,7 +7,7 @@ for(const raw of ['![[../a.png]]','![[/a.png]]','![[https://a/a.png]]','![[a.png
 const app=fs.readFileSync(path.join(root,'frontend/app.js'),'utf8');
 const inline=app.slice(app.indexOf('function inlineMarkdown('),app.indexOf('\nfunction markdown(',app.indexOf('function inlineMarkdown(')));
 const context={window:{YingXuObsidian:{parseImage}},escapeHtml:s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')};
-vm.createContext(context);vm.runInContext(inline+';this.render=inlineMarkdown;',context);
+vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../frontend/markdown-preview.js'),'utf8'),context);vm.runInContext(inline+';this.render=inlineMarkdown;',context);
 let calls=0;const resolver=(url,options)=>{calls++;assert.equal(options.wiki,true);return '/api/markdown-assets/image?path='+url;};
 assert.match(context.render('![[图 片.png|120]]',resolver),/width="120"/);assert.equal(calls,1);
 for(const raw of ['`![[a.png]]`','``![[a.png]]``','\\![[a.png]]'])assert.doesNotMatch(context.render(raw,resolver),/<img/);

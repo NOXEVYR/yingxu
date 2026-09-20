@@ -4,7 +4,7 @@ const {test}=require('node:test'),{execFile}=require('node:child_process'),{prom
 test('real app DOM inserts project links from drops and guards asynchronous document changes',async t=>{
  const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p=>p&&fs.existsSync(p));if(!browser){t.skip('Existing Chromium required');return;}
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-doc-links-app-'));t.after(()=>{const root=path.resolve(tmp);assert.ok(root.startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(root).startsWith('yingxu-doc-links-app-'));fs.rmSync(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
- const front=path.join(__dirname,'../frontend');for(const file of ['document-links.js','live-markdown.js','live-markdown.css','styles.css'])fs.copyFileSync(path.join(front,file),path.join(tmp,file));
+ const front=path.join(__dirname,'../frontend');for(const file of ['markdown-preview.js','document-links.js','live-markdown.js','live-markdown.css','styles.css'])fs.copyFileSync(path.join(front,file),path.join(tmp,file));
  fs.writeFileSync(path.join(tmp,'app.js'),fs.readFileSync(path.join(front,'app.js'),'utf8').replace(/boot\(\);\s*$/,''));
  fs.writeFileSync(path.join(tmp,'runner.js'),String.raw`(async()=>{
  const checks=[],check=(name,ok)=>checks.push({name,ok}),tick=()=>new Promise(r=>setTimeout(r,160)),errors=[],calls=[],uploads=[],opened=[],notices=[];let hold=null,pending=null;
@@ -40,7 +40,7 @@ test('real app DOM inserts project links from drops and guards asynchronous docu
  check('no integration exceptions',errors.length===0);$('#auditResult').textContent=JSON.stringify(checks);
  })().catch(error=>document.querySelector('#auditResult').textContent=JSON.stringify({error:String(error),stack:error.stack}));`);
  let html=fs.readFileSync(path.join(front,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<link\b[^>]*>/gi,'');
- html=html.replace('</head>','<link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="live-markdown.css"></head>').replace('</body>','<pre id="auditResult"></pre><script src="document-links.js"></script><script src="live-markdown.js"></script><script src="app.js"></script><script src="runner.js"></script></body>');fs.writeFileSync(path.join(tmp,'fixture.html'),html);
+ html=html.replace('</head>','<link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="live-markdown.css"></head>').replace('</body>','<pre id="auditResult"></pre><script src="document-links.js"></script><script src="live-markdown.js"></script><script src="markdown-preview.js"></script><script src="app.js"></script><script src="runner.js"></script></body>');fs.writeFileSync(path.join(tmp,'fixture.html'),html);
  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(tmp,'profile')}`,'--virtual-time-budget=10000','--dump-dom',pathToFileURL(path.join(tmp,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:3*1024*1024});
  const match=stdout.match(/<pre id="auditResult">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-1800));const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));assert.ok(Array.isArray(result),JSON.stringify(result));assert.equal(result.length,23);for(const row of result)assert.equal(row.ok,true,row.name);
 });
