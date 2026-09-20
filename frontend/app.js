@@ -2256,7 +2256,7 @@ async function openExternal(id, {workspace = false} = {}) {
   if (!/^[a-f0-9]{32}$/.test(String(id))) throw new Error('本地文件预览标识无效。');
   if (!await guardProperties()) return;
   const key = `external:${id}`; let tab = state.tabs.find(value => value.key === key);
-  if (tab) { state.activeKey = key; renderWorkspace(); return; }
+  if (tab) { if(workspace){tab.documentOnly=false;tab.showLibrary=true;} state.activeKey = key; renderWorkspace(); return; }
   tab = {key,id,source:'external',item:{id,name:'正在打开本地文件…',kind:'file'},loading:true,dirty:false,mode:'preview'};
   state.tabs.push(tab); state.activeKey = key; renderWorkspace();
   try {

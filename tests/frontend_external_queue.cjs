@@ -45,3 +45,17 @@ test('failed external read is reported once without retrying forever',async()=>{
   assert.equal(s.state.externalQueue.length,0);assert.equal(s.state.externalDraining,null);
   assert.equal(s.waits.length,0);
 });
+
+
+test('reader handoff opens the full workspace while ordinary external opens stay focused',async()=>{
+  const s=setup();await s.queueExternalFiles([{id:first}],true);
+  assert.equal(s.state.tabs[0].documentOnly,false);assert.equal(s.state.tabs[0].showLibrary,true);
+  await s.queueExternalFiles([{id:second}]);assert.equal(s.state.tabs[1].documentOnly,true);
+});
+test('reader handoff expands an existing dirty tab without replacing its editor or draft',async()=>{
+  const s=setup();await s.queueExternalFiles([{id:first}]);const tab=s.state.tabs[0],editor={isComposing:()=>false};
+  tab.documentOnly=true;tab.dirty=true;tab.draft='未保存的中文';tab.markdownEditor=editor;
+  await s.queueExternalFiles([{id:first}],true);
+  assert.equal(s.requests.length,1);assert.equal(s.state.tabs[0],tab);assert.equal(tab.documentOnly,false);
+  assert.equal(tab.showLibrary,true);assert.equal(tab.draft,'未保存的中文');assert.equal(tab.markdownEditor,editor);assert.equal(tab.dirty,true);
+});

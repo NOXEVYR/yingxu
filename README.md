@@ -22,6 +22,8 @@
 
 [下载 macOS M 系列 0.4.16-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.16-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
+**源码新增，尚未包含在上方安装包：Windows 快速阅览。** 在资源管理器中以映序打开 Markdown、TXT、JSON、CSV 或字幕文本时，直接显示可调整大小、最大化和缩放的独立只读窗口；无需启动项目后台。右上角“在映序中打开”进入主端编辑原文件。重复打开同一文件复用窗口，关闭最后一个阅览窗口会退出仅阅览的进程。
+
 **0.4.16 已发布：文件夹导入与独立文档。** Windows 与 macOS 来自同一来源提交，分别完成完整包验证及上传后完整下载回检；macOS 另通过原生与真实 WebKit 检查。
 
 - 项目库按当前分类导入文件夹副本，识别文本、角色、场景等目录；同一来源路径再次导入时打开已有副本，不覆盖副本中的编辑。
@@ -57,8 +59,6 @@
 - 保留 0.4.12 的手动检查更新、笔记图片兼容和阅读布局；无新增依赖、启动联网或后台轮询。
 
 [Windows 0.4.12 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12) · [macOS 0.4.12-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)
-
-**源码新增，尚未包含在上方安装包：Windows 快速阅览。** 在资源管理器中以映序打开 Markdown、TXT、JSON、CSV 或字幕文本时，直接显示可调整大小、最大化和缩放的独立只读窗口；无需启动项目后台。右上角“在映序中打开”进入主端编辑原文件。重复打开同一文件复用窗口，关闭最后一个阅览窗口会退出仅阅览的进程。
 
 **0.4.12 已发布：笔记图片兼容、阅读布局与手动更新。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
