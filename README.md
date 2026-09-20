@@ -12,15 +12,25 @@
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
-0.4.16 源码新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；此功能尚未包含在下方 0.4.15 发布包中。
+0.4.16 新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；拖到项目资源区则保留文件夹层级，原目录保留。
 
 同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
 
-**[下载 Windows x64 完整包 · v0.4.15](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.15/YingXu-v0.4.15-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15)
+**[下载 Windows x64 完整包 · v0.4.16](https://github.com/turnsolesama/yingxu/releases/download/yingxu-v0.4.16/YingXu-v0.4.16-Windows-x64.zip)** · [校验与发布说明](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.16)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.15-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.16-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.16-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+
+**0.4.16 已发布：文件夹导入与独立文档。** Windows 与 macOS 来自同一来源提交，分别完成完整包验证及上传后完整下载回检；macOS 另通过原生与真实 WebKit 检查。
+
+- 项目库按当前分类导入文件夹副本，识别文本、角色、场景等目录；同一来源路径再次导入时打开已有副本，不覆盖副本中的编辑。
+- 外部文档可在独立视图与完整工作台之间切换，复用编辑器与工具栏，保留未保存内容和撤销记录；中文组词期间暂缓后续外部打开请求。
+- 独立文档中的删除、资源粘贴、标题栏拖放和截图不会误操作隐藏项目。
+- macOS 提供选择文件夹导入项目入口；全局截图与 Windows 原生拖放桥接仍属于 Windows 功能。
+- 无新增运行依赖、启动扫描或常驻监控。隔离对照测试未见明显启动与内存退化；这不代表所有电脑的冷启动时间。
+
+[Windows 0.4.15 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15) · [macOS 0.4.15-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15-mac.1)
 
 **0.4.15 已发布：Windows 截图线宽选择。** Windows 与 macOS 分别完成完整包验证和上传后下载回检。
 
