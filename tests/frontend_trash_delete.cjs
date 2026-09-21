@@ -111,3 +111,12 @@ test('refreshed cancel button closes the dialog but respects an active submit',a
   s.state.modalBusy=false;cancel.listeners.click();await pending;assert.equal(s.state.trashBusy,false);
   assert.equal(s.calls.filter(c=>c.url==='/api/trash/delete').length,1);
 });
+
+test('whole-category disk deletion is scoped and always asks for confirmation',async()=>{
+  const s=setup([plan(),{deleted:1,failed:[]}]);s.state.settings={confirm_trash_delete:false};
+  const entries=[{id:'a'.repeat(32),kind:'project'}];
+  const pending=s.deleteTrash(null,null,false,entries);await tick();
+  assert.deepEqual(s.calls[0].body,{entries});assert.equal(s.calls.length,1);assert.equal(s.dialogs.length,1);
+  await s.dialogs[0].options.onSubmit();s.dialogs[0].close();await pending;
+  assert.equal(s.calls[1].url,'/api/trash/delete');
+});

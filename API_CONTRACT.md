@@ -241,3 +241,11 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 新项目采用 `layout_version:1` 中文物理目录，例如 `个人作品/练习/文本/剧本.md`。旧项目默认补充 `layout_version:0` 并保持路径；仅显式迁移可将目标副本升级到布局 1，受控重写可处理的内部 Markdown 链接，警告通过预览/结果返回。项目库后续改名、重新归类仍不搬动既有文件；同父级已登记的物理分类目录可能继续复用，不承诺每次逻辑名称都映射为同名磁盘路径。
 
 `POST /api/import` 支持 `mode:"copy"|"reference"`：界面默认 copy，省略 mode 则保留旧 reference 契约。copy 将支持的文件/目录复制到所选项目、分类和子目录，保留原件且不覆盖同名；reference 仅登记原位置。ZIP 始终受控解压到项目，不采用引用行为。
+
+
+## 项目分类及全部内容删除（源码新增）
+
+- `POST /api/project-folders/ID/delete-contents/preview {}`：只读递归范围预览，返回分类数、活动项目列表/路径、资源数及 10 分钟有效的确认 token。一次最多 500 个项目。
+- `POST /api/project-folders/ID/delete-contents {token}`：校验分类层级、项目和资源身份后，在一个事务中将全部活动项目及资源移入映序回收站，并删除分类树。范围变化、过期或重复 token 返回 409，不部分提交。返回 `entries:[{id,kind:"project"}]` 与 `project_ids`。
+- 此接口不直接删除磁盘文件。前端可将返回的 `entries` 交给已有 `/api/trash/delete-preview` 和 `/api/trash/delete`，仅回收此次删除的项目根目录，不清空其他回收条目。磁盘预览始终要求显式确认；共享引用、未知成员、目录变化及失败仍沿用现有保护。
+- 分类层级不恢复；未清理磁盘的项目可从映序回收站逐项目恢复到“未分类”。用户取消后续磁盘预览时保留项目回收记录。

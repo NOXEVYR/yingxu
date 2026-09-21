@@ -34,6 +34,27 @@ class HttpTests(unittest.TestCase):
         result=conn.getresponse();body=result.read();status=result.status;rh=dict(result.getheaders());conn.close()
         return status,body,rh
 
+    def test_category_contents_requires_preview_token_and_moves_all_projects(self):
+        library = self.app.project_library
+        folder = library.create_folder({'name': 'Cancelled'})
+        project = self.app.store.create_project('Episode', folder_id=folder['id'])
+        base = '/api/project-folders/' + folder['id'] + '/delete-contents'
+        self.assertEqual(self.request('POST', base+'/preview', {}, headers={'X-YingXu-Token': ''})[0], 403)
+        self.assertEqual(self.request('POST', base, {})[0], 409)
+        self.assertEqual(self.request('POST', base+'/preview?all=true', {})[0], 400)
+        status, raw, _ = self.request('POST', base+'/preview', {})
+        self.assertEqual(status, 200)
+        plan = json.loads(raw)
+        self.assertEqual(plan['projects'][0]['id'], project['id'])
+        status, raw, _ = self.request('POST', base, {'token': plan['token']})
+        self.assertEqual(status, 200)
+        result = json.loads(raw)
+        self.assertEqual(result['project_ids'], [project['id']])
+        self.assertTrue(Path(project['root']).is_dir())
+        self.assertEqual(self.request('POST', base, {'token': plan['token']})[0], 409)
+        entry = result['entries'][0]
+        self.assertEqual(self.request('POST', '/api/trash/'+entry['id']+'/restore', {'kind':'project'})[0], 200)
+
     def test_origin_host_and_mutation_token_protect_local_files(self):
         status,body,_=self.request('GET','/api/health');self.assertEqual(status,200)
         for headers in ({'Origin':'https://evil.example'},{'Host':'evil.example'},{'Sec-Fetch-Site':'cross-site'}):

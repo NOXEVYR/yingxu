@@ -154,7 +154,7 @@
     listen(dialog,'close',destroy,{once:true});
     return {cancel,destroy};
   }
-  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects,openFolder,getSelectedFolder=()=>null,onFolderChange=()=>{}}) {
+  function install({api,showDialog,choose,toast,escapeHtml:esc,selectProject,refreshProjects,openFolder,deleteContents,getSelectedFolder=()=>null,onFolderChange=()=>{}}) {
     let data = {folders:[],projects:[]}, folder = '*', query = '', page = 0, sequence = 0, activeDialog = null, dialogGeneration = 0, dragController = null;
     const size = 40;
     const error = e => toast(e.message || '项目库操作未完成。', 'error');
@@ -273,7 +273,7 @@
       await closeCurrent();
       if (ticket !== sequence) return;
       const dialog = showDialog({title:'项目库',subtitle:'分类可拖到其他分类下，或移回顶层；项目可拖动归类。仅整理层级，不移动磁盘文件。触屏用左侧握柄，键盘可在“编辑分类”中选择上级。',wide:true,
-        body:`<div class="project-library-toolbar"><label class="project-library-search"><span class="sr-only">搜索全部项目</span><input type="search" data-library-search placeholder="搜索全部项目…" value="${esc(query)}"></label><button type="button" class="button button-secondary" data-library-new>＋ 新建分类</button></div><div class="project-library-layout"><nav class="project-library-folders" aria-label="项目分类">${foldersHtml()}</nav><section class="project-library-content"><div class="project-library-section-head"><strong data-library-heading></strong><div data-library-folder-tools><button type="button" class="button button-ghost" data-library-edit>编辑分类</button><button type="button" class="button button-ghost" data-library-delete>删除空分类</button></div></div><div class="project-library-results" data-library-results></div><div class="project-library-pagination"><button type="button" class="button button-ghost" data-library-prev>上一页</button><span data-library-page></span><button type="button" class="button button-ghost" data-library-next>下一页</button></div></section></div>`,
+        body:`<div class="project-library-toolbar"><label class="project-library-search"><span class="sr-only">搜索全部项目</span><input type="search" data-library-search placeholder="搜索全部项目…" value="${esc(query)}"></label><button type="button" class="button button-secondary" data-library-new>＋ 新建分类</button></div><div class="project-library-layout"><nav class="project-library-folders" aria-label="项目分类">${foldersHtml()}</nav><section class="project-library-content"><div class="project-library-section-head"><strong data-library-heading></strong><div data-library-folder-tools><button type="button" class="button button-ghost" data-library-edit>编辑分类</button><button type="button" class="button button-ghost" data-library-delete>删除空分类</button>${deleteContents ? '<button type="button" class="button button-ghost" data-library-delete-contents>删除分类及全部内容</button>' : ''}</div></div><div class="project-library-results" data-library-results></div><div class="project-library-pagination"><button type="button" class="button button-ghost" data-library-prev>上一页</button><span data-library-page></span><button type="button" class="button button-ghost" data-library-next>下一页</button></div></section></div>`,
         actions:'<button type="button" class="button button-primary" data-dialog-cancel>完成</button>'});
       activeDialog = dialog; dialogGeneration++;
       if(openFolder){
@@ -346,6 +346,11 @@
           else if (button.dataset.libraryAssign) await assignProject(button.dataset.libraryAssign);
           else if (button.hasAttribute('data-library-edit')) await editFolder(folder);
           else if (button.hasAttribute('data-library-delete')) await deleteFolder(folder);
+          else if (button.hasAttribute('data-library-delete-contents') && deleteContents) {
+            const target = folder; await closeCurrent();
+            const removed = await deleteContents(target);
+            if (!removed) await open();
+          }
         } catch(e) { error(e); } finally { busy = false; }
       });
       dialog.querySelector('[data-library-new]').addEventListener('click',async () => {

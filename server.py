@@ -543,6 +543,24 @@ class Handler(BaseHTTPRequestHandler):
             if self.command=='POST' and path=='/api/project-storage/migration':
                 return self.json(self.app.migration_jobs.submit(data),202)
             if self.command=='POST' and path=='/api/project-storage':return self.json(self.app.project_storage.configure(data))
+            library_contents=re.fullmatch(r'/api/project-folders/([a-f0-9]{32})/delete-contents(/preview)?',path)
+            if library_contents and self.command=='POST':
+                if query:raise UserError('删除分类不接受查询参数。')
+                if library_contents[2]:
+                    if data:raise UserError('删除预览不接受额外参数。')
+                    return self.json(self.app.project_library.preview_delete_contents(library_contents[1]))
+                result=self.app.project_library.delete_contents(library_contents[1],data,self.app.organize)
+                # Catalogue deletion is committed; export/refresh failures must not invite replay.
+                try:
+                    for pid in result['project_ids']:
+                        with self.app.store.connection() as db:
+                            project=dict(db.execute('SELECT * FROM projects WHERE id=?',(pid,)).fetchone())
+                        self.app.context.archive(project)
+                    self.app.changed()
+                except Exception:
+                    traceback.print_exc()
+                    result['warnings']=['内容已移入回收站，项目交接信息尚未刷新。']
+                return self.json(result)
             library_folder=re.fullmatch(r'/api/project-folders/([a-f0-9]{32})',path)
             if library_folder:
                 if self.command=='PATCH':return self.json(self.app.project_library.update_folder(library_folder[1],data))

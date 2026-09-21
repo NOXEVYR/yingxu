@@ -42,3 +42,6 @@
 .app-dialog[aria-busy=true] .project-library-layout{cursor:wait}
 @media(pointer:coarse){.project-library-drag-grip{min-width:30px;padding:10px}.project-library-open{padding:8px}.project-library-folder-button>.project-library-folder-grip{width:30px;min-height:30px}}
 @media(prefers-reduced-motion:reduce){.project-library-drag-ghost,.project-library-outside-hint,.project-library-card{transition:none;animation:none}}
+
+[data-library-folder-tools]{display:flex;flex-wrap:wrap;gap:4px}
+[data-library-folder-tools][hidden]{display:none}

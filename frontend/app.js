@@ -266,7 +266,7 @@ async function projectLibraryDialog(projectId) {
   if ($('#appDialog').open) return;
   if (!window.YingXuProjectLibrary) throw new Error('项目库尚未载入，请重新打开工作台。');
   if (!projectLibraryUI) projectLibraryUI = window.YingXuProjectLibrary.install({api,showDialog,choose,toast,escapeHtml,refreshProjects:async () => { await refreshProjects(); renderInspector(); },
-    openFolder:projectFolderImportDialog,
+    openFolder:projectFolderImportDialog,deleteContents:trashProjectCategory,
     getSelectedFolder:sidebarProjectFolder,onFolderChange:(folder,data) => { if (state.projectLibraryFolder !== folder) $('#projectList').scrollTop = 0; state.projectLibraryFolder = folder; state.projectLibrary = data; storage.set('yingxu:project-library-folder',folder); renderNavigation(); },
     selectProject:async id => { if (!await guardProperties()) return false; state.section = 'assets'; state.activeKey = null; await selectProject(id); renderWorkspace(); configureSection(); return true; }});
   return projectLibraryUI.open(projectId ? {projectId} : undefined);
@@ -689,6 +689,47 @@ async function trashItems(ids) {
   if (!ids.length) return; const choice = await confirmRemoval(`删除 ${ids.length === 1 ? '这个文件' : `${ids.length} 个文件`}？`,'移到映序回收站，可以恢复。磁盘原文件保留。',[{key:'cancel',label:'取消',style:'ghost'},{key:'delete',label:'移到回收站',style:'danger'}]); if (choice !== 'delete') return;
   const tabs = fileTabs(ids); if (!await prepareTabs(tabs)) return; const result = await api('/api/trash/items',{method:'POST',body:{ids}}); removeOpenTabs(tabs); state.selectedIds.clear(); await refreshProjects(); await loadSection(); undoToast(`${ids.length} 个文件已移到回收站。`,result,'items');
 }
+async function trashProjectCategory(id) {
+  if (state.categoryDeleteBusy || state.trashBusy) return false;
+  state.categoryDeleteBusy = true;
+  let committed = false;
+  try {
+    const endpoint = `/api/project-folders/${encodeURIComponent(id)}/delete-contents`;
+    let plan = await api(`${endpoint}/preview`,{method:'POST',body:{}});
+    const projectIds = new Set(plan.projects.map(project => String(project.id)));
+    const normalizePath = value => { const path = String(value || '').replaceAll('\\','/').replace(/\/$/,''); return state.bootstrap?.capabilities?.platform === 'darwin' ? path : path.toLowerCase(); };
+    const roots = plan.projects.map(project => normalizePath(project.root));
+    const tabs = state.tabs.filter(tab => projectIds.has(String(tab.item.project_id)) || (tab.item.path && roots.some(root => normalizePath(tab.item.path).startsWith(root + '/'))));
+    if (!await prepareTabs(tabs)) return false;
+    // Saving a draft can change the preview. Confirm only the fresh saved state.
+    plan = await api(`${endpoint}/preview`,{method:'POST',body:{}});
+    if (plan.projects.length !== projectIds.size || plan.projects.some(project => !projectIds.has(String(project.id)) || !roots.includes(normalizePath(project.root)))) throw new Error('分类中的项目或目录已变化，请重新打开删除预览。');
+    const recycleDisk = await new Promise(resolve => {
+      let selected = null;
+      const dialog = showDialog({title:`删除「${plan.name}」及全部内容？`,wide:true,
+        subtitle:`包含 ${plan.folder_count} 个分类、${plan.project_count} 个项目、${plan.item_count} 项资源。`,
+        body:`<p>分类层级将移除，项目及资源先进入映序回收站。恢复项目后会放在“未分类”。</p><div class="trash-delete-preview">${plan.projects.map(project => `<section class="trash-preview-entry"><strong>${escapeHtml(project.name)}</strong><p>${escapeHtml(project.root)}</p></section>`).join('') || '<p>这个分类下没有项目。</p>'}</div><label class="checkbox-label"><input type="checkbox" name="recycle_disk" checked>同时删除磁盘中的项目文件夹及内容</label><p class="dialog-hint">勾选后将继续显示磁盘文件预览，确认后移入 ${systemTrashName()}；外部引用原文件保留。取消后续预览时，内容仍留在映序回收站。</p>`,
+        submit:'删除分类及全部内容',onSubmit:async form => { selected = Boolean(form.elements.recycle_disk.checked); }});
+      dialog.addEventListener('close',() => resolve(selected),{once:true});
+    });
+    if (recycleDisk === null) return false;
+    // Recheck without discarding newly entered drafts after confirmation.
+    if (captureUI?.isBusy() || tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) throw new Error('文稿还有修改，请处理后重新删除。');
+    const result = await api(endpoint,{method:'POST',body:{token:plan.token}});
+    committed = true;
+    removeOpenTabs(tabs);
+    state.projectLibraryFolder = '*'; storage.set('yingxu:project-library-folder','*');
+    state.folderId = null; state.folders = []; state.offset = 0; state.selectedIds.clear();
+    state.section = 'trash'; state.q = ''; $('#searchInput').value = '';
+    await refreshProjects(); await loadSection(); renderWorkspace(); renderInspector();
+    toast(`分类已删除，${result.project_count} 个项目及内容已移入映序回收站。${(result.warnings || []).join(' ')}`);
+    if (recycleDisk && result.entries.length) await deleteTrash(null,null,false,result.entries);
+    return true;
+  } catch(error) {
+    report(new Error(committed ? `分类和内容已移入回收站，后续处理未完成：${error.message}` : error.message));
+    return committed;
+  } finally { state.categoryDeleteBusy = false; }
+}
 async function trashProject(id) {
   const project = state.projects.find(value => String(value.id) === String(id)); if (!project) return;
   const choice = await confirmRemoval(`删除项目「${project.name}」？`,'项目及当前资源会移到回收站，可以整批恢复。磁盘目录和原文件保留。',[{key:'cancel',label:'取消',style:'ghost'},{key:'delete',label:'删除项目',style:'danger'}]); if (choice !== 'delete') return;
@@ -721,16 +762,16 @@ async function restoreTrash(id,kind,button) {
 function trashDeletePreviewHtml(plan) {
   return `<p class="recycle-note">以下文件会移入 ${systemTrashName()}，可到那里还原。成功处理后，这些条目不能再从映序恢复；外部引用与外部 SKILL 只清理映序记录。</p><div class="trash-delete-preview">${(plan.entries || []).map(entry => `<section class="trash-preview-entry"><strong>${escapeHtml(entry.name || '已删除内容')}</strong>${entry.error ? `<p class="trash-preview-error">暂不能删除：${escapeHtml(entry.error)}</p>` : ''}${(entry.paths || []).map(path => `<p class="trash-preview-path">${escapeHtml(path)}</p>`).join('')}${(entry.warnings || []).map(warning => `<p class="trash-preview-warning">${escapeHtml(warning)}</p>`).join('')}</section>`).join('')}</div>`;
 }
-async function deleteTrash(id,kind,all=false) {
+async function deleteTrash(id,kind,all=false,scopedEntries=null) {
   if (state.trashBusy || state.section !== 'trash') return;
   state.trashBusy = true; renderHero(); renderTrash();
   try {
-    const selection = all ? {all:true} : {entries:[{id,kind}]};
+    const selection = scopedEntries ? {entries:scopedEntries} : all ? {all:true} : {entries:[{id,kind}]};
     let plan = await api('/api/trash/delete-preview',{method:'POST',body:selection});
     if (state.section !== 'trash') return;
     if (!plan.total) { toast('回收站是空的。'); return; }
     let actionable = (plan.entries || []).filter(entry => !entry.error).length;
-    const result = !preference('confirm_trash_delete') && actionable === plan.total ? await api('/api/trash/delete',{method:'POST',body:{token:plan.token}}) : await new Promise(resolve => {
+    const result = !scopedEntries && !preference('confirm_trash_delete') && actionable === plan.total ? await api('/api/trash/delete',{method:'POST',body:{token:plan.token}}) : await new Promise(resolve => {
       let outcome = null, needsPreview = false, closed = false;
       let sequence;
       const dialog = showDialog({title:all ? '清空映序回收站？' : `删除到 ${systemTrashName()}？`,wide:true,

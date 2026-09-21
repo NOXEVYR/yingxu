@@ -1,12 +1,18 @@
 """Logical project folders. Organisation never relocates project files."""
 from __future__ import annotations
 
+import hashlib
+import json
+import secrets
+import time
+
 from .store import UserError, now, uid
 
 
 class ProjectLibrary:
     def __init__(self, store):
         self.store = store
+        self.delete_plans = {}
         with store.lock, store.connection() as db:
             db.executescript('''
             CREATE TABLE IF NOT EXISTS project_library_folders(
@@ -101,6 +107,72 @@ class ProjectLibrary:
             db.execute('UPDATE project_library_entries SET folder_id=NULL WHERE folder_id=?', (folder_id,))
             db.execute('DELETE FROM project_library_folders WHERE id=?', (folder_id,))
             return {'deleted': True, 'id': folder_id}
+
+    def _deletion_scope(self, db, folder_id):
+        self._folder(db, folder_id)
+        folders = [dict(row) for row in db.execute('SELECT * FROM project_library_folders ORDER BY id')]
+        selected = {folder_id}
+        while True:
+            children = {row['id'] for row in folders if row['parent_id'] in selected}
+            if children <= selected:
+                break
+            selected.update(children)
+        folders = [row for row in folders if row['id'] in selected]
+        projects = [dict(row) for row in db.execute('''SELECT p.*, e.folder_id FROM projects p
+            JOIN project_library_entries e ON e.project_id=p.id WHERE p.removed=0 ORDER BY p.id''')
+            if row['folder_id'] in selected]
+        if len(projects) > 500:
+            raise UserError('这个分类超过 500 个项目，请按子分类分批删除。', 409)
+        members = []
+        for project in projects:
+            for table in ('items', 'folders'):
+                members.extend((table, dict(row)) for row in db.execute(
+                    'SELECT * FROM '+table+' WHERE project_id=? AND removed=0 ORDER BY id', (project['id'],)))
+        signature = hashlib.sha256(json.dumps([folders, projects, members], sort_keys=True,
+                                               ensure_ascii=False).encode()).hexdigest()
+        return folders, projects, members, signature
+
+    def preview_delete_contents(self, folder_id):
+        with self.store.lock, self.store.connection() as db:
+            folders, projects, members, signature = self._deletion_scope(db, folder_id)
+            current = time.monotonic()
+            self.delete_plans = {key: plan for key, plan in self.delete_plans.items() if plan['expires'] > current}
+            if len(self.delete_plans) >= 32:
+                self.delete_plans.pop(next(iter(self.delete_plans)))
+            token = secrets.token_urlsafe(32)
+            self.delete_plans[token] = dict(folder_id=folder_id, signature=signature, expires=current+600)
+            return {'token': token, 'name': next(row['name'] for row in folders if row['id'] == folder_id),
+                    'folder_count': len(folders), 'project_count': len(projects),
+                    'item_count': sum(kind == 'items' for kind, row in members),
+                    'projects': [{'id': row['id'], 'name': row['name'], 'root': row['root']} for row in projects]}
+
+    def delete_contents(self, folder_id, body, organize):
+        if not isinstance(body, dict) or set(body) != {'token'} or not isinstance(body['token'], str):
+            raise UserError('请先预览分类及内容的删除范围。', 409)
+        with self.store.lock, self.store.connection() as db:
+            plan = self.delete_plans.pop(body['token'], None)
+            if not plan or plan['expires'] <= time.monotonic() or plan['folder_id'] != folder_id:
+                raise UserError('删除确认已失效，请重新预览。', 409)
+            folders, projects, members, signature = self._deletion_scope(db, folder_id)
+            if signature != plan['signature']:
+                raise UserError('分类或项目内容已变化，尚未删除，请重新预览。', 409)
+            # All project tombstones and hierarchy changes share one transaction.
+            entries = []
+            for project in projects:
+                entities = [('project', project['id'])] + [
+                    ('item' if kind == 'items' else 'folder', row['id'])
+                    for kind, row in members if row['project_id'] == project['id']]
+                result = organize._mark_batch(db, 'project', project['id'], project['id'], project['name'], entities)
+                entries.append({'id': result['batch_id'], 'kind': 'project'})
+            for folder in folders:
+                db.execute('UPDATE project_library_entries SET folder_id=NULL WHERE folder_id=?', (folder['id'],))
+            # Detach the selected tree first so foreign keys never depend on ordering.
+            for folder in folders:
+                db.execute('UPDATE project_library_folders SET parent_id=NULL WHERE id=?', (folder['id'],))
+            for folder in folders:
+                db.execute('DELETE FROM project_library_folders WHERE id=?', (folder['id'],))
+            return {'ok': True, 'entries': entries, 'project_ids': [row['id'] for row in projects],
+                    'folder_count': len(folders), 'project_count': len(projects)}
 
     def assign_project(self, project_id, body):
         self._body(body, {'folder_id'})

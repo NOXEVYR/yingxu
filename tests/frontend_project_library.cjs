@@ -370,4 +370,17 @@ test('folder selection synchronizes the sidebar without navigation and global se
   const count=changes.length,search=d.querySelector('[data-library-search]');search.value='港口';search.listeners.input();assert.equal(changes.length,count);
   await h.click(d,{'data-library-folder':'*'});assert.equal(changes.at(-1).folder,'*');assert.equal(h.calls.filter(x=>x.options).length,0);
 });
+test('delete whole category delegates only after closing the shared library dialog',async()=>{
+  const deleted=[];
+  const h=harness(snapshot,false,null,null,async()=>{},{deleteContents:async id=>{assert.equal(h.dialogs[0].open,false);deleted.push(id);return true;}});
+  await h.app.open();const d=h.dialogs[0];assert.match(d.spec.body,/data-library-delete-contents/);
+  await h.click(d,{'data-library-folder':'a'});await h.click(d,{'data-library-delete-contents':''});
+  assert.deepEqual(deleted,['a']);assert.equal(h.dialogs.length,1);
+});
+test('cancelled whole-category deletion returns to the selected category',async()=>{
+  const h=harness(snapshot,false,null,null,async()=>{},{deleteContents:async()=>false});
+  await h.app.open();await h.click(h.dialogs[0],{'data-library-folder':'b'});
+  await h.click(h.dialogs[0],{'data-library-delete-contents':''});
+  assert.equal(h.dialogs.length,2);assert.match(h.dialogs[1].querySelector('[data-library-heading]').textContent,/第一季/);
+});
 (async()=>{for(const {name,fn} of tests){await fn();console.log('PASS',name);}console.log(`${tests.length} tests passed`);})().catch(e=>{console.error(e);process.exitCode=1;});
