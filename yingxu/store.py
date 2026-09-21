@@ -164,6 +164,10 @@ class Store:
               id TEXT PRIMARY KEY,item_id TEXT REFERENCES items(id),created TEXT,size INTEGER,
               path TEXT NOT NULL,sha256 TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS versions_item ON versions(item_id,created DESC);
+            CREATE TABLE IF NOT EXISTS disk_file_identities(
+              item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,path TEXT NOT NULL,
+              device TEXT NOT NULL,file_id TEXT NOT NULL,birth TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS disk_file_identity ON disk_file_identities(device,file_id,birth);
             ''')
             # Additive migrations preserve earlier catalogues and soft removals.
             for table, columns in {
@@ -447,6 +451,24 @@ class Store:
             if target_category not in CATEGORIES:raise UserError('目标分类不存在。')
         source_root=clean_path(source['path'])
         project=self.get_project(source['project_id'])
+        paths=list(paths)
+        # Project-owned files have a physical classification; external references
+        # keep their user-assigned logical classification.
+        from .disk_layout import location, register_directory
+        parents=set();owned_paths=[]
+        for value in paths:
+            path=Path(value)
+            try:
+                actual=path.resolve()
+                if os.path.normcase(str(actual))!=os.path.normcase(str(path.absolute())) or has_link(path):continue
+                if not actual.is_relative_to(Path(project['root'])) or actual.is_relative_to(self.data_root):continue
+                if (source['is_file'] and actual!=source_root) or (not source['is_file'] and not actual.is_relative_to(source_root)):continue
+                if actual.is_file():parents.add(actual.parent);owned_paths.append(actual)
+            except (OSError,ValueError):continue
+        for parent in parents:register_directory(self,project,parent)
+        from .disk_layout import follow_move, remember_file
+        with self.lock,self.connection() as db:
+            for path in owned_paths:follow_move(self,db,project,path)
         with self.connection() as db:
             folder_rows=[dict(r) for r in db.execute('SELECT * FROM folders WHERE project_id=?',(source['project_id'],))]
         project_root=Path(project['root'])
@@ -473,6 +495,7 @@ class Store:
                         skipped+=1;continue
                     if actual==self.data_root or actual.is_relative_to(self.data_root):
                         skipped+=1;continue
+                    p=actual
                     if (source['is_file'] and actual!=source_root) or (not source['is_file'] and not actual.is_relative_to(source_root)):
                         skipped+=1;continue
                     if locate_folder(actual,folder_by_path)[1]:
@@ -542,6 +565,22 @@ class Store:
                         db.execute('UPDATE items SET category=?,folder_id=?,updated=? WHERE id=?',(target_category,target_folder_id,now(),row['id']))
                         if row['id'] not in indexed_ids:
                             added+=1;skipped=max(0,skipped-1)
+            # Reconcile even unchanged bytes, including files misclassified by an
+            # earlier import. Do not parse or rewrite their content or metadata.
+            for start in range(0,len(eligible_paths),200):
+                batch=eligible_paths[start:start+200]
+                for row in db.execute('SELECT id,path,category,folder_id FROM items WHERE project_id=? AND removed=0 AND path IN ('+','.join('?' for _ in batch)+')',[source['project_id'],*batch]).fetchall():
+                    path=Path(row['path']); physical=location(project,path)
+                    if path.is_relative_to(Path(project['root'])):remember_file(db,row)
+                    if not physical:continue
+                    located,removed_ancestor=locate_folder(path,folder_by_path)
+                    if removed_ancestor:continue
+                    folder_id=located['id'] if located else None
+                    category=physical[0]
+                    if row['category']==category and row['folder_id']==folder_id:continue
+                    db.execute('UPDATE items SET category=?,folder_id=?,updated=? WHERE id=?',(category,folder_id,now(),row['id']))
+                    if row['id'] not in indexed_ids:
+                        indexed_ids.add(row['id']);added+=1;skipped=max(0,skipped-1)
         return added,skipped
 
     def create_item(self,data):
@@ -783,6 +822,7 @@ class Store:
                 try:
                     db.execute('UPDATE sources SET path=? WHERE path=? AND is_file=1',(str(target),str(path)))
                     db.execute('UPDATE items SET path=?,name=?,updated=? WHERE path=?',(str(target),name,now(),str(path)))
+                    db.execute('UPDATE disk_file_identities SET path=? WHERE path=?',(str(target),str(path)))
                     for row in rows:self._search_row(db,row['id'])
                     db.commit()
                 except Exception:

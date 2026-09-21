@@ -105,12 +105,25 @@ def _copy_file(source, parent):
         raise
 
 
-def import_files(store, source_path, pid, category, folder_id=None, progress=None):
+def import_files(store, source_path, pid, category, folder_id=None, progress=None, *, move_owned=False):
     from .jobs import Jobs
     organize = Organize(store)
     folder_id = None if folder_id in (None,'','root') else folder_id
     destination = organize.folder_path(pid,category,folder_id)
     source = validate_source(store,source_path,destination)
+    project_root = clean_path(store.get_project(pid)['root'])
+    if move_owned and source.is_file() and source.is_relative_to(project_root):
+        owned_source = next((row for row in store.sources(pid) if Path(row['path'])==project_root and not row['is_file']),None)
+        if owned_source is None:
+            raise UserError('项目内部来源记录缺失，请刷新项目后重试。',409)
+        store.index_files(owned_source,[source])
+        with store.connection() as db:
+            row=db.execute('SELECT id,removed FROM items WHERE project_id=? AND path=?',(pid,str(source))).fetchone()
+        if row is None or row['removed']:
+            raise UserError('文件或所属文件夹在回收站中，请先恢复后再移动。',409)
+        moved=organize.move_items([row['id']],category,folder_id)
+        return {'done':moved['stats']['moved']+moved['stats']['referenced'],
+                'skipped':moved['stats']['unchanged'],'errors':[]}
     errors = []
     def report(message):
         if len(errors)<20:errors.append(message)

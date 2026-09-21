@@ -322,6 +322,32 @@ async function selectProject(id) {
   await recordProjectVisit(id);
   state.projectId = id; state.offset = 0; state.counts = []; state.folderId = null; state.folderPage = 0; state.folders = []; state.selectedIds.clear(); storage.set('yingxu:project',String(id)); renderNavigation(); renderHero();
   if (!activeTab()) renderInspector(); await loadSection();
+  syncProjectFiles().catch(report);
+}
+const projectSyncTimes = new Map();
+async function syncProjectFiles() {
+  const pid=state.projectId;
+  if (!pid || !state.bootstrap?.capabilities?.project_file_sync || state.projectSyncBusy || document.hidden ||
+      state.section!=='assets' || documentOnlyActive() || state.modalBusy || state.exitBusy || state.uploading ||
+      state.jobs.size || $('#appDialog').open || state.tabs.some(tab=>tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) return;
+  if (Date.now()-(projectSyncTimes.get(pid)||0)<3000) return;
+  projectSyncTimes.set(pid,Date.now());state.projectSyncBusy=true;
+  try {
+    const result=await api('/api/project-files/sync',{method:'POST',body:{project_id:pid}});
+    for (let count=0;count<120;count++) {
+      const job=await api(`/api/jobs/${encodeURIComponent(result.job_id)}`);
+      if (job.state==='error') throw new Error(job.message || '项目目录同步失败。');
+      if (job.state==='done') {
+        if (String(state.projectId)===String(pid) && state.section==='assets' && !state.modalBusy && !state.uploading && !state.exitBusy && !$('#appDialog').open && !state.tabs.some(tab=>tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) {
+          await refreshProjects({preserveLocation:true});await loadItems();
+        }
+        if(job.errors?.length)toast(`部分项目目录未同步：${job.errors[0]}`,'info',6000);
+        return;
+      }
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    toast('项目目录仍在后台同步，可用刷新按钮查看进度。','info');
+  } finally {state.projectSyncBusy=false;}
 }
 let previousWorkspace=null;
 const workspaceFields=['projectId','category','folderId','folderPage','folderScope','offset','q','status','kind','sort','view','activeKey'];
@@ -1597,7 +1623,8 @@ function wireEvents() {
   window.addEventListener('resize',hideMenu); $('#resourceViewport').addEventListener('scroll',hideMenu,{passive:true});
   window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy || state.migrationBusy) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('pagehide',() => { stopPreviewMedia(); persistDrafts(true); });
-  document.addEventListener('visibilitychange',() => { if (document.hidden) stopPreviewMedia(); });
+  document.addEventListener('visibilitychange',() => { if (document.hidden) stopPreviewMedia(); else syncProjectFiles().catch(report); });
+  window.addEventListener('focus',() => syncProjectFiles().catch(report));
   const divider = $('#editorDivider'); let resizing = false;
   divider.addEventListener('pointerdown',event => { if (event.button !== 0) return; resizing = true; divider.classList.add('dragging'); divider.setPointerCapture(event.pointerId); document.body.style.userSelect = 'none'; });
   divider.addEventListener('pointermove',event => { if (!resizing) return; const workspace = $('#workspace').getBoundingClientRect(); const width = Math.max(215,Math.min(workspace.width*.52,event.clientX-workspace.left)); $('#workspace').style.setProperty('--browser-width',`${width}px`); });
@@ -1760,10 +1787,17 @@ async function importResourceDrop(files,category,folderId = null,entries = []) {
       state.uploading = false; uploadOwnsBusy = true;
       return await uploadResourceEntries(files,category,folderId,projectId,entries);
     }
-    // Use the same bounded copy/import queue as the file picker. No browser byte upload.
-    const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category,folder_id:folderId,paths,mode:'copy'}});
+    // A dropped file already in this project is a move, not a second copy.
+    const pathKey=value=>String(value||'').replaceAll('\\','/').toLowerCase();
+    const projectRoot=pathKey(state.projects.find(project=>String(project.id)===String(projectId))?.root).replace(/\/$/,'');
+    const sourcePaths=new Set(paths.map(pathKey).filter(path=>projectRoot && path.startsWith(projectRoot+'/')));
+    const tabs=state.tabs.filter(tab=>sourcePaths.has(pathKey(tab.item.path)));
+    if (tabs.length && !await prepareTabs(tabs)) return;
+    const result = await api('/api/import',{method:'POST',body:{project_id:projectId,category,folder_id:folderId,paths,mode:'copy',move_owned:true}});
     if (!result.job_id) throw new Error('未能确认导入任务，请先检查当前分类，避免重复导入。');
-    return await monitorJob(result.job_id,'正在导入拖拽文件',true);
+    const job=await monitorJob(result.job_id,'正在整理拖拽文件',true);
+    if(tabs.length)await refreshOpenItems(projectId);
+    return job;
   } finally {
     if (!uploadOwnsBusy) { state.uploading = false; tray.hidden = true; }
   }
@@ -2339,6 +2373,6 @@ async function boot() {
   wireEvents(); readDrafts();
   try { state.bootstrap = await api('/api/bootstrap'); applyAppearance(); state.view = preference('default_view'); state.sort = preference('default_sort'); $('#sortFilter').value = state.sort; $('#connectionState').textContent = '本地连接正常'; if (Array.isArray(state.bootstrap.categories)) for (const category of state.bootstrap.categories) { const existing = categoryDefs.find(value => value.key === category.key); if (existing && category.label && !['scripts','shots','references','previs'].includes(category.key)) existing.label = category.label; } await refreshProjects(); configureSection(); await loadItems(); renderInspector(); const recoverable = Object.values(state.drafts).filter(draft => draft.id && ['file','skill'].includes(draft.source) && Date.now()-draft.when < 7*86400000).slice(0,8); state.restoringDrafts = true; try { for (const draft of recoverable) { if (draft.source === 'skill') await openSkill(draft.id); else await openItem(draft.id); } } finally { state.restoringDrafts = false; } }
   catch(error) { $('#connectionState').textContent = '连接暂时中断'; $('#projectHero').innerHTML = `<div class="fatal-state"><h1>映序还没有连接上本地服务</h1><p>${escapeHtml(error.message)}<br>请从桌面启动“映序”，随后刷新这个窗口。</p><button class="button button-secondary" data-action="reload">重新连接</button></div>`; $('#resourceItems').innerHTML = ''; }
-  if (state.bootstrap) window.chrome?.webview?.postMessage({action:'desktop-ready'});
+  if (state.bootstrap) { window.chrome?.webview?.postMessage({action:'desktop-ready'}); syncProjectFiles().catch(report); }
 }
 boot();

@@ -55,6 +55,21 @@ class HttpTests(unittest.TestCase):
         entry = result['entries'][0]
         self.assertEqual(self.request('POST', '/api/trash/'+entry['id']+'/restore', {'kind':'project'})[0], 200)
 
+    def test_owned_project_sync_requires_token_and_indexes_real_text_folder(self):
+        from yingxu.project_layout import category_paths
+        project=self.app.store.create_project('Disk sync')
+        target=Path(project['root'])/category_paths(project)['scripts']/'from-disk.txt'
+        target.write_text('synthetic disk text',encoding='utf-8')
+        endpoint='/api/project-files/sync'
+        self.assertEqual(self.request('POST',endpoint,{'project_id':project['id']},headers={'X-YingXu-Token':''})[0],403)
+        self.assertEqual(self.request('POST',endpoint,{'project_id':project['id'],'all':True})[0],400)
+        status,raw,_=self.request('POST',endpoint,{'project_id':project['id']})
+        self.assertEqual(status,202)
+        self.app.jobs.pool.shutdown(wait=True)
+        job=self.app.jobs.get(json.loads(raw)['job_id'])
+        self.assertEqual(job['errors'],[])
+        self.assertEqual(self.app.store.list_items(project['id'],category='scripts')['items'][0]['path'],str(target))
+
     def test_origin_host_and_mutation_token_protect_local_files(self):
         status,body,_=self.request('GET','/api/health');self.assertEqual(status,200)
         for headers in ({'Origin':'https://evil.example'},{'Host':'evil.example'},{'Sec-Fetch-Site':'cross-site'}):

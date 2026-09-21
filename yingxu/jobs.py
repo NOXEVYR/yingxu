@@ -26,7 +26,8 @@ class Jobs:
         self.jobs={}; self.lock=threading.Lock()
         self.slots=threading.BoundedSemaphore(8)
 
-    def submit(self,pid,category='references',paths=None,folder_id='',mode='reference'):
+    def submit(self,pid,category='references',paths=None,folder_id='',mode='reference',owned_only=False,move_owned=False):
+        if type(move_owned) is not bool or (move_owned and mode!='copy'):raise UserError('拖拽移动参数无效。')
         if mode not in ('reference','copy'):raise UserError('导入方式无效。')
         if mode=='copy' and paths is None:raise UserError('复制导入需要选择文件或文件夹。')
         self.store.get_project(pid)
@@ -45,10 +46,14 @@ class Jobs:
                     from .file_import import validate_source
                     from .organize import Organize
                     destination=Organize(self.store).folder_path(pid,category,None if folder_id in ('','root') else folder_id)
-                    sources.append({'copy':str(validate_source(self.store,path,destination))})
+                    sources.append({'copy':str(validate_source(self.store,path,destination)),'move_owned':move_owned})
                 else:sources.append(self.store.register_source(pid,value,category))
-        else:sources=self.store.sources(pid)
-        return self._enqueue(pid,category,sources,paths is not None,folder_id)
+        else:
+            sources=self.store.sources(pid)
+            if owned_only:
+                root=Path(self.store.get_project(pid)['root'])
+                sources=[source for source in sources if not source['is_file'] and Path(source['path'])==root]
+        return self._enqueue(pid,category,sources,paths is not None,folder_id,owned_only)
 
     def submit_archive(self,pid,category,path,folder_id=None,name=None,cleanup=False):
         from .organize import Organize
@@ -93,7 +98,7 @@ class Jobs:
             return
         self._run(jid,project['id'],sources,False)
 
-    def _enqueue(self,pid,category,sources,restore_removed,folder_id):
+    def _enqueue(self,pid,category,sources,restore_removed,folder_id,owned_only=False):
         if not self.slots.acquire(False):raise UserError('导入队列已满，请等当前任务完成。',429)
         jid=uid()
         with self.lock:
@@ -101,7 +106,7 @@ class Jobs:
             if len(self.jobs)>100:
                 old=[key for key,val in self.jobs.items() if val['state'] in ('done','error')]
                 for key in old[:len(self.jobs)-100]:self.jobs.pop(key,None)
-        self.pool.submit(self._run,jid,pid,sources,restore_removed,category,folder_id)
+        self.pool.submit(self._run,jid,pid,sources,restore_removed,category,folder_id,owned_only)
         return {'job_id':jid}
 
     def get(self,jid):
@@ -144,7 +149,7 @@ class Jobs:
                         except OSError as error:report('无法读取条目：'+str(path)+'；'+str(error))
             except OSError as error:report('无法读取文件夹：'+str(folder)+'；'+str(error))
 
-    def _run(self,jid,pid,sources,restore_removed=False,category='references',folder_id=''):
+    def _run(self,jid,pid,sources,restore_removed=False,category='references',folder_id='',owned_only=False):
         self._update(jid,state='running',message='正在建立素材索引，可继续使用工作台')
         done=skipped=0;errors=[]
         destination=({'target_folder_id':None if folder_id in (None,'root') else folder_id,
@@ -155,7 +160,7 @@ class Jobs:
                     if 'copy' in source:
                         from .file_import import import_files
                         result=import_files(self.store,source['copy'],pid,category,folder_id,
-                            lambda message:self._update(jid,message=message))
+                            lambda message:self._update(jid,message=message),move_owned=source.get('move_owned',False))
                         done+=result['done'];skipped+=result['skipped']
                         errors.extend(result['errors'][:max(0,20-len(errors))])
                         self._update(jid,done=done,skipped=skipped)
@@ -170,7 +175,11 @@ class Jobs:
                             if source.get('cleanup'):Path(source['archive']).unlink(missing_ok=True)
                         continue
                     root=clean_path(source['path']);batch=[]
-                    for path in self.walk(root,self.store.data_root):
+                    from .disk_layout import register_directory
+                    project=self.store.get_project(pid)
+                    for path in self.walk(root,self.store.data_root,on_directory=lambda path:register_directory(self.store,project,path),
+                                          on_error=lambda message:errors.append(message) if len(errors)<20 else None,
+                                          max_entries=50000 if owned_only else None,max_depth=24 if owned_only else None):
                         batch.append(path)
                         if len(batch)>=64:
                             added,unchanged=self.store.index_files(source,batch,restore_removed,**destination);done+=added;skipped+=unchanged

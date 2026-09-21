@@ -97,7 +97,7 @@ class Application:
         return {'app':'yingxu','version':__version__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True}}
+          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -605,7 +605,10 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/items':
                     item=self.app.store.create_item(data);self.app.context.request(item['project_id']);return self.json(item,201)
                 if path=='/api/clipboard/paste':return self.json(self.app.paste_clipboard(data),201)
-                if path=='/api/import':return self.json(self.app.jobs.submit(data.get('project_id'),data.get('category','references'),data.get('paths',[]),data.get('folder_id',''),mode=data.get('mode','reference')),202)
+                if path=='/api/import':return self.json(self.app.jobs.submit(data.get('project_id'),data.get('category','references'),data.get('paths',[]),data.get('folder_id',''),mode=data.get('mode','reference'),move_owned=data.get('move_owned',False)),202)
+                if path=='/api/project-files/sync':
+                    if query or set(data)!={'project_id'}:raise UserError('项目文件同步参数无效。')
+                    return self.json(self.app.jobs.submit(data['project_id'],owned_only=True),202)
                 if path=='/api/rescan':return self.json(self.app.jobs.submit(data.get('project_id')),202)
                 if path=='/api/macos/desktop':
                     if self.app.desktop_message is None:raise UserError('当前环境没有 macOS 桌面窗口。',404)

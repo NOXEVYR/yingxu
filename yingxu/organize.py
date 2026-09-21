@@ -133,6 +133,7 @@ class Organize:
         for row in rows:
             source_id=self._source_for_path(db,row,target)
             db.execute('UPDATE items SET path=?,source_id=?,updated=? WHERE id=?',(str(target),source_id,now(),row['id']))
+            db.execute('UPDATE disk_file_identities SET path=? WHERE item_id=?',(str(target),row['id']))
 
     @staticmethod
     def _subtree_pattern(path):

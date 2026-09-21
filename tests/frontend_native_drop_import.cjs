@@ -16,7 +16,7 @@ test('desktop external drop resolves genuine File objects and copies to captured
  const s=setup(),files=[{name:'中文 图.png'},{name:'b.jpg'}];const task=s.app.importResourceDrop(files,'characters','nested');
  assert.equal(s.app.state.uploading,true);assert.equal(s.messages[0].objects,files);assert.equal(s.requests.length,0);
  s.app.state.projectId='other';s.reply(['C:\\images\\中文 图.png','C:\\images\\b.jpg']);await task;
- const [url,options]=s.requests[0];assert.equal(url,'/api/import');assert.deepEqual(JSON.parse(JSON.stringify(options.body)),{project_id:'source-project',category:'characters',folder_id:'nested',paths:['C:\\images\\中文 图.png','C:\\images\\b.jpg'],mode:'copy'});
+ const [url,options]=s.requests[0];assert.equal(url,'/api/import');assert.deepEqual(JSON.parse(JSON.stringify(options.body)),{project_id:'source-project',category:'characters',folder_id:'nested',paths:['C:\\images\\中文 图.png','C:\\images\\b.jpg'],mode:'copy',move_owned:true});
  assert.equal(s.uploads.length,0);assert.equal(s.jobs[0][0],'job');assert.equal(s.app.state.uploading,false);assert.equal(s.listeners.size,0);
 });
 test('resolution keeps import busy and blocks a second drop',async()=>{
