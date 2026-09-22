@@ -12,7 +12,7 @@
 
 浅色中文界面，多标签文件工作区，普通目录保存素材。原创代码采用 [MIT](LICENSE)，无需订阅或云账号。
 
-**0.4.18 源码更新：截图快捷键按键录入。** 在“设置 → 截图”点击显示快捷键的按钮，直接按下新组合，按钮会显示实际按键；Esc 或移开焦点取消录入。录入只改变待保存选项，点击“保存设置”后由 Windows 确认热键注册结果，显示“已生效”或“未生效/被占用”。录入期间临时停用映序自己的截图热键，结束或切走窗口后恢复；不安装键盘钩子、不监控普通输入。完整包验收后更新下载入口。
+**Windows 0.4.18 已发布：截图快捷键按键录入。** 在“设置 → 截图”点击显示快捷键的按钮，直接按下新组合，按钮会显示实际按键；Esc 或移开焦点取消录入。录入只改变待保存选项，点击“保存设置”后由 Windows 确认热键注册结果，显示“已生效”或“未生效/被占用”。录入期间临时停用映序自己的截图热键，结束或切走窗口后恢复；不安装键盘钩子、不监控普通输入。完整包已完成上传后完整下载、摘要核对与隔离运行验收；保留 0.4.17 的音乐播放及目录同步功能。
 
 本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
@@ -20,7 +20,7 @@
 
 同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
 
-**[下载 Windows x64 完整包 · v0.4.17](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.17/YingXu-v0.4.17-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
+**[下载 Windows x64 完整包 · v0.4.18](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.18/YingXu-v0.4.18-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
