@@ -18,8 +18,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.17.0")]
-[assembly: AssemblyFileVersion("0.4.17.0")]
+[assembly: AssemblyVersion("0.4.18.0")]
+[assembly: AssemblyFileVersion("0.4.18.0")]
 
 namespace YingXu.Desktop
 {
@@ -174,6 +174,7 @@ namespace YingXu.Desktop
         private CaptureHotkey captureHotkey;
         private bool captureEnabled;
         private string captureShortcut = CaptureHotkey.Default;
+        private bool captureRecording;
         private int settingsRevision;
         private bool showAfterCapture;
 
@@ -256,6 +257,11 @@ namespace YingXu.Desktop
             if (captureHotkey != null) captureHotkey.Dispose();
             base.OnHandleDestroyed(e);
         }
+        protected override void OnDeactivate(EventArgs e)
+        {
+            if(captureRecording) { captureRecording=false; ApplyCaptureHotkey(); }
+            base.OnDeactivate(e);
+        }
         protected override void WndProc(ref Message message)
         {
             if (message.Msg == CaptureHotkey.Message && message.WParam.ToInt32() == CaptureHotkey.Id && captureHotkey != null && captureHotkey.Registered)
@@ -282,7 +288,9 @@ namespace YingXu.Desktop
         private void ApplyCaptureHotkey()
         {
             if (!IsHandleCreated || captureHotkey==null) return;
-            string error=captureHotkey.Configure(Handle,captureEnabled,captureShortcut);
+            string error=captureHotkey.Configure(Handle,captureEnabled && !captureRecording,captureShortcut);
+            if(pageReady) Post(new {action="capture-hotkey-status",shortcut=captureShortcut,enabled=captureEnabled,
+                registered=captureHotkey.Registered,recording=captureRecording,error=error});
             if(error!=null) CaptureNotice(error,true);
         }
         private void UpdateZoomStatus()
@@ -449,6 +457,13 @@ namespace YingXu.Desktop
             if (action == "desktop-ready") { Hub.Log("startup_stage=app_ready elapsed_ms=" + startup.ElapsedMilliseconds); pageReady = true; pageFailed = false; exitUnresponsive = false; ReloadSettings(); if(capture!=null)capture.Flush(); FlushSettings(); DrainFiles(); return true; }
             if (action == "capture-request" && message.Count==1) { BeginInvoke((Action)StartCapture); return true; }
             if (action == "capture-context") { if(capture!=null)capture.Receive(message); return true; }
+            if (action == "capture-hotkey-recording")
+            {
+                object active;
+                if(message.Count!=2 || !message.TryGetValue("active",out active) || !(active is bool))return false;
+                captureRecording=(bool)active;ApplyCaptureHotkey();return true;
+            }
+            if (action == "capture-hotkey-status" && message.Count==1) { ReloadSettings();return true; }
             if (action == "settings-changed") { ReloadSettings(); return true; }
             if (action == "choose-external-files") { BeginInvoke((Action)ChooseFiles); return true; }
             if (action == "register-open-with" || action == "unregister-open-with")
@@ -558,10 +573,10 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
-            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true;");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true;");
             core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
             {
-                if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; return; }
+                if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; if(captureRecording) {captureRecording=false;ApplyCaptureHotkey();} return; }
                 e.Cancel = true;
                 status.Text = "已阻止打开外部地址；映序只显示本地创作工作台。";
             };

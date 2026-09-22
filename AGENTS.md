@@ -20,6 +20,7 @@
 - 新增定向回归：`node tests/frontend_marquee.cjs`、`node tests/frontend_capture.cjs`、`node tests/frontend_resource_groups.cjs`、`node tests/frontend_live_markdown.cjs`、`node tests/frontend_markdown_integration.cjs`；后端 `python -B -m unittest discover -s tests -p test_markdown_assets.py -v`、`python -B -m unittest discover -s tests -p test_resource_groups.py -v`。完整前端测试应逐个运行 `tests/frontend_*.cjs` 并检查退出码。
 - 所有合成测试根目录使用 `Path(temporary).resolve()` 后再构建来源路径，避免 Windows TEMP 短路径或大小写不同导致索引漏项。
 - 截图仅在用户按快捷键或点击截图时触发，无持续屏幕/剪贴板轮询；一次只截请求时鼠标所在的屏幕，最大 40000000 像素。原生 `desktop/build.py --test` 包含 CaptureTests，使用合成位图、模拟剪贴板和临时 HTTP 服务；不得把通过合成测试写成已验收真实屏幕、多显示器或真实剪贴板。
+- 截图快捷键录入使用聚焦按钮的按键事件，不安装全局键盘钩子；先等待桌面暂停本应用截图热键的确认，再接受组合。Esc/Tab、焦点离开、关闭设置或页面导航必须恢复已保存热键。保存与系统注册分别显示，只有原生回报匹配当前已保存组合并注册成功时显示“已生效”；旧宿主或超时不得假报成功。检查 `tests/frontend_hotkey_recorder.cjs` 及原生生命周期回归。
 - 文件名标题置于正文 contenteditable 外，既有 Markdown 第一行不删除；新建普通笔记显式空正文。截图保存到项目参考资料后，仅在原笔记仍处于可编辑模式、项目/文稿/输入法状态未改变时插入草稿。
 - 素材组是本项目内的逻辑集合，不搬动文件或改变其分类；成员与修订号需由后台验证。Markdown 图片仅预览已登记的项目内独立光栅文件，拒绝外部 URL、越界路径与链接；无 imageResolver 不加载图片。
 

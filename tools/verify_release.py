@@ -63,7 +63,7 @@ def wait_health(port, process=None):
 
 def check_server(port, data, projects, restart=None):
     health = wait_health(port)
-    assert health['version'] == '0.4.17'
+    assert health['version'] == '0.4.18'
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')

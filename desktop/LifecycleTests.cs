@@ -110,7 +110,7 @@ namespace YingXu.Desktop
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.17',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.18',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
@@ -458,6 +458,17 @@ namespace YingXu.Desktop
                 Field(capturing,"captureEnabled",false); Call(capturing,"ApplyCaptureHotkey");
                 Check(unregisters==1&&!keys.Registered,"turning background capture off unregisters global hotkey");
                 var json=new JavaScriptSerializer();
+                Field(capturing,"captureEnabled",true);Call(capturing,"ApplyCaptureHotkey");
+                Check(!(bool)Call(capturing,"ReceiveDesktopRequest","https://example.com",json.Serialize(new{action="capture-hotkey-recording",active=true})) && keys.Registered,"foreign page cannot suspend a screenshot hotkey");
+                Check(!(bool)Call(capturing,"ReceiveDesktopRequest",Hub.Url,json.Serialize(new{action="capture-hotkey-recording",active="yes"})) && keys.Registered,"recording rejects malformed state");
+                Call(capturing,"ReceiveDesktopRequest",Hub.Url,json.Serialize(new{action="capture-hotkey-recording",active=true}));
+                Check(!keys.Registered && (bool)Field(capturing,"captureRecording"),"recording suspends only the app registered screenshot key");
+                Call(capturing,"ReceiveDesktopRequest",Hub.Url,json.Serialize(new{action="capture-hotkey-recording",active=false}));
+                Check(keys.Registered && !(bool)Field(capturing,"captureRecording"),"ending recording restores the saved hotkey");
+                Call(capturing,"ReceiveDesktopRequest",Hub.Url,json.Serialize(new{action="capture-hotkey-recording",active=true}));
+                Call(capturing,"OnDeactivate",EventArgs.Empty);
+                Check(keys.Registered && !(bool)Field(capturing,"captureRecording"),"deactivation restores hotkey even without a page response");
+                Field(capturing,"captureEnabled",false);Call(capturing,"ApplyCaptureHotkey");
                 Check(!(bool)Call(capturing,"ReceiveDesktopRequest","https://example.com",json.Serialize(new{action="capture-request"})),"untrusted page cannot initiate capture");
                 Call(capturing,"ReceiveDesktopRequest",Hub.Url,json.Serialize(new{action="capture-request"})); Application.DoEvents();
                 Check(fake.Busy&&contextRequest!=null,"manual capture works while background hotkey is disabled");

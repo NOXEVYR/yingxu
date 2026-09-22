@@ -257,3 +257,8 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 - 项目内已知分类目录按 `category_paths(project)` 确认，登记真实子文件夹，不创建或搬动磁盘目录。未变化内容也会修正对应 category/folder_id，保留用户标签、历史及元数据；外部引用继续保留逻辑归类，回收站内容不会被扫描复活。
 - `/api/import` 新增可选布尔 `move_owned`（仅 `mode:copy` 可使用，默认 false）。桌面原生文件拖入传 true：属于当前项目的普通文件通过原有移动流程整理，同一路径为无操作；项目外文件仍复制。手动复制导入不改变语义，真实同名目标不覆盖。
 - `disk_file_identities` 是增量识别缓存，不是文件内容模型。仅在平台提供稳定创建时间、独立文件标识，旧路径消失、无其他目标记录且无回收冲突时跟随项目内移动。没有历史身份或无法可靠确认时不推断关联，不以文件名或相同字节合并文稿。
+## 0.4.18：截图快捷键录入与系统状态
+
+- 新 Windows 宿主注入 `window.yingxuCaptureHotkeyRecorder = true`。可信本地页面发送 `{action:'capture-hotkey-recording',active:boolean}` 暂停/恢复本应用的截图热键；未知字段或非布尔状态拒绝。取消录入、失焦、页面导航后恢复已保存组合，不监听系统普通按键。
+- `{action:'capture-hotkey-status'}` 请求重新读取已保存设置并报告系统注册结果。`settings-changed` 继续沿用原语义，应用后同样报告结果。
+- 宿主发送 `{action:'capture-hotkey-status',shortcut,enabled,registered,recording,error}`。前端只接受与已保存组合、启用状态一致的注册结果作为“已生效”；录入候选不自动保存，旧宿主/超时只显示未确认，冲突显示未生效。

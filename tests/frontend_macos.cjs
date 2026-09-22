@@ -35,7 +35,7 @@ function appFixture(isMac=true){
     fixtureApi:async(url,options)=>{calls.push({url,options});return options?.body || {confirm_delete:true,confirm_trash_delete:true,close_to_tray:true,capture_enabled:true,capture_hotkey:'Ctrl+Alt+Shift+S',capture_mode:'annotate',default_view:'grid',default_sort:'updated'};},
     fixtureDialog:options=>dialogs.push(options)});
   vm.runInContext(appSource+`\napi=fixtureApi;showDialog=fixtureDialog;toast=()=>{};configureSection=()=>{};loadItems=async()=>{};hideMenu=()=>{};globalSearchDialog=()=>globalThis.globalOpened=true;openDocumentSearch=()=>globalThis.documentOpened=true;documentSearchable=()=>true;globalThis.app={state,settingsDialog,searchShortcut};`,context);
-  context.app.state.bootstrap={version:'0.4.17',capabilities:{maintenance:true,manual_update_check:true},settings:{}};
+  context.app.state.bootstrap={version:'0.4.18',capabilities:{maintenance:true,manual_update_check:true},settings:{}};
   return {context,...context.app,dialogs,calls,nodes,node};
 }
 test('macOS uses shared version and maintenance settings without unsupported controls',async()=>{
@@ -50,6 +50,20 @@ test('macOS uses shared version and maintenance settings without unsupported con
 test('Windows retains tray capture and open-with settings',async()=>{
   const s=appFixture(false);await s.settingsDialog();const body=s.dialogs[0].body;
   assert.match(body,/name="close_to_tray"/);assert.match(body,/name="capture_mode"/);assert.match(body,/data-action="register-open-with"/);assert.match(body,/Windows 回收站/);assert.doesNotMatch(body,/macOS 试用版/);
+});
+test('Windows hotkey save keeps the settings visible and waits for native registration status',async()=>{
+  const s=appFixture(false),messages=[],saved=[];let recording=false,received=null;
+  s.context.window.yingxuCaptureHotkeyRecorder=true;
+  s.context.window.chrome.webview.postMessage=message=>messages.push(message);
+  s.context.window.YingXuHotkeyRecorder={install:options=>({dispose(){},isRecording:()=>recording,saved:value=>saved.push(value),handle:value=>{received=value;}})};
+  await s.settingsDialog();const options=s.dialogs[0];
+  assert.match(options.body,/type="hidden" id="captureHotkey"/);assert.match(options.body,/id="captureHotkeyButton"/);assert.match(options.body,/id="captureHotkeyStatus"/);
+  assert.equal(messages[0].action,'capture-hotkey-status');
+  const form={capture_hotkey:'Ctrl+Alt+F8',capture_enabled:true,capture_mode:'annotate',default_view:'grid',default_sort:'updated'};
+  recording=true;await assert.rejects(options.onSubmit(form),/先完成快捷键录入/);assert.equal(saved.length,0);
+  recording=false;assert.equal(await options.onSubmit(form),false);assert.equal(saved[0].capture_hotkey,'Ctrl+Alt+F8');assert.equal(messages.at(-1).action,'settings-changed');
+  vm.runInContext('handleDesktopMessage({action:"capture-hotkey-status",shortcut:"Ctrl+Alt+F8",registered:true})',s.context);
+  assert.equal(received.shortcut,'Ctrl+Alt+F8');
 });
 test('Command+F searches document when focused there, resources elsewhere; Command+K remains global',()=>{
   const s=appFixture();const event=(key,editor)=>({key,metaKey:true,ctrlKey:false,altKey:false,preventDefault(){this.prevented=true;},target:{closest:selector=>editor&&selector==='#editor'?{}:null}});
