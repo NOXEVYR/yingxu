@@ -110,7 +110,7 @@ namespace YingXu.Desktop
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.16',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.17',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
@@ -300,7 +300,7 @@ namespace YingXu.Desktop
             var web=new WebView2 { Dock=DockStyle.Fill };window.Controls.Add(web);Field(window,"web",web);
             IntPtr initializedHandle=web.Handle;
             var environment=await CoreWebView2Environment.CreateAsync(browserFolder,Path.Combine(Hub.Cache,"zoom-profile"),
-                new CoreWebView2EnvironmentOptions("--disable-background-networking --no-first-run"));
+                new CoreWebView2EnvironmentOptions("--disable-background-networking --no-first-run --autoplay-policy=no-user-gesture-required"));
             var exited=new TaskCompletionSource<bool>();
             environment.BrowserProcessExited+=(sender,args)=>exited.TrySetResult(true);
             await web.EnsureCoreWebView2Async(environment);
@@ -329,6 +329,7 @@ namespace YingXu.Desktop
             web.NavigateToString("<!doctype html><meta charset='utf-8'><script>window.pauseMessageCount=0;window.chrome.webview.addEventListener('message',function(event){if(event.data.action==='pause-media')window.pauseMessageCount++;});</script>");
             for(int i=0;i<100 && !navigation.Task.IsCompleted;i++)await Task.Delay(25);
             Check(navigation.Task.IsCompleted && navigation.Task.Result,"isolated media lifecycle page loads inside real WebView");
+            await CheckMusicMinimize(web,window);
             Field(window,"pageReady",true);
             var close=new FormClosingEventArgs(CloseReason.UserClosing,false);
             Call(window,"OnFormClosing",close);
@@ -342,6 +343,46 @@ namespace YingXu.Desktop
             web.Dispose();
             for(int i=0;i<100 && !exited.Task.IsCompleted;i++) await Task.Delay(25);
             Check(exited.Task.IsCompleted,"isolated browser exits before temporary profile cleanup");
+        }
+        private sealed class MusicFixtureWindow : Form
+        {
+            protected override bool ShowWithoutActivation { get { return true; } }
+        }
+        private static async Task CheckMusicMinimize(WebView2 web,StudioWindow owner)
+        {
+            // Off-screen, non-activating, silent fixture; no user project or audio.
+            string source=File.ReadAllText(Path.Combine(Hub.Root,"frontend","app.js"));
+            int start=source.IndexOf("function stopPreviewMedia(",StringComparison.Ordinal);
+            int end=source.IndexOf("const audioPreferences",start,StringComparison.Ordinal);
+            string pauseFunction=source.Substring(start,end-start);
+            string visibility=Array.Find(source.Split('\n'),line=>line.Contains("document.addEventListener('visibilitychange'"));
+            using(var host=new MusicFixtureWindow {ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(-32000,-32000),Size=new Size(500,350)})
+            {
+                web.Parent=host;host.Show();
+                try
+                {
+                    await web.CoreWebView2.ExecuteScriptAsync("const $$=(s,r=document)=>[...r.querySelectorAll(s)];const syncProjectFiles=()=>Promise.resolve();const report=()=>{};"+pauseFunction+visibility+
+                        "document.body.innerHTML='<div id=editorContent><audio></audio></div>';"+
+                        "const b=new Uint8Array(44+320000),v=new DataView(b.buffer);const text=(p,s)=>{for(let i=0;i<s.length;i++)b[p+i]=s.charCodeAt(i);};"+
+                        "text(0,'RIFF');v.setUint32(4,b.length-8,true);text(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,8000,true);v.setUint32(28,16000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,320000,true);"+
+                        "window.musicFixture=document.querySelector('audio');musicFixture.src=URL.createObjectURL(new Blob([b],{type:'audio/wav'}));musicFixture.play().then(()=>window.musicStarted=true).catch(e=>window.musicError=String(e));");
+                    string started="false";
+                    for(int i=0;i<120 && started!="true";i++){await Task.Delay(25);started=await web.CoreWebView2.ExecuteScriptAsync("window.musicStarted===true");}
+                    Check(started=="true","native music fixture decodes and starts silent WAV");
+                    await web.CoreWebView2.ExecuteScriptAsync("window.musicBefore=musicFixture.currentTime");
+                    host.WindowState=FormWindowState.Minimized;
+                    await Task.Delay(600);
+                    Console.WriteLine("MUSIC_MINIMIZED="+await web.CoreWebView2.ExecuteScriptAsync("JSON.stringify({hidden:document.hidden,paused:musicFixture.paused,before:musicBefore,time:musicFixture.currentTime,ready:musicFixture.readyState,error:window.musicError})"));
+                    Check(await web.CoreWebView2.ExecuteScriptAsync("document.hidden && !musicFixture.paused && musicFixture.currentTime>musicBefore")=="true",
+                        "real Windows minimize hides WebView but music playback time continues");
+                    await web.CoreWebView2.ExecuteScriptAsync("musicFixture.pause()");
+                    host.WindowState=FormWindowState.Normal;
+                    await Task.Delay(100);
+                    Check(await web.CoreWebView2.ExecuteScriptAsync("musicFixture.paused")=="true","native restore does not resume manually paused music");
+                    await web.CoreWebView2.ExecuteScriptAsync("stopPreviewMedia(true)");
+                }
+                finally {web.Parent=owner;host.Hide();}
+            }
         }
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void Run()

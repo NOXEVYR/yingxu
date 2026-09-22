@@ -35,7 +35,7 @@ function appFixture(isMac=true){
     fixtureApi:async(url,options)=>{calls.push({url,options});return options?.body || {confirm_delete:true,confirm_trash_delete:true,close_to_tray:true,capture_enabled:true,capture_hotkey:'Ctrl+Alt+Shift+S',capture_mode:'annotate',default_view:'grid',default_sort:'updated'};},
     fixtureDialog:options=>dialogs.push(options)});
   vm.runInContext(appSource+`\napi=fixtureApi;showDialog=fixtureDialog;toast=()=>{};configureSection=()=>{};loadItems=async()=>{};hideMenu=()=>{};globalSearchDialog=()=>globalThis.globalOpened=true;openDocumentSearch=()=>globalThis.documentOpened=true;documentSearchable=()=>true;globalThis.app={state,settingsDialog,searchShortcut};`,context);
-  context.app.state.bootstrap={version:'0.4.16',capabilities:{maintenance:true,manual_update_check:true},settings:{}};
+  context.app.state.bootstrap={version:'0.4.17',capabilities:{maintenance:true,manual_update_check:true},settings:{}};
   return {context,...context.app,dialogs,calls,nodes,node};
 }
 test('macOS uses shared version and maintenance settings without unsupported controls',async()=>{

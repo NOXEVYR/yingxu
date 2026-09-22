@@ -2,7 +2,7 @@
 from pathlib import Path
 
 MODERN_CATEGORIES = {
-    'unclassified': '未分类', 'scripts': '文本', 'shots': '素材',
+    'unclassified': '未分类', 'scripts': '文本', 'shots': '素材', 'music': '音乐',
     'characters': '角色', 'scenes': '场景', 'props': '道具',
     'previs': '预演', 'generated': '生成素材', 'delivery': '成片交付',
     'references': '记录',

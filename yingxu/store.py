@@ -20,6 +20,7 @@ CATEGORIES = {
     'unclassified': ('未分类', '05_Unclassified'),
     'scripts': ('剧本与文档', '00_Brief/剧本与文档'),
     'shots': ('分镜', '00_Brief/分镜'),
+    'music': ('音乐', '20_Assets/音乐'),
     'characters': ('角色', '20_Assets/角色'),
     'scenes': ('场景', '20_Assets/场景'),
     'props': ('道具', '20_Assets/道具'),
