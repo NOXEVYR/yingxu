@@ -1,0 +1,48 @@
+# A small preflight before downloading the full release runtime.
+name: YingXu capture preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/yingxu-capture-preflight.yml']
+permissions: {}
+jobs:
+  capture:
+    if: github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.head_commit.message == 'ci: verify capture layout before release downloads'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Fetch four verified source files without dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid source identity' }
+          $files = @(
+            @{ name='Core.cs'; bytes=27858; sha='dd6b470ad2a6858a48e0d43407c65c259494bb99470978245f4bbdd8022f3fdc' }
+            @{ name='Integration.cs'; bytes=23387; sha='644227471d5fe949377e5b57bca3c9d18ce39552daaf0342e0b7db95ed4b0663' }
+            @{ name='Capture.cs'; bytes=46967; sha='cb7f153b8573a3a46ed2bdb7f2d339ae8b85631ebdd46842572dcd604d6b51f0' }
+            @{ name='CaptureTests.cs'; bytes=52076; sha='516e6984992743343deb5c0dc43e5cda7feaa784b7f8ae4ad8fd7916d583b6a6' }
+          )
+          $total = 0
+          foreach ($file in $files) {
+            $url = "https://raw.githubusercontent.com/NOXEVYR/yingxu/$env:GITHUB_SHA/desktop/$($file.name)"
+            curl.exe --fail --silent --show-error --proto '=https' --max-filesize 1048576 --max-time 60 --output $file.name $url
+            if ($LASTEXITCODE) { throw 'Bounded source download failed' }
+            $item = Get-Item -LiteralPath $file.name
+            $total += $item.Length
+            if ($item.Length -ne $file.bytes -or (Get-FileHash -LiteralPath $file.name -Algorithm SHA256).Hash.ToLower() -ne $file.sha) { throw 'Source integrity mismatch' }
+          }
+          if ($total -gt 1048576) { throw 'Source download budget exceeded' }
+          Write-Output "Verified source download: $total bytes; no SDK, runtime, or package download."
+      - name: Compile and execute real capture controls with synthetic images
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          & $compiler /nologo /optimize+ /platform:x64 /utf8output /target:exe /out:capture-tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll Core.cs Integration.cs Capture.cs CaptureTests.cs
+          if ($LASTEXITCODE) { throw 'Native capture compilation failed' }
+          $test = Start-Process (Join-Path $PWD 'capture-tests.exe') -WindowStyle Hidden -PassThru -RedirectStandardOutput 'capture.log' -RedirectStandardError 'capture-error.log'
+          if (-not $test.WaitForExit(60000)) { $test.Kill(); throw 'Capture regression timed out' }
+          Get-Content capture.log
+          Get-Content capture-error.log
+          if ($test.ExitCode -ne 0) { throw 'Capture regression failed' }
