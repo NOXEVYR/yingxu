@@ -1,0 +1,89 @@
+# REVIEW COPY ONLY. Install at .github/workflows/yingxu-cached-release.yml.
+# Add this workflow and helper using [skip ci]; do not enable before authorization.
+name: YingXu explicit cached-runtime release
+on:
+  workflow_dispatch:
+    inputs:
+      approve_download_and_publish:
+        description: 'Approve up to 500 MiB expected downloads and publish verified Windows 0.4.19'
+        type: boolean
+        required: true
+        default: false
+      source_commit:
+        description: 'Exact reviewed main commit SHA; must match this dispatch ref'
+        type: string
+        required: true
+  push:
+    branches: [main]
+    paths: ['.github/release-requests/yingxu-0.4.19.json']
+permissions:
+  contents: write
+concurrency:
+  group: yingxu-portable-release
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.19 cached runtime [cloud-approved-500MiB]'))
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Use existing runner tools only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($tool in 'git','python','node','gh','curl.exe') { Get-Command $tool -ErrorAction Stop | Out-Null }
+          git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          lfs: false
+          submodules: false
+      - name: Authenticate explicit request and reuse verified official runtime
+        run: |
+          python -B .github/release-support/cached_release.py prepare
+          if ($LASTEXITCODE) { throw 'Cached release preparation failed' }
+      - name: Backend and available frontend regressions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:YINGXU_INSTALLER_TEST_RUNTIME = Join-Path $PWD 'runtime'
+          & ./runtime/python.exe -B -m unittest discover -s tests -v
+          if ($LASTEXITCODE) { throw 'Backend tests failed' }
+          node --check frontend/app.js
+          if ($LASTEXITCODE) { throw 'Frontend syntax failed' }
+          # prepare requires these unchanged source tests AND editor/build inputs
+          # to match the verified 0.4.18 baseline. No npm download is permitted.
+          $sourceOnly = @('frontend_live_markdown.cjs','frontend_live_tables.cjs','frontend_markdown_links.cjs','frontend_obsidian_images.cjs')
+          foreach ($test in Get-ChildItem tests/frontend_*.cjs) {
+            if ($sourceOnly -contains $test.Name) {
+              Write-Output "NOT RUN ON CLOUD: $($test.Name) requires development dependencies; unchanged-source gate verified"
+              continue
+            }
+            node $test.FullName
+            if ($LASTEXITCODE) { throw "Frontend tests failed: $($test.Name)" }
+          }
+      - name: Build native host and verify complete package
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'yingxu-cached-release/webview2.nupkg'
+          python -B desktop/build.py --sdk-package $sdk --output YingXu.exe --test
+          if ($LASTEXITCODE) { throw 'Native build or tests failed' }
+          python -B tools/package_release.py
+          if ($LASTEXITCODE) { throw 'Package build failed' }
+          $report = python -B tools/verify_release.py releases/YingXu-v0.4.19-Windows-x64.zip
+          if ($LASTEXITCODE) { throw 'Complete package verification failed' }
+          [IO.File]::WriteAllText((Join-Path $PWD 'releases/YingXu-v0.4.19-verification.json'),($report -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
+      - name: Upload draft and compare GitHub digests before publishing
+        run: |
+          python -B .github/release-support/cached_release.py publish
+          if ($LASTEXITCODE) { throw 'Publication failed; retain draft and uploaded assets for inspection' }

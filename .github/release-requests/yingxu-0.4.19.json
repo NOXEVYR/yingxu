@@ -1,0 +1,7 @@
+{
+  "approved": false,
+  "reviewed_source_commit": "REPLACE_WITH_REVIEWED_PARENT_COMMIT_SHA",
+  "download_budget_mib": 500,
+  "version": "0.4.19",
+  "purpose": "Windows junction-open fix and explicit incremental updates; reuse official 0.4.18 runtime"
+}
