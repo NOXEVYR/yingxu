@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       approve_download_and_publish:
-        description: 'Approve up to 500 MiB expected downloads and publish verified Windows 0.4.19'
+        description: 'Approve one run with up to 500 MiB downloads and publish Windows 0.4.20 migration.1'
         type: boolean
         required: true
         default: false
@@ -15,7 +15,7 @@ on:
         required: true
   push:
     branches: [main]
-    paths: ['.github/release-requests/yingxu-0.4.19.json']
+    paths: ['.github/release-requests/yingxu-0.4.20.json']
 permissions:
   contents: write
 concurrency:
@@ -25,8 +25,9 @@ jobs:
   windows:
     if: >-
       github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
       ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.19 cached runtime [cloud-approved-500MiB]'))
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.20 cached runtime [cloud-approved-500MiB]'))
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
@@ -74,7 +75,7 @@ jobs:
           node --check frontend/app.js
           if ($LASTEXITCODE) { throw 'Frontend syntax failed' }
           # prepare requires these unchanged source tests AND editor/build inputs
-          # to match the verified 0.4.18 baseline. No npm download is permitted.
+          # to match the verified 0.4.19 baseline. No npm download is permitted.
           $sourceOnly = @('frontend_live_markdown.cjs','frontend_live_tables.cjs','frontend_markdown_links.cjs','frontend_obsidian_images.cjs')
           foreach ($test in Get-ChildItem tests/frontend_*.cjs) {
             if ($sourceOnly -contains $test.Name) {
@@ -92,9 +93,9 @@ jobs:
           if ($LASTEXITCODE) { throw 'Native build or tests failed' }
           python -B tools/package_release.py
           if ($LASTEXITCODE) { throw 'Package build failed' }
-          $report = python -B tools/verify_release.py releases/YingXu-v0.4.19-Windows-x64.zip
+          $report = python -B tools/verify_release.py releases/YingXu-v0.4.20-Windows-x64.zip
           if ($LASTEXITCODE) { throw 'Complete package verification failed' }
-          [IO.File]::WriteAllText((Join-Path $PWD 'releases/YingXu-v0.4.19-verification.json'),($report -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $PWD 'releases/YingXu-v0.4.20-verification.json'),($report -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
       - name: Upload draft and compare GitHub digests before publishing
         run: |
           python -B .github/release-support/cached_release.py publish
