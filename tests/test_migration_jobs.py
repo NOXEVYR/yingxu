@@ -82,6 +82,48 @@ class MigrationJobsTests(unittest.TestCase):
         with self.service.mutation('PATCH'):
             pass
 
+    def test_pending_picker_does_not_reserve_writes_or_block_migration(self):
+        with self.service.mutation('POST', '/api/pick'):
+            self.assertEqual(self.service.writers, 0)
+            jid = self.submit()
+            self.assertTrue(self.entered.wait(2))
+            self.assertEqual(self.service.writers, 0)
+            with self.assertRaises(UserError):
+                with self.service.mutation('POST', '/api/pick'):
+                    self.fail('picker opened during migration')
+        self.assertEqual(self.service.writers, 0)
+        self.assertEqual(self.finish(jid)['state'], 'done')
+
+    def test_picker_exception_preserves_other_writer_reservation(self):
+        with self.service.mutation('POST', '/api/upload'):
+            with self.assertRaisesRegex(RuntimeError, 'picker failed'):
+                with self.service.mutation('POST', '/api/pick'):
+                    self.assertEqual(self.service.writers, 1)
+                    with self.assertRaises(UserError):
+                        self.submit()
+                    raise RuntimeError('picker failed')
+            self.assertEqual(self.service.writers, 1)
+        self.assertEqual(self.service.writers, 0)
+        self.assertEqual(self.calls, [])
+
+    def test_cross_project_move_still_blocks_picker(self):
+        with self.service.cross_project_move():
+            with self.assertRaises(UserError):
+                with self.service.mutation('POST', '/api/pick'):
+                    self.fail('picker opened during cross-project move')
+            self.assertEqual(self.service.writers, 0)
+        with self.service.mutation('POST', '/api/pick'):
+            pass
+        self.assertEqual(self.service.writers, 0)
+
+    def test_only_exact_post_picker_is_exempt_from_writer_count(self):
+        for method, path in (('PATCH', '/api/pick'), ('POST', '/api/pick/'),
+                             ('POST', '/api/pick-other'), ('POST', '/api/upload')):
+            with self.subTest(method=method, path=path):
+                with self.service.mutation(method, path):
+                    self.assertEqual(self.service.writers, 1)
+                self.assertEqual(self.service.writers, 0)
+
     def test_context_refresh_failure_does_not_report_committed_move_as_failed(self):
         def fail():
             raise UserError('export unavailable')

@@ -2219,7 +2219,7 @@ function bindProjectMigration(dialog, options) {
     }catch(error){message(error.message,true);}finally{busy=false;update();}
   };
   const followJob = async () => {
-    if(polling || !running)return;polling=true;if(alive()){retry.hidden=true;retry.disabled=true;progress.hidden=false;}
+    if(polling || !running)return;polling=true;if(alive()){retry.hidden=true;retry.disabled=true;progress.removeAttribute('value');progress.hidden=false;}
     try {
       if(!jobId){const result=await api('/api/project-storage/migration',{method:'POST',body:{token:plan.token}});if(!result.job_id)throw Error('尚未取得迁移任务状态，请重试连接。');jobId=String(result.job_id);}
       while(running){
@@ -2253,7 +2253,10 @@ function bindProjectMigration(dialog, options) {
         await new Promise(resolve=>setTimeout(resolve,1000));
       }
     }catch(error){
-      if(!jobId && error.status>=400 && error.status<500){plan=null;if(alive())confirm.hidden=true;setRunning(false);message(error.message,true);}
+      // A rejected start never created a worker; a lost response is uncertain.
+      // Neither state should look like an actively copying progress animation.
+      if(alive())progress.hidden=true;
+      if(!jobId && error.status>=400 && error.status<500){plan=null;if(alive()){confirm.hidden=true;retry.hidden=true;}setRunning(false);message(`迁移尚未开始。${error.message}`,true);}
       else {message(`暂时无法确认迁移进度，保持暂停编辑。${error.message}`,true);if(alive()){retry.hidden=false;retry.disabled=false;}}
     }finally{polling=false;}
   };
@@ -2304,7 +2307,7 @@ function bindProjectStorageSettings(dialog) {
   const apply = async () => {
     if (busy || migration?.isBusy() || !loaded || projectStorageSave || !alive()) return;
     const target = input.value.trim(); if (!target || target === root) return;
-    if (migration?.hasProjects()) { await migration.preview(); return; }
+    if (migration?.hasProjects()) { showNotice(''); await migration.preview(); return; }
     busy = true; update(); showNotice('正在保存项目存放位置…');
     const pending = api('/api/project-storage',{method:'POST',body:{root:target}}); projectStorageSave = pending;
     try {

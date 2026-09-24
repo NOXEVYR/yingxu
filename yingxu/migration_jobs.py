@@ -25,6 +25,9 @@ class MigrationJobs:
         if method in ('GET', 'HEAD'):
             yield
             return
+        # Selecting a path does not write files and may wait for user input.
+        # Keep the busy checks below so an active move cannot open a new picker.
+        count_writer = not (method == 'POST' and path == '/api/pick')
         with self.lock:
             # Retrying the accepted token must remain possible if its first
             # response was lost. submit() only permits that same token while busy.
@@ -32,12 +35,14 @@ class MigrationJobs:
                 raise UserError('文件正在跨项目移动，请等待完成后再修改或导入。', 409)
             if self.active and not (method == 'POST' and path == '/api/project-storage/migration'):
                 raise UserError('项目正在迁移，请等待完成后再修改或导入。', 409)
-            self.writers += 1
+            if count_writer:
+                self.writers += 1
         try:
             yield
         finally:
-            with self.lock:
-                self.writers -= 1
+            if count_writer:
+                with self.lock:
+                    self.writers -= 1
 
     @contextmanager
     def cross_project_move(self):

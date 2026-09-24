@@ -60,6 +60,38 @@ test('terminal worker failure exposes reason and releases locks without changing
   const s=setup();await s.ui.preview();s.setApi(async(url)=>url.endsWith('/migration')?{job_id:'one'}:{state:'error',error:'目标磁盘已断开，源文件保留'});await s.ui.start();
   assert.equal(s.state.modalBusy,false);assert.equal(s.refreshed.length,0);assert.equal(s.node('#projectMigrationNotice').textContent,'目标磁盘已断开，源文件保留');
 });
+
+test('manual location preview clears an earlier picker error instead of showing contradictory status',async()=>{
+  const s=setup(),storage=s.bindProjectStorageSettings(s.node('#appDialog'));await storage.ready;
+  s.node('#projectStoragePath').value='D:/新位置';
+  s.setApi(async url=>{if(url==='/api/pick')throw Object.assign(Error('已有一个文件选择窗口打开，请先完成选择。'),{status:409});if(url.endsWith('/preview'))return s.plan;throw Error('Unexpected '+url);});
+  await storage.pick();assert.match(s.node('#projectStorageNotice').textContent,/文件选择窗口/);
+  await storage.apply();assert.equal(s.node('#projectStorageNotice').textContent,'');
+  assert.equal(s.node('#projectMigrationPlan').hidden,false);
+});
+
+test('rejected start stops progress and unlocks without claiming a migration ran',async()=>{
+  const s=setup();await s.ui.preview();
+  s.node('#projectMigrationProgress').value=4;s.node('#projectMigrationProgress').max=6;
+  s.setApi(async()=>{throw Object.assign(Error('还有文件操作正在进行，请稍后重新迁移。'),{status:409});});
+  await s.ui.start();
+  assert.equal(s.state.migrationBusy,false);assert.equal(s.state.modalBusy,false);
+  assert.equal(s.node('#projectMigrationProgress').hidden,true);
+  assert.equal(s.node('#retryProjectMigration').hidden,true);
+  assert.equal(s.node('#confirmProjectMigration').hidden,true);
+  assert.match(s.node('#projectMigrationNotice').textContent,/迁移尚未开始/);
+  assert.equal(s.refreshed.length,0);assert.equal(s.calls.some(c=>c.url.includes('/migration/jobs/')),false);
+  s.setApi(async url=>url.endsWith('/preview')?s.plan:url.endsWith('/migration')?{job_id:'retry'}:{state:'done'});
+  await s.ui.preview();await s.ui.start();assert.match(s.node('#projectMigrationNotice').textContent,/迁移完成/);
+});
+
+test('uncertain start stops the misleading animation but keeps recovery and editing protection',async()=>{
+  const s=setup();await s.ui.preview();s.setApi(async()=>{throw Error('连接中断');});
+  await s.ui.start();assert.equal(s.state.migrationBusy,true);assert.equal(s.state.modalBusy,true);
+  assert.equal(s.node('#projectMigrationProgress').hidden,true);
+  assert.equal(s.node('#retryProjectMigration').hidden,false);assert.equal(s.node('#retryProjectMigration').disabled,false);
+  assert.match(s.node('#projectMigrationNotice').textContent,/暂时无法确认迁移进度/);
+});
 test('lost start response stays locked and retries same token idempotently',async()=>{
   const s=setup();await s.ui.preview();let attempts=0;s.setApi(async(url)=>{if(url.endsWith('/migration')){if(++attempts===1)throw Error('连接中断');return {job_id:'same-job'};}return {state:'done'};});
   await s.ui.start();assert.equal(s.state.migrationBusy,true);assert.equal(s.node('#retryProjectMigration').hidden,false);assert.equal(s.node('#retryProjectMigration').disabled,false);
