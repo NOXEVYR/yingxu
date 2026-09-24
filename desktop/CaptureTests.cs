@@ -164,6 +164,40 @@ namespace YingXu.Desktop
             Fire(selector,"OnMouseMove",new MouseEventArgs(MouseButtons.Left,0,last.X,last.Y,0));
             Fire(selector,"OnMouseUp",new MouseEventArgs(MouseButtons.Left,1,last.X,last.Y,0));
         }
+        private static void LayoutDiagnostic(CaptureSelector selector,Size requested,float scale)
+        {
+            var toolbar=(CaptureToolbar)selector.Controls[0];
+            Console.WriteLine("CAPTURE_LAYOUT "+Json.Serialize(new {
+                requested=new[]{requested.Width,requested.Height},scale=scale,
+                client=new[]{selector.ClientSize.Width,selector.ClientSize.Height},
+                systemMaximum=new[]{SystemInformation.MaxWindowTrackSize.Width,SystemInformation.MaxWindowTrackSize.Height},
+                systemVirtual=new[]{SystemInformation.VirtualScreen.Width,SystemInformation.VirtualScreen.Height},
+                toolbar=new[]{toolbar.Left,toolbar.Top,toolbar.Width,toolbar.Height}
+            }));
+        }
+        private static void HostClampedLayout()
+        {
+            Size host=SystemInformation.MaxWindowTrackSize;
+            // Exceed only the synthetic requested width. The real display is
+            // unchanged and this form is never shown.
+            Size requested=new Size(host.Width+256,480);
+            using(var image=Picture(requested.Width,requested.Height))
+            using(var selector=new CaptureSelector(image,new Rectangle(-requested.Width,0,requested.Width,requested.Height),"annotate",2.5f))
+            {
+                Drag(selector,Point.Empty,new Point(requested.Width,requested.Height));
+                var toolbar=(CaptureToolbar)selector.Controls[0];LayoutDiagnostic(selector,requested,2.5f);
+                Check(selector.ClientSize.Width<requested.Width,"synthetic window exceeds host tracking width and exercises real clamping");
+                Check(toolbar.MaximumSize.Width==selector.ClientSize.Width,"clamped toolbar wraps at actual client width rather than requested bitmap width");
+                var picker=(CaptureToolbar)typeof(CaptureSelector).GetField("widthPicker",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(selector);
+                Check(picker.MaximumSize.Width==selector.ClientSize.Width,"clamped stroke picker uses actual client width");
+                bool inside=selector.ClientRectangle.Contains(toolbar.Bounds);
+                foreach(Control button in toolbar.Controls)inside&=toolbar.ClientRectangle.Contains(button.Bounds);
+                Check(inside,"host-clamped synthetic selector keeps every toolbar action reachable");
+                Check(!selector.Visible,"clamped regression does not show a window");
+                selector.Confirm();using(var result=selector.CreateResult())
+                    Check(result.Size==requested&&result.GetPixel(requested.Width-1,requested.Height-1).ToArgb()==image.GetPixel(requested.Width-1,requested.Height-1).ToArgb(),"host clamping does not rescale or truncate frozen screenshot output");
+            }
+        }
         private static async Task AnnotationWorkflow()
         {
             foreach(string tool in new[]{"pen","arrow","rectangle"})
@@ -318,6 +352,7 @@ namespace YingXu.Desktop
                 // Full-screen selections force an inside placement. Controls must remain usable,
                 // while the output still contains the exact screenshot, never toolbar pixels.
                 Drag(selector,Point.Empty,new Point(size.Width,size.Height));var toolbar=(CaptureToolbar)selector.Controls[0];
+                LayoutDiagnostic(selector,size,scale);
                 bool visible=selector.ClientRectangle.Contains(toolbar.Bounds);
                 foreach(Control button in toolbar.Controls)visible&=toolbar.ClientRectangle.Contains(button.Bounds);
                 Check(visible,"full-screen selection keeps every action on screen at "+size+" scale "+scale);
@@ -332,6 +367,7 @@ namespace YingXu.Desktop
                     Check(clean,"floating controls never enter confirmed crop at "+size+" scale "+scale);
                 }
             }
+            HostClampedLayout();
             using(var image=Picture(1060,730))using(var selector=new CaptureSelector(image,new Rectangle(0,0,1060,730)))
             {
                 Drag(selector,new Point(122,122),new Point(938,590));var toolbar=(CaptureToolbar)selector.Controls[0];

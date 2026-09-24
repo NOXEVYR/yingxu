@@ -20,7 +20,7 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyProduct("映序桌面版")]
 [assembly: AssemblyVersion("0.4.19.0")]
 [assembly: AssemblyFileVersion("0.4.19.0")]
-[assembly: AssemblyInformationalVersion("0.4.19+junction.1")]
+[assembly: AssemblyInformationalVersion("0.4.19+junction.2")]
 
 namespace YingXu.Desktop
 {

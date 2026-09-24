@@ -479,12 +479,15 @@ namespace YingXu.Desktop
         internal Rectangle Area { get; private set; }
         internal CaptureSelector(Bitmap image,Rectangle bounds,string mode = "annotate",float scale=1)
         {
-            // Keep all actions reachable when a high DPI setting leaves a very small logical desktop.
-            uiScale=Math.Max(1,Math.Min(Math.Min(2.5f,scale),Math.Min(bounds.Width/320f,bounds.Height/240f)));
             screen=image; quick=mode=="quick"; AutoScaleMode=AutoScaleMode.None; FormBorderStyle=FormBorderStyle.None;
             StartPosition=FormStartPosition.Manual; Bounds=bounds; TopMost=true; ShowInTaskbar=false;
+            // WinForms can clamp Bounds to the host's maximum window size, even
+            // before a handle exists. Lay controls out for the actual viewport;
+            // the frozen bitmap and selected output retain their original pixels.
+            int layoutWidth=Math.Max(1,ClientSize.Width),layoutHeight=Math.Max(1,ClientSize.Height);
+            uiScale=Math.Max(1,Math.Min(Math.Min(2.5f,scale),Math.Min(layoutWidth/320f,layoutHeight/240f)));
             DoubleBuffered=true; KeyPreview=true; Cursor=Cursors.Cross; Text="映序截图 · 拖动选择区域，Esc 取消";
-            toolbar=new CaptureToolbar { UiScale=uiScale,Visible=false,Size=new Size(Math.Min(660,bounds.Width),70),WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default };
+            toolbar=new CaptureToolbar { UiScale=uiScale,Visible=false,Size=new Size(Math.Min(660,layoutWidth),70),WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(layoutWidth,0),Cursor=Cursors.Default };
             string[] names={"画笔（按住 Shift 画直线）","矩形","箭头","马赛克（拖动框选区域）"};
             string[] tools={"pen","rectangle","arrow","mosaic"};
             for(int i=0;i<tools.Length;i++)
@@ -502,7 +505,7 @@ namespace YingXu.Desktop
             }
             widthButton=new CaptureToolButton {Width=52,Icon="width",WidthMenuIndicator=true,AccessibleName="画笔粗细：4 像素，展开选项",StrokeWidth=DrawingWidth,Margin=new Padding(14,2,2,2)};
             tips.SetToolTip(widthButton,widthButton.AccessibleName);widthButton.Click+=(s,e)=>{if(widthPicker.Visible)HideWidthPicker();else ShowWidthPicker();};
-            widthPicker=new CaptureToolbar {UiScale=uiScale,Visible=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(bounds.Width,0),Cursor=Cursors.Default,AccessibleName="选择画笔粗细"};
+            widthPicker=new CaptureToolbar {UiScale=uiScale,Visible=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,MaximumSize=new Size(layoutWidth,0),Cursor=Cursors.Default,AccessibleName="选择画笔粗细"};
             foreach(int value in new[]{2,4,8,12})
             {
                 int pixels=value;var choice=new CaptureToolButton {Icon="width",StrokeWidth=pixels,AccessibleName=pixels+" 像素",Tag=pixels};
@@ -519,7 +522,7 @@ namespace YingXu.Desktop
             foreach(Button button in toolButtons)button.Click+=(s,e)=>HideWidthPicker(false);
             foreach(Button button in colorButtons)button.Click+=(s,e)=>HideWidthPicker(false);
             undo.Click+=(s,e)=>HideWidthPicker(false);
-            if(bounds.Width/uiScale<680)
+            if(layoutWidth/uiScale<680)
             {
                 // A compact density avoids an orphaned cancel button on small desktop displays.
                 toolbar.Padding=new Padding(14,12,14,14);
@@ -532,9 +535,9 @@ namespace YingXu.Desktop
             Controls.Add(toolbar);Controls.Add(widthPicker);RefreshChoices();
             if(uiScale!=1)
             {
-                toolbar.MaximumSize=Size.Empty;toolbar.Scale(new SizeF(uiScale,uiScale));toolbar.MaximumSize=new Size(bounds.Width,0);
+                toolbar.MaximumSize=Size.Empty;toolbar.Scale(new SizeF(uiScale,uiScale));toolbar.MaximumSize=new Size(layoutWidth,0);
                 foreach(CaptureToolButton button in toolbar.Controls)button.UiScale=uiScale;
-                widthPicker.MaximumSize=Size.Empty;widthPicker.Scale(new SizeF(uiScale,uiScale));widthPicker.MaximumSize=new Size(bounds.Width,0);
+                widthPicker.MaximumSize=Size.Empty;widthPicker.Scale(new SizeF(uiScale,uiScale));widthPicker.MaximumSize=new Size(layoutWidth,0);
                 foreach(CaptureToolButton button in widthPicker.Controls)button.UiScale=uiScale;
             }
         }
