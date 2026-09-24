@@ -49,6 +49,17 @@ jobs:
           persist-credentials: false
           lfs: false
           submodules: false
+      - name: Check capture layout before downloading release inputs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          & $compiler /nologo /optimize+ /platform:x64 /utf8output /target:exe /out:capture-preflight.exe /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll desktop/Core.cs desktop/Integration.cs desktop/Capture.cs desktop/CaptureTests.cs
+          if ($LASTEXITCODE) { throw 'Capture preflight compilation failed; no runtime downloaded' }
+          $test = Start-Process (Join-Path $PWD 'capture-preflight.exe') -WindowStyle Hidden -PassThru -RedirectStandardOutput 'capture-preflight.log' -RedirectStandardError 'capture-preflight-error.log'
+          if (-not $test.WaitForExit(60000)) { $test.Kill(); throw 'Capture preflight timed out; no runtime downloaded' }
+          Get-Content capture-preflight.log
+          Get-Content capture-preflight-error.log
+          if ($test.ExitCode -ne 0) { throw 'Capture preflight failed; no runtime downloaded' }
       - name: Authenticate explicit request and reuse verified official runtime
         run: |
           python -B .github/release-support/cached_release.py prepare
