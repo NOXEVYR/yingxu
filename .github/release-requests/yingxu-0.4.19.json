@@ -1,7 +1,7 @@
 {
   "approved": true,
-  "reviewed_source_commit": "af8f7d59b85fac34be55f8729554bb9069a6cd49",
+  "reviewed_source_commit": "b2b6cb35404157b4a75c70dc779aec679f988ffd",
   "download_budget_mib": 500,
   "version": "0.4.19",
-  "purpose": "Explicitly approved retry after 173 cloud capture checks passed; publish junction.2 using verified official 0.4.18 runtime"
+  "purpose": "Authorized retry within same 500 MiB budget; prior attempt stopped before runtime download; corrected native source paths"
 }
