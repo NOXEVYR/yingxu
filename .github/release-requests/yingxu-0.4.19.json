@@ -1,7 +1,7 @@
 {
   "approved": true,
-  "reviewed_source_commit": "af49949efd3eb323303815b39fe1c16feb1df7b8",
+  "reviewed_source_commit": "af8f7d59b85fac34be55f8729554bb9069a6cd49",
   "download_budget_mib": 500,
   "version": "0.4.19",
-  "purpose": "Windows junction-open fix and explicit incremental updates; reuse official 0.4.18 runtime"
+  "purpose": "Explicitly approved retry after 173 cloud capture checks passed; publish junction.2 using verified official 0.4.18 runtime"
 }
