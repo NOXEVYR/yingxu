@@ -120,6 +120,12 @@ def main():
                 str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
                 str(DESKTOP / "LifecycleTests.cs")], check=True)
             subprocess.run([str(lifecycle),str(ROOT)],check=True,timeout=30)
+            update_tests = folder / "incremental-install-tests.exe"
+            subprocess.run(lifecycle_command + ["/target:exe", f"/out:{update_tests}", "/main:YingXu.Desktop.IncrementalInstallTests",
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"),
+                str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
+                str(DESKTOP / "IncrementalInstallTests.cs")], check=True)
+            subprocess.run([str(update_tests),str(ROOT)],check=True,timeout=30)
             reader_tests = folder / "quick-reader-tests.exe"
             subprocess.run(lifecycle_command + ["/target:exe", f"/out:{reader_tests}", "/main:YingXu.Desktop.QuickReaderTests",
                 str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),

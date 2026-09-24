@@ -63,7 +63,7 @@ def wait_health(port, process=None):
 
 def check_server(port, data, projects, restart=None):
     health = wait_health(port)
-    assert health['version'] == '0.4.18'
+    assert health['version'] == '0.4.19'
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')
@@ -372,7 +372,17 @@ def main():
             for name in names:
                 path = PurePosixPath(name)
                 assert path.parts[0] == 'YingXu' and '..' not in path.parts and not path.is_absolute() and '\\' not in name
-            manifest = json.loads(archive.read('YingXu/RELEASE_MANIFEST.json'))
+            manifest_raw = archive.read('YingXu/RELEASE_MANIFEST.json')
+            manifest = json.loads(manifest_raw)
+            external_path = args.archive.with_name(f"YingXu-v{manifest['version']}-manifest.json")
+            if external_path.is_file():
+                external = json.loads(external_path.read_text(encoding='utf-8'))
+                assert external['file'] == args.archive.name
+                assert external['bytes'] == args.archive.stat().st_size
+                assert external['sha256'] == hashlib.sha256(args.archive.read_bytes()).hexdigest()
+                if 'release_manifest_sha256' in external:
+                    assert external['release_manifest_sha256'] == hashlib.sha256(manifest_raw).hexdigest()
+                    checked.append('external manifest binds exact internal manifest for incremental updates')
             if manifest.get('icon_revision'):
                 assert manifest['icon_revision'] == 'viewfinder-v1'
                 assert hashlib.sha256(archive.read('YingXu/desktop/brand.ico')).hexdigest() == manifest['icon_sha256']

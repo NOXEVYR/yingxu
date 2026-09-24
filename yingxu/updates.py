@@ -12,8 +12,8 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from yingxu import __version__, __mac_preview__
 from yingxu.store import UserError
 
-RELEASES = 'https://api.github.com/repos/turnsolesama/yingxu/releases?per_page=100'
-PAGE = 'https://github.com/turnsolesama/yingxu/releases/tag/'
+RELEASES = 'https://api.github.com/repos/NOXEVYR/yingxu/releases?per_page=100'
+PAGE = 'https://github.com/NOXEVYR/yingxu/releases/tag/'
 MAX_RESPONSE = 2 * 1024 * 1024
 _lock = threading.Lock()
 _cache = None

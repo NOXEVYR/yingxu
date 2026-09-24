@@ -224,6 +224,39 @@ namespace YingXu.Desktop
             ".blend", ".fbx", ".obj", ".glb", ".gltf", ".stl", ".docx", ".pdf", ".doc", ".pptx", ".xlsx", ".rtf"
         };
 
+        internal static string ResolveOpenedFilePath(string value)
+        {
+            // An explicit shell-open may arrive through a compatibility junction.
+            // Bind it to the physical file once; never relax managed drag-out checks.
+            if (String.IsNullOrEmpty(value) || value.Length > 32700 || value.Length < 3 ||
+                !Char.IsLetter(value[0]) || value[1] != ':' || (value[2] != '\\' && value[2] != '/') ||
+                value.IndexOf('\0') >= 0 || value.IndexOf(':', 2) >= 0)
+                throw new InvalidDataException("打开文件需要本机磁盘中的普通文件绝对路径。");
+            string full = Path.GetFullPath(value);
+            if (!DragExtensions.Contains(Path.GetExtension(full)))
+                throw new InvalidDataException("此文件类型暂不支持在映序中打开。");
+            using (var handle = CreateFileW(full, 0, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+            {
+                if (handle.IsInvalid) throw new IOException("无法打开文件，请确认文件存在且有读取权限。", new Win32Exception(Marshal.GetLastWin32Error()));
+                var path = new StringBuilder(512);
+                uint length = GetFinalPathNameByHandleW(handle, path, (uint)path.Capacity, 0);
+                if (length >= path.Capacity)
+                {
+                    path.EnsureCapacity(checked((int)length + 1));
+                    length = GetFinalPathNameByHandleW(handle, path, (uint)path.Capacity, 0);
+                }
+                if (length == 0 || length >= path.Capacity)
+                    throw new IOException("无法解析文件的实际位置。", new Win32Exception(Marshal.GetLastWin32Error()));
+                full = path.ToString();
+                if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("暂不支持从网络共享打开文件，请先复制到本机。");
+                if (full.StartsWith(@"\\?\", StringComparison.Ordinal)) full = full.Substring(4);
+                // Recheck the resolved target, including its extension and ancestors.
+                try { return ValidateNativeFilePath(full); }
+                catch (InvalidDataException error) { throw new InvalidDataException("文件的实际位置不支持打开，请使用本机普通文件。", error); }
+            }
+        }
+
         internal static string ValidateNativeFilePath(string value)
         {
             if (String.IsNullOrEmpty(value) || value.Length > 32700 || value.Length < 3 ||
@@ -318,7 +351,7 @@ namespace YingXu.Desktop
                     return health != null && health.TryGetValue("app", out name) && (name as string) == "yingxu" &&
                            health.TryGetValue("ok", out ok) && ok is bool && (bool)ok &&
                            health.TryGetValue("instance_id", out identity) && (identity as string) == InstanceId() &&
-                           health.TryGetValue("version", out version) && (version as string) == "0.4.18";
+                           health.TryGetValue("version", out version) && (version as string) == "0.4.19";
                 }
             }
             catch { return false; }

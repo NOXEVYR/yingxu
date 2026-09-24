@@ -35,11 +35,11 @@ namespace YingXu.Desktop
                 else if (value == "--open")
                 {
                     if (++index == args.Length) throw new ArgumentException("--open 缺少文件路径。");
-                    files.Add(Hub.ValidateNativeFilePath(args[index]));
+                    files.Add(Hub.ResolveOpenedFilePath(args[index]));
                 }
                 else if (value == "--register-open-with" || value == "--unregister-open-with") result.Registration = value;
                 else if (value.StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("不支持的映序启动参数。");
-                else files.Add(Hub.ValidateNativeFilePath(value));
+                else files.Add(Hub.ResolveOpenedFilePath(value));
             }
             if (files.Count > 32) throw new ArgumentException("一次最多打开 32 个文件。");
             if (result.Registration != null && files.Count != 0) throw new ArgumentException("注册操作不能同时打开文件。");
@@ -68,10 +68,10 @@ namespace YingXu.Desktop
             request.Proxy = null; request.AllowAutoRedirect = false;
             request.Timeout = 15000; request.ReadWriteTimeout = 15000;
             request.Headers["Origin"] = Hub.Url.TrimEnd('/');
+            if (!String.IsNullOrEmpty(token)) request.Headers["X-YingXu-Token"] = token;
             if (payload != null)
             {
                 request.Method = "POST"; request.ContentType = "application/json";
-                request.Headers["X-YingXu-Token"] = token;
                 byte[] bytes = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(payload));
                 request.ContentLength = bytes.Length;
                 using (var stream = request.GetRequestStream()) stream.Write(bytes, 0, bytes.Length);
@@ -101,6 +101,8 @@ namespace YingXu.Desktop
         }
         internal static object OpenFiles(string[] paths)
         {
+            // The in-app file picker is also an explicit user open operation.
+            paths = Array.ConvertAll(paths, Hub.ResolveOpenedFilePath);
             var bootstrap = Request("/api/bootstrap");
             object token;
             if (!bootstrap.TryGetValue("token", out token) || !(token is string)) throw new InvalidDataException("后台未提供本地打开令牌。");
@@ -141,7 +143,7 @@ namespace YingXu.Desktop
             if (bytes.Length > 1048576) throw new InvalidDataException("打开请求过大。");
             var paths = new JavaScriptSerializer().Deserialize<string[]>(Encoding.UTF8.GetString(bytes));
             if (paths == null || paths.Length > 32) throw new InvalidDataException("文件数量超过限制。");
-            return Array.ConvertAll(paths, Hub.ValidateNativeFilePath);
+            return Array.ConvertAll(paths, Hub.ResolveOpenedFilePath);
         }
         private static byte[] Read(Stream stream, int size)
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -34,6 +35,74 @@ namespace YingXu.Desktop
         {
             var task=web.CoreWebView2.ExecuteScriptAsync(code);Pump(task);return task.Result;
         }
+        private static void RejectOpenedPath(string path,string name)
+        {
+            bool rejected=false;
+            try { Hub.ResolveOpenedFilePath(path); }
+            catch(ArgumentException) { rejected=true; }
+            catch(InvalidDataException) { rejected=true; }
+            catch(IOException) { rejected=true; }
+            catch(UnauthorizedAccessException) { rejected=true; }
+            Check(rejected,name);
+        }
+        private static void JunctionPaths(string temporary)
+        {
+            string fixture=Path.Combine(temporary,"junction-fixture");Directory.CreateDirectory(fixture);
+            string target=Path.Combine(fixture,"真实 文稿");Directory.CreateDirectory(target);
+            string alias=Path.Combine(fixture,"别名 资料");
+            string original="# 联接中文标题\r\n\r\n保留 **正文** 与 BOM。\r\n";
+            string file=Path.Combine(target,"中文 笔记.md"),opened=Path.Combine(alias,"中文 笔记.md");
+            File.WriteAllText(file,original,new UTF8Encoding(true));byte[] before=File.ReadAllBytes(file);
+            string command="$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path '"+alias.Replace("'","''")+"' -Target '"+target.Replace("'","''")+"' | Out-Null";
+            var start=new ProcessStartInfo(Path.Combine(Environment.SystemDirectory,"WindowsPowerShell","v1.0","powershell.exe"),
+                "-NoProfile -NonInteractive -EncodedCommand "+Convert.ToBase64String(Encoding.Unicode.GetBytes(command))) {
+                UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,RedirectStandardOutput=true,RedirectStandardError=true };
+            try
+            {
+                using(var process=Process.Start(start))
+                {
+                    if(!process.WaitForExit(15000))throw new TimeoutException("Junction fixture creation did not complete");
+                    string errors=process.StandardError.ReadToEnd();
+                    Check(process.ExitCode==0,"temporary directory junction created without elevation: "+errors);
+                }
+                Check((File.GetAttributes(alias)&FileAttributes.ReparsePoint)!=0,"fixture is a real filesystem junction");
+                string canonical=Hub.ResolveOpenedFilePath(file);
+                Check(String.Equals(canonical,Path.GetFullPath(file),StringComparison.OrdinalIgnoreCase),"ordinary shell path remains canonical");
+                Check(String.Equals(Hub.ResolveOpenedFilePath(opened),canonical,StringComparison.OrdinalIgnoreCase),"shell junction path resolves to real file");
+                Check(LaunchOptions.Parse(new[]{"--open",opened},Hub.Root).Paths.Single()==canonical,"explicit shell open canonicalizes junction");
+                Check(LaunchOptions.Parse(new[]{opened},Hub.Root).Paths.Single()==canonical,"positional shell open canonicalizes junction");
+                Check(OpenInbox.Decode(OpenInbox.Encode(new[]{opened})).Single()==canonical,"IPC decode canonicalizes junction path");
+                Check(QuickReaderDocument.Read(opened)==original,"junction reader retains exact Chinese text");
+                bool rejected=false;try { Hub.ValidateNativeFilePath(opened); } catch(InvalidDataException) { rejected=true; }
+            catch(IOException) { rejected=true; }
+                Check(rejected,"registered native path validator still rejects junctions");
+                string[] handed=null;
+                using(var window=new QuickReaderWindow(opened,paths=>handed=paths,initialize:false))
+                {
+                    var button=window.Controls.OfType<ToolStrip>().Single().Items.OfType<ToolStripButton>().Single(item=>item.Text.StartsWith("在映序"));
+                    button.PerformClick();
+                    Check(handed!=null&&handed.Length==1&&handed[0]==canonical,"junction reader workspace handoff uses canonical file");
+                }
+                string executable=Path.Combine(target,"blocked.exe");File.WriteAllBytes(executable,new byte[]{77,90});
+                string directory=Path.Combine(target,"folder.md");Directory.CreateDirectory(directory);
+                RejectOpenedPath("relative.md","relative shell file rejected");
+                RejectOpenedPath(@"\\localhost\share\note.md","UNC shell file rejected before access");
+                RejectOpenedPath(file+":other.md","ADS shell file rejected");
+                RejectOpenedPath(@"\\?\"+file,"extended device shell path rejected");
+                RejectOpenedPath(@"\\.\NUL","device shell path rejected");
+                RejectOpenedPath(Path.Combine(alias,"blocked.exe"),"executable shell file rejected");
+                RejectOpenedPath(Path.Combine(alias,"folder.md"),"directory disguised as Markdown rejected");
+                RejectOpenedPath(Path.Combine(alias,"missing.md"),"missing shell file rejected");
+                Check(before.SequenceEqual(File.ReadAllBytes(file)),"junction routing and handoff preserve original bytes and BOM");
+            }
+            finally
+            {
+                // Never recursively delete a junction: unlink this fixture alias
+                // only, before the build runner removes the ordinary temp root.
+                if(Directory.Exists(alias))Directory.Delete(alias);
+            }
+            Check(File.Exists(file)&&before.SequenceEqual(File.ReadAllBytes(file)),"junction cleanup leaves target and original bytes intact");
+        }
         [STAThread]
         private static int Main(string[] args)
         {
@@ -65,6 +134,7 @@ namespace YingXu.Desktop
         private static void Run(string temporary)
         {
             CoreWebView2Environment.SetLoaderDllFolderPath(Program.LoaderFolder);
+            JunctionPaths(temporary);
             string file=Path.Combine(temporary,"中文 阅览.md");
             string original="# 中文标题\r\n\r\n正文 **加粗**\r\n\r\n<script>window.injected=true</script>\r\n![remote](https://example.invalid/image.png)\r\n";
             foreach(var encoding in new Encoding[] { new UTF8Encoding(true),new UnicodeEncoding(false,true),new UnicodeEncoding(true,true),Encoding.GetEncoding(54936) })

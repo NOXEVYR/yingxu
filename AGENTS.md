@@ -1,5 +1,7 @@
 # 映序公开版开发约定
 
+- Windows 增量更新只在用户点击检查、确认下载和确认退出安装后执行；固定官方仓库 `NOXEVYR/yingxu`，禁止启动联网、静默整包回退或终止用户进程。`tools/package_release.py` 的外部清单必须包含精确内部清单摘要 `release_manifest_sha256`。程序和数据目录必须分离；项目、草稿、数据库、配置、未登记文件不能纳入更新。按文件复用、摘要校验、进程退出握手、持久事务回退和恢复不得跳过。定向运行 `test_incremental*.py`、`test_update_service.py`、`frontend_incremental_update.cjs`，原生 `desktop/build.py --test` 包含安装退出桥接；独立运行时测试设置 `YINGXU_INSTALLER_TEST_RUNTIME` 指向已验证官方 runtime。详见 `docs/incremental-updates.md`。
+
 - 中文本地视频创作项目工作台；独立仓库根目录。公开版不包含任何个人素材、数据库、缓存、日志或帐号配置。
 - Python 3.11+ 标准库 HTTP + SQLite，原生 HTML/CSS/JS；源码运行可使用 Pillow 与 PATH 中的 FFmpeg；公开完整包必须自带锁定来源的运行环境。无 CDN、遥测或启动时自动下载。开发构建可以显式下载锁定的上游档案。
 - 默认应用数据 `%LOCALAPPDATA%\YingXu`，项目在 Windows“文档”目录的 `YingXu\Projects`。`YINGXU_DATA_DIR` 和 `YINGXU_PROJECTS_DIR` 只接受绝对路径；测试必须覆盖到临时目录，禁止在真实用户数据上测试。
@@ -56,3 +58,5 @@
 - 跨项目移动复用 POST /api/move 的 target_project_id；保留条目身份、历史和批次内关系，部分素材组或未一同移动的本地文稿链接必须明确拒绝。先复制校验再提交，提交结果不明须核对持久记录，不能删除可能已经提交的目标。目标验证后才清理源文件，失败保留副本并提示。UI 的忙碌状态在首次 await 前建立，已提交后的列表刷新失败不能重做移动。
 - Windows 文件夹前台打开仅在新宿主能力 yingxuDesktopOpenFolder 下请求 native_open，由后台验证登记路径、宿主发起 Explorer；旧宿主和浏览器沿用后台打开。匹配和激活使用单一 STA 工作线程，有界重试，用户切换应用后不抢焦点，不永久置顶。
 - 新定向检查：tests/frontend_native_drop_import.cjs、frontend_upload_connection.cjs、frontend_cross_project_move.cjs、frontend_folder_focus.cjs、test_cross_project.py、test_cross_project_http.py。原生 build.py --test 包含文件夹前台合成测试；有锁定 WebView 运行时时还验证真实文件对象桥接，不能将其等同于对方电脑上的 Explorer OLE 手势验收。
+
+- Windows 显式打开文件使用 Hub.ResolveOpenedFilePath，以文件句柄解析本机兼容目录联接，再校验真实路径；启动参数、IPC、快速阅览和转工作台统一使用实际路径。素材原生拖出仍用严格 ValidateNativeFilePath，不得将显式打开规则扩散到受管素材权限。desktop/QuickReaderTests.cs 包含真实临时联接测试；仅非递归移除联接本身，禁止测试操作用户原文件。

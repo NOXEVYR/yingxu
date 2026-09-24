@@ -58,7 +58,7 @@ async function api(path, options = {}) {
   if (state.migrationBusy && options.method && !['GET','HEAD'].includes(options.method.toUpperCase()) && !['/api/project-storage/migration','/api/updates/check','/api/updates/open'].includes(path)) throw new Error('项目正在迁移，请完成后再编辑或导入。');
   const init = {...options,headers:{Accept:'application/json',...(options.headers || {})}};
   if (options.body !== undefined) { const body = window.yingxuDesktopOpenFolder && window.chrome?.webview?.postMessage && options.method === 'POST' && (path === '/api/open-folder' || (path === '/api/open' && options.body?.action === 'reveal')) ? {...options.body,native_open:true} : options.body; init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
-  if (options.method && options.method !== 'GET') init.headers['X-YingXu-Token'] = state.bootstrap?.token || '';
+  if ((options.method && options.method !== 'GET') || /^\/api\/updates\/(?:status|install\/status)(?:\?|$)/.test(path)) init.headers['X-YingXu-Token'] = state.bootstrap?.token || '';
   let response;
   try { response = await fetch(path, init); const connection = $('#connectionState'); if (connection) connection.textContent = '本地连接正常'; }
   catch(error) { if (error.name === 'AbortError') throw error; const connection = $('#connectionState'); if (connection) connection.textContent = '连接暂时中断'; throw new Error('本地服务暂时无法连接。请确认映序仍在运行，然后重试。'); }
@@ -1274,6 +1274,7 @@ async function saveCurrent() {
 }
 
 function showDialog({title,subtitle='',body='',submit='确定',wide=false,onSubmit,actions}) {
+  incrementalUpdateUI?.dispose();
   const dialog = $('#appDialog'); if (dialog.open) dialog.close(); const sequence = ++state.modalSequence; state.modalBusy = false; dialog.classList.toggle('wide',wide);
   $('#dialogTitle').textContent = title; $('#dialogSubtitle').textContent = subtitle; $('#dialogBody').innerHTML = body; $('#dialogError').hidden = true;
   $('#dialogActions').innerHTML = actions || `<button type="button" class="button button-ghost" data-dialog-cancel>取消</button><button type="submit" class="button button-primary">${escapeHtml(submit)}</button>`;
@@ -1541,7 +1542,7 @@ function runtimeSummary() { const caps = state.bootstrap?.capabilities || {}; re
 function helpDialog() { showDialog({title:'让每个镜头都有来处',subtitle:'映序把本地创作文件串成项目，你可以从最熟悉的一步开始。',wide:true,body:`${runtimeSummary()}<div class="guide-grid"><div class="guide-item"><strong>${icon('folder')}项目与分类</strong><p>创建项目，再用剧本、分镜、角色、场景、道具等分类整理内容。卡片可拖到左侧分类。</p></div><div class="guide-item"><strong>${icon('script')}像笔记一样写作</strong><p>右键空白处、项目或文件夹可新建笔记。单击打开文件，多标签自由切换；Markdown 支持实时预览编辑，Word 可修改正文段落。Ctrl+K 可跨项目查找名称与已索引正文，点击结果直接打开。</p></div><div class="guide-item"><strong>${icon('link')}把创作线索连起来</strong><p>在右侧信息面板把角色、场景、白模视频、生成版本关联到具体分镜，并记录状态与提示词。</p></div><div class="guide-item"><strong>${icon('upload')}导入与拖放</strong><p>导入默认复制到项目分类，也可选择仅引用原位置；把文件拖进页面会保存项目副本。桌面版直接拖动图片或卡片即可拖到其他软件。先点第一项，按住 Shift 点最后一项可连续多选并一起拖动。</p></div><div class="guide-item"><strong>${icon('skills')}集中管理 SKILL</strong><p>阅读已有 SKILL，创建自己的创作规范。右键 SKILL 可打开其所在位置；绑定到项目后，交接文件会记录相关能力与位置。</p></div><div class="guide-item"><strong>${icon('context')}把进度交给 AI</strong><p>在 AI 协作中刷新项目进度，将本地交接文件路径发给 Codex，继续处理已有项目。</p></div></div><div class="shortcut-list"><span>当前页面搜索<kbd>Ctrl F</kbd></span><span>全局搜索<kbd>Ctrl K</kbd></span><span>保存<kbd>Ctrl S</kbd></span><span>帮助<kbd>?</kbd></span></div>`,actions:'<button class="button button-primary" type="button" data-dialog-cancel>开始创作</button>'}); }
 
 async function handleAction(action,target) {
-  if(action==='check-update' || action==='open-update')return updateSettingsAction(action,target);
+  if(['check-update','open-update','download-update','install-update','refresh-update'].includes(action))return updateSettingsAction(action,target);
   if(action==='find-document')return openDocumentSearch();
   if(action==='maintenance-preview' || action==='maintenance-cleanup')return maintenanceAction(action==='maintenance-cleanup');
   if (action === 'capture-screen') return captureScreen();
@@ -2321,11 +2322,88 @@ function bindProjectStorageSettings(dialog) {
 
 function updateSettingsHtml() {
   if (!state.bootstrap?.capabilities?.manual_update_check) return '';
-  return `<h4>手动更新</h4><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="check-update">${icon('refresh')}检查更新</button></div><p class="field-hint">仅点击时连接 GitHub，检查当前平台的发布包；不会自动下载或安装。</p><div id="updateCheckResult" role="status" aria-live="polite"></div>`;
+  return `<h4>手动更新</h4><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="check-update">${icon('refresh')}检查更新</button></div><p class="field-hint">${incrementalUpdateHost() ? '点击检查后核对版本和变化文件，确认下载量后再下载；复用本机未变化的文件。不会自动下载或安装。' : '仅点击时连接 GitHub，检查当前平台的发布包；此窗口请使用完整包更新。不会自动下载或安装。'}</p><div id="updateCheckResult" role="status" aria-live="polite"></div>`;
+}
+function incrementalUpdateHost() { return !window.yingxuMac && !!window.yingxuDesktopIncrementalUpdate && typeof window.chrome?.webview?.postMessage === 'function'; }
+function updateReleaseTag(value) { return /^yingxu-v\d{1,4}\.\d{1,4}\.\d{1,4}(?:-mac\.\d{1,4})?$/.test(String(value || '')) ? String(value) : ''; }
+function updateReleaseHtml(info={}) {
+  const match = /^https:\/\/github\.com\/NOXEVYR\/yingxu\/releases\/tag\/(yingxu-v\d{1,4}\.\d{1,4}\.\d{1,4}(?:-mac\.\d{1,4})?)$/.exec(String(info.release_url || ''));
+  const tag = match ? match[1] : updateReleaseTag(info.tag) || updateReleaseTag(`yingxu-v${info.latest_version || ''}`);
+  const url = `https://github.com/NOXEVYR/yingxu/releases${tag ? '/tag/' + tag : ''}`;
+  return `${tag ? `<div class="settings-buttons"><button type="button" class="button button-secondary" data-action="open-update" data-tag="${escapeHtml(tag)}">${icon('open')}查看发布说明与完整包</button></div>` : ''}<p class="field-hint">发布页地址（可复制到浏览器）</p><input aria-label="发布页地址" readonly value="${escapeHtml(url)}"><p class="field-hint">完整包更新：先保存文稿并完整退出映序，再按发布说明替换程序；原项目和应用数据保留。</p>`;
+}
+function updateLastInstallHtml(receipt) {
+  const labels = {installed:'已安装',rolled_back:'未安装成功，已回退旧版',recovery_required:'未完成，需要恢复',failed:'安装失败',cancelled:'已取消'};
+  if (!receipt || !Object.prototype.hasOwnProperty.call(labels,receipt.state)) return '';
+  return `<p><strong>上次安装：${labels[receipt.state]}${receipt.version ? ' · ' + escapeHtml(String(receipt.version)) : ''}</strong></p>${receipt.message ? `<p class="field-hint">${escapeHtml(String(receipt.message))}</p>` : ''}${receipt.restarted === false ? '<p class="field-hint">上次自动重启未完成，需要时请手动打开映序；若提示需要恢复，请按启动时的恢复指引处理。</p>' : ''}`;
+}
+let incrementalUpdateUI = null;
+function bindIncrementalUpdate(dialog) {
+  incrementalUpdateUI?.dispose();
+  const host = $('#updateCheckResult'), sequence = state.modalSequence;
+  if (!host || !incrementalUpdateHost()) { incrementalUpdateUI = null; return null; }
+  let disposed = false, timer = null, busy = false, revision = 0, info = {state:'idle'}, lastInstall = null;
+  const current = () => !disposed && dialog.open && state.modalSequence === sequence && $('#updateCheckResult') === host;
+  const stop = () => { if (timer !== null) clearTimeout(timer); timer = null; };
+  const closed = () => { if (!dialog.open || sequence !== state.modalSequence) dispose(); };
+  const dispose = () => { disposed = true; revision++; stop(); dialog.removeEventListener?.('close',closed); };
+  const amount = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const render = () => {
+    if (!current()) return;
+    const phase = info.state, labels = {idle:'点击“检查更新”核对版本和变化文件。',planning:'正在核对版本与变化文件…',planned:'更新差异已核对，请确认下载量。',downloading:'正在下载变化文件…',ready:'更新文件已下载并验证，可以安装。',current:'当前已是最新版本。',error:'更新未完成。'};
+    const total = amount(info.total_download_bytes), received = amount(info.download_bytes);
+    const planned = ['planned','downloading','ready'].includes(phase);
+    const validPlan = /^[a-f0-9]{32}$/.test(String(info.plan_id || ''));
+    let body = updateLastInstallHtml(lastInstall) + `<p><strong>${labels[phase] || labels.error}</strong></p>`;
+    if (info.current_version || info.latest_version) body += `<p class="field-hint">当前 ${escapeHtml(info.current_version || '未知')} · 最新 ${escapeHtml(info.latest_version || '待检查')}</p>`;
+    if (info.message) body += `<p class="field-hint">${escapeHtml(String(info.message))}</p>`;
+    if (planned) body += `<p>需下载 <strong>${formatSize(total)}</strong>（${total.toLocaleString()} 字节） · 变化 ${amount(info.changed_files)} 个文件 · 复用 ${amount(info.reused_files)} 个文件 · 移除 ${amount(info.removed_files)} 个旧程序文件</p><p class="field-hint">此下载量为变化文件的压缩数据，不含少量网络协议开销；不会下载完整包或改动项目文稿。</p>`;
+    if (phase === 'downloading') body += `<p>已下载 ${formatSize(received)} / ${formatSize(total)}</p><progress aria-label="更新下载进度" max="${Math.max(total,1)}" value="${Math.min(received,total)}"></progress>`;
+    if (phase === 'planned' && validPlan) body += '<div class="settings-buttons"><button type="button" class="button button-primary" data-action="download-update">确认下载更新</button></div>';
+    if (phase === 'ready' && validPlan && info.can_install === true && incrementalUpdateHost()) body += '<div class="settings-buttons"><button type="button" class="button button-primary" data-action="install-update">保存文稿并退出安装</button></div><p class="field-hint">安装前会检查未保存文稿，可保存、放弃或取消退出。需要保留本页设置改动时，请先点击“保存设置”，再回到此处安装。</p>';
+    if (phase === 'error') body += '<div class="settings-buttons"><button type="button" class="button button-secondary" data-action="refresh-update">重新读取更新状态</button></div>';
+    host.innerHTML = body + updateReleaseHtml(info);
+    const check = dialog.querySelector?.('[data-action="check-update"]');
+    if (check) check.disabled = busy || ['planning','downloading'].includes(phase);
+  };
+  const accept = value => {
+    if (!value || !['idle','planning','planned','downloading','ready','error','current'].includes(value.state)) throw new Error('更新状态无法识别，请使用发布页或稍后重试。');
+    if (['planned','downloading','ready'].includes(value.state) && !['total_download_bytes','download_bytes','changed_files','reused_files','removed_files'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0)) throw new Error('更新下载量或文件清单不完整，请重新检查后再下载。');
+    if (Object.prototype.hasOwnProperty.call(value,'last_install')) lastInstall = value.last_install;
+    info = {...value}; render();
+    if (['planning','downloading'].includes(info.state)) timer = setTimeout(() => { timer = null; if (current()) request('/api/updates/status'); else dispose(); },1000);
+  };
+  const request = async (url,options) => {
+    if (!current() || busy) return;
+    stop(); busy = true; const token = ++revision; render();
+    try { const value = await api(url,options); if (current() && token === revision) accept(value); }
+    catch(error) { if (current() && token === revision) { info = {...info,state:'error',can_install:false,message:String(error.message || '未能连接更新服务。')}; render(); } }
+    finally { busy = false; if (current() && token === revision) render(); }
+  };
+  const action = async name => {
+    if (!current() || busy) return;
+    if (name === 'check-update') { if (['planning','downloading'].includes(info.state)) return; info = {state:'planning'}; return request('/api/updates/plan',{method:'POST',body:{}}); }
+    if (name === 'refresh-update') return request('/api/updates/status');
+    if (name === 'download-update' && info.state === 'planned' && /^[a-f0-9]{32}$/.test(String(info.plan_id || ''))) return request('/api/updates/download',{method:'POST',body:{plan_id:info.plan_id}});
+    if (name === 'install-update' && info.state === 'ready' && info.can_install === true && /^[a-f0-9]{32}$/.test(String(info.plan_id || '')) && incrementalUpdateHost()) {
+      if (state.modalBusy || captureHotkeyUI?.isRecording()) { toast('请先完成当前设置操作或取消快捷键录入。','info'); return; }
+      const planId = info.plan_id; dispose(); dialog.close();
+      try { window.chrome.webview.postMessage({action:'install-update',planId}); }
+      catch(error) { toast(`未能请求安装：${error.message}。可重新打开设置重试。`,'error'); }
+    }
+  };
+  dialog.addEventListener('close',closed);
+  const ui = {action,dispose,current,ready:null}; incrementalUpdateUI = ui;
+  ui.ready = request('/api/updates/status'); return ui;
 }
 async function updateSettingsAction(action,target) {
   const result = $('#updateCheckResult'), dialog = $('#appDialog'), sequence = state.modalSequence;
   if (!result || !dialog?.open || target.disabled) return;
+  if (action !== 'open-update' && incrementalUpdateHost()) {
+    const ui = incrementalUpdateUI?.current() ? incrementalUpdateUI : bindIncrementalUpdate(dialog);
+    if (ui) { await ui.ready; return ui.action(action); }
+  }
+  if (!['check-update','open-update'].includes(action)) return;
   const current = () => dialog.open && state.modalSequence === sequence && $('#updateCheckResult') === result;
   target.disabled = true;
   if (action === 'check-update') result.textContent = '正在检查更新…';
@@ -2338,10 +2416,10 @@ async function updateSettingsAction(action,target) {
     const info = await api('/api/updates/check',{method:'POST',body:{}});
     if (!current()) return;
     const message = info.update_available ? `发现新版本 ${info.latest_version}` : `当前版本 ${info.current_version} 暂无可用更新`;
-    result.innerHTML = `<p><strong>${escapeHtml(message)}</strong></p><p class="field-hint">${escapeHtml(info.channel)} · 当前 ${escapeHtml(info.current_version)} · 已发布 ${escapeHtml(info.latest_version)}</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="open-update" data-tag="${escapeHtml(info.tag)}">${icon('open')}查看发布说明与下载</button></div><p class="field-hint">发布页地址</p><input aria-label="发布页地址" readonly value="${escapeHtml(info.url)}"><p class="field-hint">下载当前平台完整包后，先保存文稿并完整退出映序；Windows 再运行旧目录 Stop-YingXu.ps1，然后解压新版运行。原项目和应用数据保留。</p>`;
+    result.innerHTML = `<p><strong>${escapeHtml(message)}</strong></p><p class="field-hint">${escapeHtml(info.channel)} · 当前 ${escapeHtml(info.current_version)} · 已发布 ${escapeHtml(info.latest_version)}</p>${updateReleaseHtml(info)}`;
   } catch(error) {
     if (current()) {
-      if (action === 'check-update') result.textContent = `未能检查更新：${error.message}`;
+      if (action === 'check-update') { result.textContent = `未能检查更新：${error.message}`; result.innerHTML = `<p>${escapeHtml(result.textContent)}</p>${updateReleaseHtml()}`; }
       else toast(error.message,'error');
     }
   } finally { if (current()) target.disabled = false; }
@@ -2356,7 +2434,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')} · ${mac ? 'macOS 试用版 0.4.16-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.18 · ${escapeHtml(state.bootstrap?.version === '0.4.18' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.16-mac.1' : '稳定版'}</p><p class="field-hint">界面版本 0.4.18 · ${escapeHtml(state.bootstrap?.version === '0.4.18' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'pine',label:'雾白松绿'},{key:'paper',label:'暖纸书卷'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     if (captureHotkeyUI?.isRecording()) throw new Error('请先完成快捷键录入，或按 Esc 取消录入。');
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
@@ -2370,6 +2448,7 @@ async function settingsDialog() {
     if (captureHotkeyUI && (saved.capture_hotkey !== settings.capture_hotkey || saved.capture_enabled !== settings.capture_enabled)) { settings.capture_hotkey=saved.capture_hotkey;settings.capture_enabled=saved.capture_enabled;return false; }
   }});
   if (state.bootstrap?.capabilities?.project_storage) bindProjectStorageSettings($('#appDialog'));
+  if (incrementalUpdateHost() && $('#updateCheckResult')) bindIncrementalUpdate($('#appDialog'));
   if (!mac && window.YingXuHotkeyRecorder) {
     captureHotkeyUI=window.YingXuHotkeyRecorder.install({dialog:$('#appDialog'),input:$('#captureHotkey'),button:$('#captureHotkeyButton'),status:$('#captureHotkeyStatus'),enabled:$('[name="capture_enabled"]'),native:desktop && !!window.yingxuCaptureHotkeyRecorder,send:message=>window.chrome?.webview?.postMessage(message)});
     if (desktop && window.yingxuCaptureHotkeyRecorder) window.chrome.webview.postMessage({action:'capture-hotkey-status'});

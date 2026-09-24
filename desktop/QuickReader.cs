@@ -36,13 +36,14 @@ namespace YingXu.Desktop
 
         private void Dispatch(Action action)
         {
-            if (stopping || dispatcher.IsDisposed) throw new IOException("映序正在退出，请重新打开。");
+            if (stopping || dispatcher.IsDisposed || Program.IncrementalInstalling) throw new IOException("映序正在退出或准备更新，请稍后重新打开。");
             try { dispatcher.BeginInvoke(action); }
             catch (InvalidOperationException) { throw new IOException("映序正在退出，请重新打开。"); }
         }
 
         internal void Open(string[] paths)
         {
+            if(Program.IncrementalInstalling)throw new IOException("映序正在准备更新，请稍后重新打开。");
             if (paths.Length == 0) { OpenStudio(paths); return; }
             var full = new List<string>();
             foreach (string path in paths)
@@ -106,7 +107,7 @@ namespace YingXu.Desktop
 
         internal static string Read(string path)
         {
-            path = Hub.ValidateNativeFilePath(path);
+            path = Hub.ResolveOpenedFilePath(path);
             if (!Supports(path)) throw new InvalidDataException("此类型请在映序主端中打开。");
             byte[] raw;
             using (var stream = new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite | FileShare.Delete))
@@ -166,7 +167,7 @@ namespace YingXu.Desktop
 
         internal QuickReaderWindow(string file,Action<string[]> openStudio, bool initialize = true)
         {
-            path = file;
+            path = Hub.ResolveOpenedFilePath(file);
             Text = Path.GetFileName(file) + " · 映序快速阅览";
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(520,420);
@@ -189,7 +190,7 @@ namespace YingXu.Desktop
             var main = new ToolStripButton("在映序中打开 ↗") { Alignment=ToolStripItemAlignment.Right,DisplayStyle=ToolStripItemDisplayStyle.Text };
             main.Click += delegate
             {
-                try { openStudio(new[] { Hub.ValidateNativeFilePath(path) }); }
+                try { openStudio(new[] { Hub.ResolveOpenedFilePath(path) }); }
                 catch (Exception error) { MessageBox.Show(this,error.Message,"映序",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             };
             bar.Items.Add(main);

@@ -18,13 +18,15 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.18.0")]
-[assembly: AssemblyFileVersion("0.4.18.0")]
+[assembly: AssemblyVersion("0.4.19.0")]
+[assembly: AssemblyFileVersion("0.4.19.0")]
+[assembly: AssemblyInformationalVersion("0.4.19+junction.1")]
 
 namespace YingXu.Desktop
 {
     internal static class Program
     {
+        internal static bool IncrementalInstalling;
         internal static EventWaitHandle ActivateEvent;
         internal static string LoaderFolder;
         internal static string InstanceKey;
@@ -39,6 +41,7 @@ namespace YingXu.Desktop
             {
                 var launch = LaunchOptions.Parse(args, AppDomain.CurrentDomain.BaseDirectory);
                 Hub.Root = Hub.NormalizeRoot(launch.Root);
+                if (IncrementalUpdateBridge.BlockStartup()) return 0;
                 if (!Hub.IsAppRoot(Hub.Root))
                     throw new DirectoryNotFoundException("请把 YingXu.exe 放在映序程序文件夹内，与 server.py、launcher.pyw 和 frontend 同级。桌面请使用快捷方式。");
                 if (launch.Registration != null)
@@ -142,6 +145,68 @@ namespace YingXu.Desktop
         public bool Maximized { get; set; }
     }
 
+    internal static class IncrementalUpdateBridge
+    {
+        internal static bool ValidId(string id) { return id != null && System.Text.RegularExpressions.Regex.IsMatch(id,"\\A[a-f0-9]{32}\\z"); }
+        internal static string Folder(string ticket)
+        {
+            if(!ValidId(ticket)) throw new InvalidDataException("安装票据无效。");
+            return Path.Combine(Hub.Data,"updates","incremental-install",ticket);
+        }
+        internal static Dictionary<string,object> Read(string path)
+        {
+            for(string current=Path.GetFullPath(path);current!=null;current=Path.GetDirectoryName(current))
+                if((File.Exists(current)||Directory.Exists(current)) && (File.GetAttributes(current)&FileAttributes.ReparsePoint)!=0)
+                    throw new InvalidDataException("更新记录路径包含链接。");
+            if(!File.Exists(path))return null;
+            if(new FileInfo(path).Length>16384)throw new InvalidDataException("更新回执过大。");
+            return new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(path,Encoding.UTF8));
+        }
+        internal static bool Receipt(string ticket,int backendPid)
+        {
+            var value=Read(Path.Combine(Folder(ticket),"commit.json"));object committed,id,native,backend;
+            return value!=null && value.TryGetValue("committed",out committed) && committed is bool && (bool)committed &&
+                value.TryGetValue("ticket",out id) && (id as string)==ticket && value.TryGetValue("native_pid",out native) &&
+                Convert.ToInt32(native)==Process.GetCurrentProcess().Id && value.TryGetValue("backend_pid",out backend) && Convert.ToInt32(backend)==backendPid;
+        }
+        internal static bool BlockStartup()
+        {
+            try
+            {
+                var active=Read(Path.Combine(Hub.Data,"updates","incremental-install","active.json"));
+                if(active==null)return false;
+                string ticket=active["ticket"] as string;string folder=Folder(ticket);
+                var outcome=Read(Path.Combine(folder,"outcome.json"));
+                string state=outcome!=null && outcome.ContainsKey("state") ? outcome["state"] as string : null;
+                if(state=="installed"||state=="rolled_back"||state=="cancelled")return false;
+                bool live=false;
+                try { using(var process=Process.GetProcessById(Convert.ToInt32(active["helper_pid"])))
+                    live=!process.HasExited && String.Equals(Path.GetFullPath(process.MainModule.FileName),Path.Combine(folder,"helper","python.exe"),StringComparison.OrdinalIgnoreCase); }
+                catch(ArgumentException) { }
+                if(live) { MessageBox.Show("映序正在准备或安装更新，请等待完成后再打开。","映序 · 更新");return true; }
+                // A finished install/rollback or a pre-write timeout never blocks
+                // ordinary startup merely because an old active marker remains.
+                string journal=Path.Combine(folder,"journal.json");
+                if(!File.Exists(journal))return false;
+                if(MessageBox.Show("上次更新安装中断。是否先恢复已备份的旧程序，再重新打开？\n其他映序窗口和后台必须已退出。","映序 · 恢复更新",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return true;
+                string python=Path.Combine(folder,"helper","python.exe"),script=Path.Combine(folder,"helper","incremental_install.py");
+                var start=new ProcessStartInfo(python,"-I -B \""+script+"\" --recover \""+folder+"\" --native-pid "+Process.GetCurrentProcess().Id) {UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,WorkingDirectory=folder};
+                using(var helper=Process.Start(start))
+                {
+                    var timer=Stopwatch.StartNew();
+                    while(timer.ElapsedMilliseconds<8000 && !helper.HasExited)
+                    {
+                        var ready=Read(Path.Combine(folder,"recovery-ready.json"));
+                        if(ready!=null && Convert.ToInt32(ready["helper_pid"])==helper.Id && Convert.ToInt32(ready["native_pid"])==Process.GetCurrentProcess().Id)return true;
+                        Thread.Sleep(100);
+                    }
+                }
+                MessageBox.Show("恢复助手未就绪。程序与备份已保留，请退出其他映序实例后重试。","映序 · 恢复更新");return true;
+            }
+            catch(Exception error) { MessageBox.Show("无法确认更新状态，暂不打开程序："+error.Message,"映序 · 更新");return true; }
+        }
+    }
+
     internal sealed class StudioWindow : Form
     {
         private WebView2 web;
@@ -165,6 +230,7 @@ namespace YingXu.Desktop
         private bool exitApproved;
         private bool settingsPending;
         private string exitRequest;
+        private string pendingInstallPlan;
         private readonly System.Windows.Forms.Timer exitTimer;
         private bool openingFiles;
         private bool pageFailed;
@@ -201,7 +267,7 @@ namespace YingXu.Desktop
             tray = new NotifyIcon { Icon = Icon, Text = "映序 · 本地创作工作台", ContextMenuStrip = trayMenu, Visible = true };
             tray.DoubleClick += delegate { BringToUser(); };
             exitTimer = new System.Windows.Forms.Timer { Interval = 120000 };
-            exitTimer.Tick += delegate { exitTimer.Stop(); exitRequest = null; exitUnresponsive = true; Notice("页面没有完成退出确认，窗口已保留。可再次选择退出，核对故障退出提示。",true); };
+            exitTimer.Tick += delegate { exitTimer.Stop(); exitRequest = null; pendingInstallPlan=null; exitUnresponsive = true; Notice("页面没有完成退出确认，窗口已保留。可再次选择退出，核对故障退出提示。",true); };
             loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
                 Text = "映序\n\n正在打开本地工作空间…", Font = new Font("Microsoft YaHei UI", 15F) };
             Controls.Add(loading);
@@ -287,7 +353,7 @@ namespace YingXu.Desktop
         }
         private void ApplyCaptureHotkey()
         {
-            if (!IsHandleCreated || captureHotkey==null) return;
+            if (Program.IncrementalInstalling || !IsHandleCreated || captureHotkey==null) return;
             string error=captureHotkey.Configure(Handle,captureEnabled && !captureRecording,captureShortcut);
             if(pageReady) Post(new {action="capture-hotkey-status",shortcut=captureShortcut,enabled=captureEnabled,
                 registered=captureHotkey.Registered,recording=captureRecording,error=error});
@@ -300,7 +366,7 @@ namespace YingXu.Desktop
         }
         private async void StartCapture()
         {
-            if (capture==null || capture.Busy || closing.IsCancellationRequested || exitRequest!=null || exitApproved || draggingFile || openingFiles) return;
+            if (capture==null || capture.Busy || closing.IsCancellationRequested || exitRequest!=null || exitApproved || Program.IncrementalInstalling || draggingFile || openingFiles) return;
             try { await capture.StartAsync(); }
             finally
             {
@@ -360,7 +426,7 @@ namespace YingXu.Desktop
 
         private async void DrainFiles()
         {
-            if (!pageReady || openingFiles || closing.IsCancellationRequested || (capture!=null && capture.Busy)) return;
+            if (Program.IncrementalInstalling || !pageReady || openingFiles || closing.IsCancellationRequested || (capture!=null && capture.Busy)) return;
             openingFiles = true;
             try
             {
@@ -389,6 +455,7 @@ namespace YingXu.Desktop
 
         private void ChooseFiles()
         {
+            if (Program.IncrementalInstalling) return;
             using (var dialog = new OpenFileDialog { Title = "用映序打开文件", Multiselect = true,
                 Filter = "支持的文件|*.md;*.markdown;*.txt;*.json;*.csv;*.srt;*.vtt;*.html;*.htm;*.docx;*.pdf;*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp;*.svg;*.mp4;*.mov;*.webm;*.mkv;*.avi;*.m4v;*.mp3;*.wav;*.ogg;*.flac;*.m4a;*.aac|所有文件|*.*" })
                 if (dialog.ShowDialog(this) == DialogResult.OK)
@@ -400,6 +467,7 @@ namespace YingXu.Desktop
 
         private void RequestExit()
         {
+            if(Program.IncrementalInstalling)return;
             if (capture!=null && capture.Busy) { CaptureNotice("截图正在处理，请先完成选区或按 Esc 取消，再退出映序。",true); return; }
             if (exitRequest != null || exitApproved) return;
             BringToUser();
@@ -430,6 +498,15 @@ namespace YingXu.Desktop
             catch { return false; }
             object value; if (message == null || !message.TryGetValue("action",out value) || !(value is string)) return false;
             string action = (string)value;
+            if (Program.IncrementalInstalling) return true;
+            if(action=="install-update")
+            {
+                object plan;
+                if(message.Count!=2 || !message.TryGetValue("planId",out plan) || !IncrementalUpdateBridge.ValidId(plan as string))return false;
+                if(!pageReady || pageFailed || exitUnresponsive || exitRequest!=null || exitApproved || Program.IncrementalInstalling || openingFiles || draggingFile || (capture!=null && capture.Busy)) { Notice("当前操作尚未结束，请稍后安装更新。",true);return true; }
+                foreach(Form form in Application.OpenForms)if(form!=this && !form.IsDisposed) {Notice("请先保存并关闭其他映序阅览窗口，再安装更新。",true);return true;}
+                pendingInstallPlan=(string)plan;RequestExit();return true;
+            }
             if (action == "image-preview")
             {
                 object active;
@@ -479,15 +556,71 @@ namespace YingXu.Desktop
                     message.TryGetValue("allow",out allow) && allow is bool)
                 {
                     exitTimer.Stop(); exitRequest = null;
-                    if ((bool)allow) { exitApproved = true; BeginInvoke((Action)Close); }
+                    string installPlan=pendingInstallPlan;pendingInstallPlan=null;
+                    if ((bool)allow)
+                    {
+                        if(installPlan!=null)
+                        {
+                            foreach(Form form in Application.OpenForms)if(form!=this && !form.IsDisposed){Notice("另一个阅览窗口已打开，请先关闭它再安装。",true);return true;}
+                            Program.IncrementalInstalling=true;if(web!=null)web.Enabled=false;
+                            if(captureHotkey!=null)captureHotkey.Dispose();
+                            BeginInvoke((Action)(() => InstallIncremental(installPlan)));
+                        }
+                        else { exitApproved = true; BeginInvoke((Action)Close); }
+                    }
                 }
                 return true;
             }
             return false;
         }
 
+        private async void InstallIncremental(string planId)
+        {
+            string ticket=null,token=null;int backendPid=0;
+            try
+            {
+                Exception failure=null;
+                try
+                {
+                status.Text="正在准备增量更新…";
+                var bootstrap=await Task.Run(() => DesktopApi.Request("/api/bootstrap"));token=bootstrap["token"] as string;
+                var ready=await Task.Run(() => DesktopApi.Request("/api/updates/install/prepare",new {plan_id=planId,native_pid=Process.GetCurrentProcess().Id},token));
+                object prepared,id,pid;
+                if(!ready.TryGetValue("prepared",out prepared)||!(prepared is bool)||!(bool)prepared||!ready.TryGetValue("ticket",out id)||!IncrementalUpdateBridge.ValidId(id as string)||!ready.TryGetValue("backend_pid",out pid))throw new InvalidDataException("更新助手没有返回完整回执。");
+                ticket=(string)id;backendPid=Convert.ToInt32(pid);
+                try { await Task.Run(() => DesktopApi.Request("/api/updates/install/commit",new {ticket=ticket},token)); }
+                catch { if(!IncrementalUpdateBridge.Receipt(ticket,backendPid))throw; }
+                if(!IncrementalUpdateBridge.Receipt(ticket,backendPid))throw new InvalidDataException("更新提交尚未确认，窗口保持打开。");
+                status.Text="更新已提交，正在安全退出…";
+                Post(new {action="pause-media"});exitApproved=true;Close();
+                }
+                catch(Exception error) { failure=error; }
+                if(failure!=null)
+                {
+                // A prepare response can be lost too. Recover only this native
+                // process's exact plan ticket, never another window's transaction.
+                if(ticket==null)
+                {
+                    try {var active=IncrementalUpdateBridge.Read(Path.Combine(Hub.Data,"updates","incremental-install","active.json"));
+                        if(active!=null && (active["plan_id"] as string)==planId && Convert.ToInt32(active["native_pid"])==Process.GetCurrentProcess().Id)ticket=active["ticket"] as string;
+                    } catch { }
+                    if(ticket==null)try{var pending=await Task.Run(() => DesktopApi.Request("/api/updates/install/status",null,token));
+                        if(pending.ContainsKey("plan_id") && (pending["plan_id"] as string)==planId && Convert.ToInt32(pending["native_pid"])==Process.GetCurrentProcess().Id)ticket=pending["ticket"] as string;
+                    }catch { }
+                }
+                if(ticket!=null && token!=null)try{await Task.Run(() => DesktopApi.Request("/api/updates/install/cancel",new {ticket=ticket},token));}catch { }
+                Notice("增量更新未能确认完成，窗口已保留："+failure.Message,true);
+                }
+            }
+            finally
+            {
+                if(!exitApproved){Program.IncrementalInstalling=false;if(web!=null&&!web.IsDisposed)web.Enabled=true;ApplyCaptureHotkey();DrainFiles();}
+            }
+        }
+
         private async void OpenRegisteredFile(string id)
         {
+            if (Program.IncrementalInstalling) return;
             try {
                 string path=await Task.Run(() => Hub.NativeFilePath(id));
                 if(IsDisposed || closing.IsCancellationRequested)return;
@@ -573,7 +706,7 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
-            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true;");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
             core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
             {
                 if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; if(captureRecording) {captureRecording=false;ApplyCaptureHotkey();} return; }
@@ -635,6 +768,7 @@ namespace YingXu.Desktop
 
         private async void ReceiveDragRequest(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            if (Program.IncrementalInstalling) return;
             if (ReceiveDropFilesRequest(e)) return;
             if (ReceiveDesktopRequest(e.Source,e.WebMessageAsJson)) return;
             string[] itemIds;
@@ -686,6 +820,7 @@ namespace YingXu.Desktop
 
         private bool ReceiveDropFilesRequest(CoreWebView2WebMessageReceivedEventArgs e)
         {
+            if (Program.IncrementalInstalling) return true;
             if (closing.IsCancellationRequested || web == null || web.IsDisposed || web.CoreWebView2 == null) return false;
             string requestId;
             if (!Hub.TryReadDropFilesMessage(e.Source, web.CoreWebView2.Source, e.WebMessageAsJson, out requestId)) return false;
@@ -783,6 +918,7 @@ namespace YingXu.Desktop
         {
             base.OnFormClosing(e);
             if (e.Cancel) return;
+            if(Program.IncrementalInstalling && !exitApproved){e.Cancel=true;return;}
             if (capture!=null && capture.Busy) { e.Cancel=true; CaptureNotice("截图正在处理，请先完成或取消截图。",true); return; }
             if (!exitApproved)
             {

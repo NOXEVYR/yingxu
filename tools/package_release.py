@@ -8,14 +8,14 @@ import re
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.18'
+VERSION = '0.4.19'
 FIXED = (
     'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore', '.gitattributes',
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
     'desktop/RuntimeCheck.cs', 'desktop/Core.cs', 'desktop/Program.cs', 'desktop/Tests.cs', 'desktop/build.py',
     'desktop/Integration.cs', 'desktop/FolderForegroundTests.cs', 'desktop/Set-OpenWith.ps1', 'desktop/LifecycleTests.cs',
     'desktop/SingleInstanceTests.cs', 'desktop/QuickReader.cs', 'desktop/QuickReaderTests.cs',
-    'desktop/Capture.cs', 'desktop/CaptureTests.cs',
+    'desktop/Capture.cs', 'desktop/CaptureTests.cs', 'desktop/IncrementalInstallTests.cs',
     'tools/canvas-editor/Excalidraw-LICENSE.txt', 'tools/canvas-editor/FONT-LICENSES.txt',
     'tools/canvas-editor/package.json', 'tools/canvas-editor/pnpm-lock.yaml', 'tools/canvas-editor/build.mjs', 'tools/canvas-editor/host.css', 'tools/canvas-editor/entry.jsx',
     'tools/canvas-editor/font-url-plugin.mjs', 'tools/canvas-editor/local-assets.js', 'tools/canvas-editor/scene-tracker.js', 'tools/canvas-editor/animation-gate.js',
@@ -25,7 +25,7 @@ FIXED = (
     'desktop/app.manifest', 'desktop/WebView2-LICENSE.txt',
     'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'THIRD_PARTY_NOTICES.md',
-    'docs/project-folder-import.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
+    'docs/project-folder-import.md', 'docs/incremental-updates.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
 )
 PATTERNS = ('yingxu/*.py', 'frontend/*.html', 'frontend/*.css', 'frontend/*.js',
             'tests/test_*.py', 'tests/frontend_*.cjs', 'frontend/canvas/**/*.js', 'frontend/canvas/**/*.css', 'frontend/canvas/**/*.html', 'frontend/canvas/**/*.woff2', 'frontend/canvas/**/*.woff', 'frontend/canvas/**/*.ttf', 'frontend/canvas/**/*.json', 'frontend/canvas/**/*.txt', 'frontend/canvas/**/*.yaml', 'frontend/canvas/**/*.LEGAL.txt')
@@ -79,6 +79,7 @@ def main():
     paths += list(runtime_files(args.runtime_dir))
     manifest = {
         'application': 'YingXu', 'version': VERSION, 'root': 'YingXu/',
+        'build_revision': 'junction.1',
         'icon_revision': 'viewfinder-v1',
         'icon_sha256': hashlib.sha256((ROOT / 'desktop/brand.ico').read_bytes()).hexdigest(),
         'source_commit': os.environ.get('GITHUB_SHA', ''),
@@ -89,12 +90,15 @@ def main():
         'files': [{'path': name, 'bytes': p.stat().st_size,
                    'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p, name in paths],
     }
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
     with zipfile.ZipFile(package, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path, name in paths:
             archive.write(path, 'YingXu/' + name)
-        archive.writestr('YingXu/RELEASE_MANIFEST.json', json.dumps(manifest, ensure_ascii=False, indent=2))
+        archive.writestr('YingXu/RELEASE_MANIFEST.json', manifest_bytes)
     result = {'file': package.name, 'version': VERSION, 'bytes': package.stat().st_size,
               'sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
+              'release_manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
+              'build_revision': manifest['build_revision'],
               'entries': len(paths) + 1, 'root': 'YingXu/', 'contains_user_data': False,
               'python_bundled': True, 'icon_revision': manifest['icon_revision'],
               'icon_sha256': manifest['icon_sha256'], 'source_commit': manifest['source_commit']}

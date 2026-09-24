@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import parse_qs,urlsplit
 
-from yingxu import __version__
+from yingxu import __version__, __build__
 from yingxu.runtime import image_support
 from yingxu.paths import default_data_root, default_project_root, instance_id
 from yingxu.store import Store,UserError,CATEGORIES,STATUSES,SAFE_EXTENSIONS
@@ -75,6 +75,8 @@ class Application:
         from yingxu.migration_jobs import MigrationJobs
         self.project_migration=ProjectMigration(self.store,self.project_storage)
         self.migration_jobs=MigrationJobs(self,self.project_migration)
+        from yingxu.update_service import UpdateService
+        self.update_service=UpdateService(self,ROOT,__version__)
         self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
@@ -83,7 +85,8 @@ class Application:
             if self._closed:return
             self._closed=True
             try:
-                self.migration_jobs.close()
+                try:self.update_service.close()
+                finally:self.migration_jobs.close()
             finally:
                 try:
                     self.jobs.pool.shutdown(wait=True,cancel_futures=False)
@@ -94,7 +97,7 @@ class Application:
                             raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
 
     def bootstrap(self):
-        return {'app':'yingxu','version':__version__,'token':self.token,'settings':self.settings.get(),
+        return {'app':'yingxu','version':__version__,'build_revision':__build__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
           'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True}}
@@ -427,11 +430,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.command in ('GET','HEAD'):return self.handle_application_request()
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
-            # Manual release actions do not read or mutate project storage.
-            if self.command == 'POST' and urlsplit(self.path).path in ('/api/updates/check','/api/updates/open'):
-                return self.handle_application_request()
-            with self.app.migration_jobs.mutation(self.command,urlsplit(self.path).path):
-                return self.handle_application_request()
+            path=urlsplit(self.path).path
+            with self.app.update_service.mutation(self.command,path):
+                if path.startswith('/api/updates/'):
+                    return self.handle_application_request()
+                with self.app.migration_jobs.mutation(self.command,path):
+                    return self.handle_application_request()
         except UserError as error:
             self.close_connection=True
             self.json({'error':str(error)},error.status)
@@ -443,6 +447,14 @@ class Handler(BaseHTTPRequestHandler):
             parsed=urlsplit(self.path);path=parsed.path
             query={k:v[-1] for k,v in parse_qs(parsed.query).items()}
             if self.command in ('GET','HEAD'):
+                if path=='/api/updates/status':
+                    self.check_origin(True)
+                    if query:raise UserError('更新状态不接受额外参数。')
+                    return self.json(self.app.update_service.status())
+                if path=='/api/updates/install/status':
+                    self.check_origin(True)
+                    if set(query)-{'ticket'}:raise UserError('更新安装参数无效。')
+                    return self.json(self.app.update_service.install_status(query.get('ticket')))
                 if path=='/api/health':return self.json({'app':'yingxu','ok':True,'version':__version__,'instance_id':instance_id(self.app.store.data_root)})
                 if path=='/api/bootstrap':return self.json(self.app.bootstrap())
                 if path=='/api/settings':return self.json(self.app.settings.get())
@@ -513,6 +525,31 @@ class Handler(BaseHTTPRequestHandler):
                 return self.file(static)
             if self.command=='POST' and path=='/api/upload':return self.json(self.app.receive_upload(self,query),201)
             data=self.body()
+            if self.command=='POST' and path.startswith('/api/updates/'):
+                service=self.app.update_service
+                if path=='/api/updates/plan':
+                    if data or query:raise UserError('检查差异不接受额外参数。')
+                    return self.json(service.plan())
+                if path=='/api/updates/download':
+                    if set(data)!={'plan_id'} or query:raise UserError('下载更新参数无效。')
+                    return self.json(service.download(data['plan_id']))
+                if path=='/api/updates/install/prepare':
+                    if set(data)!={'plan_id','native_pid'} or query:raise UserError('准备安装参数无效。')
+                    return self.json(service.prepare(data['plan_id'],data['native_pid']))
+                if path=='/api/updates/install/commit':
+                    if set(data)!={'ticket'} or query:raise UserError('确认安装参数无效。')
+                    result=service.commit(data['ticket'])
+                    try:
+                        self.json(result)
+                        self.wfile.flush()
+                    finally:
+                        # The helper waits for this process to drain accepted
+                        # work and exit, even if the HTTP response is lost.
+                        threading.Thread(target=self.server.shutdown,daemon=True).start()
+                    return
+                if path=='/api/updates/install/cancel':
+                    if set(data)!={'ticket'} or query:raise UserError('取消安装参数无效。')
+                    return self.json(service.cancel(data['ticket']))
             if self.command == 'POST' and path == '/api/updates/check':
                 if data or query:raise UserError('检查更新不接受额外参数。')
                 from yingxu.updates import check_update

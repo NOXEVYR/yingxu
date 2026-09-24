@@ -21,18 +21,19 @@ class MacAdaptersTests(unittest.TestCase):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
         events=[]
-        app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.update_service.close.side_effect=lambda:events.append(('updates',{}))
         app.migration_jobs.close.side_effect=lambda:events.append(('migration',{}))
         app.jobs.pool.shutdown.side_effect=lambda **kw:events.append(('jobs',kw))
         app.thumbnails.pool.shutdown.side_effect=lambda **kw:events.append(('thumbnails',kw))
         app.context.close.side_effect=lambda:events.append(('context',{})) or True
         app.close();app.close()
-        self.assertEqual(events,[('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
+        self.assertEqual(events,[('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
 
     def test_close_attempts_remaining_cleanup_when_one_worker_fails(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.jobs.pool.shutdown.side_effect=RuntimeError('synthetic worker failure')
         with self.assertRaises(RuntimeError):app.close()
         app.thumbnails.pool.shutdown.assert_called_once()
