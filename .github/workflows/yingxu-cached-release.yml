@@ -62,6 +62,10 @@ jobs:
           Get-Content capture-preflight.log
           Get-Content capture-preflight-error.log
           if ($test.ExitCode -ne 0) { throw 'Capture preflight failed; no runtime downloaded' }
+      - name: Check platform version labels before downloading release inputs
+        run: |
+          node tests/frontend_macos.cjs
+          if ($LASTEXITCODE) { throw 'Platform version checks failed; no runtime downloaded' }
       - name: Authenticate explicit request and reuse verified official runtime
         run: |
           python -B .github/release-support/cached_release.py prepare

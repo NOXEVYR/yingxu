@@ -43,6 +43,8 @@ jobs:
           persist-credentials: false
       - name: Verify approval and absent destination before dependencies
         run: python3 -B .github/release-support/macos_release.py preflight
+      - name: Check platform version labels before downloading dependencies
+        run: node tests/frontend_macos.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'

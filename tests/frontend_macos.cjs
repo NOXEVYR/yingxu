@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const versionSource=fs.readFileSync('yingxu/__init__.py','utf8');
+const sourceVersion=versionSource.match(/^__version__ = '([^']+)'/m)[1];
+const macPreviewVersion=versionSource.match(/^__mac_preview__ = '([^']+)'/m)[1];
 const source = fs.readFileSync('frontend/macos.js','utf8');
 function load(search) {
   const sent=[], events={}, styles=[];
@@ -35,17 +38,22 @@ function appFixture(isMac=true){
     fixtureApi:async(url,options)=>{calls.push({url,options});return options?.body || {confirm_delete:true,confirm_trash_delete:true,close_to_tray:true,capture_enabled:true,capture_hotkey:'Ctrl+Alt+Shift+S',capture_mode:'annotate',default_view:'grid',default_sort:'updated'};},
     fixtureDialog:options=>dialogs.push(options)});
   vm.runInContext(appSource+`\napi=fixtureApi;showDialog=fixtureDialog;toast=()=>{};configureSection=()=>{};loadItems=async()=>{};hideMenu=()=>{};globalSearchDialog=()=>globalThis.globalOpened=true;openDocumentSearch=()=>globalThis.documentOpened=true;documentSearchable=()=>true;globalThis.app={state,settingsDialog,searchShortcut};`,context);
-  context.app.state.bootstrap={version:'0.4.18',capabilities:{maintenance:true,manual_update_check:true},settings:{}};
+  context.app.state.bootstrap={version:sourceVersion,capabilities:{maintenance:true,manual_update_check:true},settings:{}};
   return {context,...context.app,dialogs,calls,nodes,node};
 }
 test('macOS uses shared version and maintenance settings without unsupported controls',async()=>{
   const s=appFixture();await s.settingsDialog();const body=s.dialogs[0].body;
-  assert.match(body,/0\.4\.16-mac\.1/);assert.match(body,/界面与后台版本一致/);assert.match(body,/maintenance-preview/);assert.match(body,/手动更新/);assert.match(body,/data-action="check-update"/);assert.match(body,/maintenanceKeep/);assert.match(body,/macOS 废纸篓/);assert.match(body,/⌘F/);
+  assert.ok(body.includes('macOS 试用版 '+macPreviewVersion));assert.match(body,/界面与后台版本一致/);assert.match(body,/maintenance-preview/);assert.match(body,/手动更新/);assert.match(body,/data-action="check-update"/);assert.match(body,/maintenanceKeep/);assert.match(body,/macOS 废纸篓/);assert.match(body,/⌘F/);
   assert.doesNotMatch(body,/name="(?:close_to_tray|capture_enabled|capture_hotkey|capture_mode)"|data-action="(?:un)?register-open-with"/);
   await s.dialogs[0].onSubmit({confirm_delete:true,confirm_trash_delete:true,autoplay_media:true,default_view:'list',default_sort:'name'});
   assert.deepEqual(Object.keys(s.calls[1].options.body).sort(),['appearance_theme','autoplay_media','confirm_delete','confirm_trash_delete','default_sort','default_view']);
   assert.equal(s.calls[1].options.body.appearance_theme,'swiss');
   assert.equal(s.state.view,'list');assert.equal(s.state.sort,'name');
+});
+test('settings warn when the backend version differs from the current UI',async()=>{
+  const s=appFixture();s.state.bootstrap.version='0.0.0';await s.settingsDialog();
+  assert.match(s.dialogs[0].body,/后台版本与界面不同/);
+  assert.doesNotMatch(s.dialogs[0].body,/界面与后台版本一致/);
 });
 test('Windows retains tray capture and open-with settings',async()=>{
   const s=appFixture(false);await s.settingsDialog();const body=s.dialogs[0].body;
