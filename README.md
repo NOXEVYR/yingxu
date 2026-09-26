@@ -1,6 +1,6 @@
 # 映序 · AI 资产与项目管理
 
-**0.4.20 源码已更新，下载包待发布：启动动效与项目迁移修复。** 启动使用现有黑白图标动效，不显示加载文字，不设置最低等待时间，工作台就绪即进入。动画单次约 0.7 秒并尊重系统减少动态效果，不新增模型、字体、动画库或视频。保留文件夹选择器假写入阻塞与迁移进度修复，原目录、未保存文稿与真实写入保护不变。Windows 构建标识为 `startup.1`；Mac 试用版目标为 `0.4.20-mac.1`，最终可用版本仍以下方已公开附件为准。
+**0.4.20 双端已发布：启动动效与项目迁移修复。** 启动使用现有黑白图标动效，不显示加载文字，不设置最低等待时间，工作台就绪即进入。动画单次约 0.7 秒并尊重系统减少动态效果，不新增模型、字体、动画库或视频。保留文件夹选择器假写入阻塞与迁移进度修复，原目录、未保存文稿与真实写入保护不变。Windows 构建标识为 `startup.1`；Mac 试用版为 `0.4.20-mac.1`，两端来自同一来源提交。Windows 完整包通过 32 项隔离检查，上传后核对附件大小和 SHA-256；Mac 通过 20 项整包、原生与 WebKit 检查，并在上传后完整下载回检。
 
 **Windows 0.4.19 已发布：修复兼容目录下的文件打开，并加入按文件增量更新。** 双击本机目录联接中的 Markdown、文本等文件时，先解析到真实文件位置，修复误报“拖出路径包含联接或符号链接”。只读阅览不改写原文，转入工作台编辑使用同一真实文件。设置内可按需检查、下载变化的程序文件并在退出后安装；无新增运行依赖、模型或启动联网。同时修复小屏或高缩放时截图工具栏越界，保持原始截图像素；构建修订为 `junction.2`。完整包经过隔离验证；上传后的附件大小和 SHA-256 与云端已验证文件一致。[增量更新说明](docs/incremental-updates.md)
 
@@ -24,11 +24,11 @@
 
 同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
 
-**[下载 Windows x64 完整包 · v0.4.19](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.19/YingXu-v0.4.19-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
+**[下载 Windows x64 完整包 · v0.4.20](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.20/YingXu-v0.4.20-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20) · [0.4.19 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.16-mac.1 试用包与校验](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.16-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+[下载 macOS M 系列 0.4.20-mac.1 试用包与校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[macOS 0.4.16 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.16-mac.1)与[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
 **0.4.17 已收录修复：磁盘目录同步与拖拽移动。** 项目内部文件按真实的分类目录和子文件夹显示，重新同步也会修正未变更文件的旧分类；磁盘新增的嵌套和空文件夹可被识别。打开项目、返回映序窗口时按需检查当前项目目录，无常驻磁盘轮询；刷新按钮仍可手动同步全部登记来源。从资源管理器拖入当前项目已有文件时移动原文件，落在原位置则保持不变；外部文件仍复制导入，导入对话框的复制功能不变。Windows 对已记录且可核对文件标识、创建时间的同一文件，支持在项目内外部移动后保留条目身份；无法确认身份时保留原记录，不按同名或相同内容猜测。
 
@@ -371,6 +371,5 @@ Windows 10 22H2 / Windows 11 x64。完整包自带运行环境，使用系统自
 在目标分类或文件夹中，通过“导入”选择 ZIP，也可拖入或粘贴复制的 ZIP 文件。映序在目标位置建立以压缩包命名的文件夹，保留内部目录和中文名称；同名时创建新目录，原压缩包不变。
 
 第一版支持普通 ZIP（存储或 Deflate），暂不支持加密、分卷、RAR、7z 或包内再次解压。隐藏元数据和不支持的文件会跳过。单包最多 8 GiB、10000 个条目，展开体积最多 32 GiB；导入结果会显示成功与跳过数量。
-
 
 

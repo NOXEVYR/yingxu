@@ -1,15 +1,15 @@
-# 0.4.20-mac.1 构建说明
+# 0.4.20-mac.1 发布说明
 
-本次同步音乐分类与播放、目录同步、迁移状态修复和无文字启动动效。复用系统 WebKit 和已有依赖；Windows 截图、目录联接打开与增量安装不宣称为 Mac 功能。最终交付需通过解压、签名、原生与 WKWebView 验证；仍为未公证的 Apple Silicon 试用版。下文历史发布记录保留，最新下载以仓库已发布附件为准。
+本次同步音乐分类与播放、目录同步、迁移状态修复和无文字启动动效。复用系统 WebKit 和已有依赖；Windows 截图、目录联接打开与增量安装不宣称为 Mac 功能。最终 ZIP 已通过 20 项解压、临时签名、原生与 WKWebView 检查，上传后按附件 ID 完整下载、核对 SHA-256 并重复验证；仍为未公证的 Apple Silicon 试用版。下文历史发布记录保留，最新下载以仓库已发布附件为准。
 
 # 映序 macOS 试用版
 
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
-当前已发布 **0.4.16-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+当前已发布 **0.4.20-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
 沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）；旧版发布附件保留。
-下载与校验见 [0.4.16-mac.1 发布页](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.16-mac.1)。
+下载与校验见 [0.4.20-mac.1 发布页](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
 
 ## 安装
@@ -153,4 +153,3 @@
 再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.15-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。
-
