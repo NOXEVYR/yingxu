@@ -1,8 +1,8 @@
 {
   "approved": true,
-  "reviewed_source_commit": "5e821d135081cfce661399ff3fabd88187f25973",
+  "reviewed_source_commit": "cacf0d036db5badb474d053c47d20d6ccf484c68",
   "download_budget_mib": 500,
   "mac_download_budget_mib": 300,
   "version": "0.4.20",
-  "purpose": "User-approved single Windows and macOS startup.1 build and release within 800 MiB total cloud download budget"
+  "purpose": "User confirmed an additional 500 MiB on 2026-09-27: aggregate budget 1300 MiB; this single corrected Windows/macOS retry remains capped at 800 MiB."
 }
