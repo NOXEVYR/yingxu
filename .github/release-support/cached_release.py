@@ -20,7 +20,9 @@ from urllib.parse import quote
 
 REPO = 'NOXEVYR/yingxu'
 VERSION = '0.4.20'
-BUILD_REVISION = 'migration.1'
+BUILD_REVISION = 'startup.1'
+PRERELEASE = False
+RELEASE_TITLE = '映序 0.4.20 · 启动动效与项目迁移修复'
 TAG = 'yingxu-v' + VERSION
 BASE_TAG = 'yingxu-v0.4.19'
 BASE_NAME = 'YingXu-v0.4.19-Windows-x64.zip'
@@ -31,7 +33,7 @@ SDK_BYTES = 9259926
 SDK_SHA = 'f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
 DOWNLOAD_BUDGET = 500 * 1024**2
 REQUEST_PATH = '.github/release-requests/yingxu-0.4.20.json'
-PUSH_TITLE = 'release: YingXu 0.4.20 cached runtime [cloud-approved-500MiB]'
+PUSH_TITLE = 'release: YingXu 0.4.20 cached runtime [cloud-approved-800MiB]'
 SOURCE_TESTS = {'tests/' + name for name in ('frontend_live_markdown.cjs', 'frontend_live_tables.cjs',
                  'frontend_markdown_links.cjs', 'frontend_obsidian_images.cjs')}
 
@@ -254,7 +256,8 @@ def publish(root, cache, commit):
             raise ValueError('Missing/mismatched incremental manifest proof')
         if json.loads(internal).get('build_revision') != BUILD_REVISION:
             raise ValueError('Internal manifest build differs from the reviewed release')
-    notes=(f'Windows {VERSION} · {BUILD_REVISION}：修复项目存放位置迁移的选择器假阻塞与进度状态。\n\n'
+    notes=(f'Windows {VERSION} · {BUILD_REVISION}：启动图标动效与项目迁移状态修复。\n\n'
+           '- 黑白图标启动动效只播放一次，正常启动不显示加载文字、不增加最低等待；尊重系统减少动态效果。\n'
            '- 文件夹选择窗口等待输入时不再误算作文件写入，避免少量文件也提示“还有文件操作正在进行”。\n'
            '- 真实写入、迁移中和跨项目移动中的保护保留；不会强制关闭选择窗口。\n'
            '- 前端区分选择目录、请求未入队与已入队迁移，避免未启动却持续显示迁移进度。\n'
@@ -270,16 +273,16 @@ def publish(root, cache, commit):
 
 def check_release_identity(release, release_id, commit, notes, *, draft):
     if (type(release.get('id')) is not int or release['id'] != release_id or
-            release.get('draft') is not draft or release.get('prerelease') is not False or
+            release.get('draft') is not draft or release.get('prerelease') is not PRERELEASE or
             release.get('target_commitish') != commit or release.get('tag_name') != TAG or
             release.get('body', '').replace('\r\n','\n').replace('\r','\n') != notes):
         raise ValueError('Release ID or identity changed; leave all assets untouched')
 
 
-def publish_draft(cache, commit, files, notes):
+def publish_draft(cache, commit, files, notes, verify_uploaded=None):
     expected={p.name:(p.stat().st_size,sha(p)) for p in files}
     release=gh_write('releases', {'tag_name':TAG, 'target_commitish':commit, 'draft':True,
-                     'prerelease':False, 'name':f'映序 {VERSION} · 项目迁移状态修复', 'body':notes},
+                     'prerelease':PRERELEASE, 'name':RELEASE_TITLE, 'body':notes},
                      cache/'create-release.json')
     release_id=release.get('id')
     if type(release_id) is not int or release_id <= 0: raise ValueError('Missing new release ID')
@@ -308,9 +311,10 @@ def publish_draft(cache, commit, files, notes):
             if attempt==11: raise exc
             time.sleep(2)
     if asset_ids != uploaded_ids: raise ValueError('Uploaded asset IDs changed; preserve draft')
+    if verify_uploaded is not None: verify_uploaded(release, uploaded_ids)
     if gh_json('git/ref/heads/main')['object']['sha'] != commit:
         raise ValueError('Main advanced during upload; preserve verified draft')
-    final=gh_write(endpoint, {'draft':False, 'make_latest':'true'}, cache/'publish-release.json', 'PATCH')
+    final=gh_write(endpoint, {'draft':False, 'make_latest':'false' if PRERELEASE else 'true'}, cache/'publish-release.json', 'PATCH')
     check_release_identity(final, release_id, commit, notes, draft=False)
     final=gh_json(endpoint)
     check_release_identity(final, release_id, commit, notes, draft=False)
@@ -318,7 +322,7 @@ def publish_draft(cache, commit, files, notes):
             gh_json('git/ref/tags/'+TAG)['object']['sha'] != commit):
         raise ValueError('Final publication confirmation differs; inspect release before retrying')
     report={'published':True,'release_id':release_id,'tag':TAG,'source_commit':commit,'asset_ids':asset_ids,
-            'verification':'GitHub asset size and digest equal locally verified bytes; no full redownload',
+            'verification':('Assets downloaded by ID and verified against local bytes; extracted package verified again' if verify_uploaded else 'GitHub asset size and digest equal locally verified bytes; no full redownload'),
             'expected_assets':expected}
     (cache/'publication.json').write_text(json.dumps(report,indent=2),encoding='utf-8',newline='\n')
     print(json.dumps(report))

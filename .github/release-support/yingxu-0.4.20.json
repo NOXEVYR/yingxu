@@ -1,0 +1,8 @@
+{
+  "approved": false,
+  "reviewed_source_commit": "REPLACE_WITH_REVIEWED_PARENT_COMMIT_SHA",
+  "download_budget_mib": 500,
+  "mac_download_budget_mib": 300,
+  "version": "0.4.20",
+  "purpose": "One reviewed Windows and macOS startup.1 release; remains disabled until explicit download approval"
+}

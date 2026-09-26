@@ -387,6 +387,26 @@ namespace YingXu.Desktop
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void Run()
         {
+            using(var splash=new StartupSurface {Size=new Size(640,480),Text="正在打开本地工作空间…"})
+            {
+                splash.StartReveal(false);
+                Check(splash.Animating,"startup reveal starts without blocking service initialization");
+                using(var frame=new Bitmap(640,480)) splash.DrawToBitmap(frame,new Rectangle(0,0,640,480));
+                splash.Advance(720);
+                Check(!splash.Animating,"startup reveal stops its timer after 720ms even if loading continues");
+                splash.StartReveal(false);
+                Check(!splash.Animating,"completed startup reveal does not replay on restore");
+            }
+            using(var splash=new StartupSurface())
+            {
+                splash.StartReveal(true);
+                Check(!splash.Animating,"reduced motion renders a static startup mark");
+            }
+            using(var splash=new StartupSurface())
+            {
+                splash.StartReveal(false); splash.StopReveal();
+                Check(!splash.Animating,"early readiness and failure can stop the startup timer immediately");
+            }
             using (var window = new StudioWindow(false))
             {
                 window.Text = "映序桌面生命周期 · 合成测试";

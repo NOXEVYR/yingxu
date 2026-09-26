@@ -183,7 +183,7 @@ class DraftPublicationTests(unittest.TestCase):
             return json.dumps(asset)
         self.assertEqual(endpoint, 'repos/' + m.REPO + '/releases/789')
         self.assertEqual(method, 'PATCH')
-        self.assertEqual(json.loads(raw), {'draft': False, 'make_latest': 'true'})
+        self.assertEqual(json.loads(raw), {'draft': False, 'make_latest': 'false' if m.PRERELEASE else 'true'})
         self.published = True
         self.release['draft'] = False
         return json.dumps(self.release)
@@ -220,6 +220,22 @@ class DraftPublicationTests(unittest.TestCase):
         self.assertEqual(report['release_id'], 789)
         self.assertEqual(len(report['asset_ids']), 4)
         self.assertFalse(any('releases/tags/' in endpoint for endpoint in self.endpoints))
+
+    def test_prerelease_preserves_windows_latest(self):
+        self.release['prerelease'] = True
+        with patch.object(m, 'PRERELEASE', True): self.run_publish()
+        self.assertTrue(self.published)
+
+    def test_full_readback_failure_preserves_draft(self):
+        def verify(release, ids):
+            self.assertTrue(release['draft'])
+            self.assertEqual(len(ids), 4)
+            raise ValueError('synthetic downloaded package failure')
+        with patch.object(m, 'command', side_effect=self.command), patch.object(m, 'gh_json', side_effect=self.gh_json):
+            with self.assertRaisesRegex(ValueError, 'downloaded package failure'):
+                m.publish_draft(self.root,self.commit,self.files,self.notes,verify_uploaded=verify)
+        self.assertFalse(self.published)
+        self.assertTrue((self.root/'draft-identity.json').exists())
 
     def test_changed_digest_or_asset_identity_never_publishes(self):
         for failure in ('digest', 'asset_id', 'release_id', 'notes', 'main'):

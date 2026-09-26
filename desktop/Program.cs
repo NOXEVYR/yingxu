@@ -20,7 +20,7 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyProduct("映序桌面版")]
 [assembly: AssemblyVersion("0.4.20.0")]
 [assembly: AssemblyFileVersion("0.4.20.0")]
-[assembly: AssemblyInformationalVersion("0.4.20+migration.1")]
+[assembly: AssemblyInformationalVersion("0.4.20+startup.1")]
 
 namespace YingXu.Desktop
 {
@@ -207,10 +207,89 @@ namespace YingXu.Desktop
         }
     }
 
+    // One bounded reveal while the service/browser starts; never delays readiness.
+    internal sealed class StartupSurface : Control
+    {
+        private readonly System.Windows.Forms.Timer animation = new System.Windows.Forms.Timer { Interval = 33 };
+        private readonly Stopwatch elapsed = new Stopwatch();
+        private bool started;
+        private float progress = 1;
+        [DllImport("user32.dll")]
+        private static extern bool SystemParametersInfo(uint action, uint parameter, out bool value, uint flags);
+        internal bool Animating { get { return animation.Enabled; } }
+        internal StartupSurface()
+        {
+            DoubleBuffered = true; BackColor = Color.White; ForeColor = Color.FromArgb(32,35,39);
+            AccessibleName = "映序正在启动"; AccessibleRole = AccessibleRole.StaticText;
+            animation.Tick += delegate { Advance(elapsed.ElapsedMilliseconds); };
+        }
+        internal void StartReveal(bool reducedMotion)
+        {
+            if (started) return;
+            started = true;
+            progress = reducedMotion ? 1 : 0;
+            if (!reducedMotion) { elapsed.Restart(); animation.Start(); }
+            Invalidate();
+        }
+        internal void Advance(long milliseconds)
+        {
+            progress = Math.Min(1, Math.Max(0, milliseconds / 720F));
+            if (progress >= 1) { animation.Stop(); elapsed.Stop(); }
+            Invalidate();
+        }
+        internal void StopReveal()
+        {
+            animation.Stop(); elapsed.Stop(); progress = 1; Invalidate();
+        }
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (!Visible) StopReveal();
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            float scale = g.DpiX / 96F, cx = ClientSize.Width / 2F, cy = ClientSize.Height / 2F - 45 * scale;
+            float ease = 1 - (float)Math.Pow(1-progress,3), spread = 9*(1-ease);
+            var saved = g.Save(); g.TranslateTransform(cx-36*scale,cy-36*scale); g.ScaleTransform(2*scale,2*scale);
+            using (var pen = new Pen(ForeColor,2))
+            {
+                g.DrawLines(pen,new[]{new PointF(5-spread,12-spread),new PointF(5-spread,5-spread),new PointF(16-spread,5-spread)});
+                g.DrawLines(pen,new[]{new PointF(24+spread,5-spread),new PointF(31+spread,5-spread),new PointF(31+spread,16-spread)});
+                g.DrawLines(pen,new[]{new PointF(31+spread,24+spread),new PointF(31+spread,31+spread),new PointF(20+spread,31+spread)});
+                g.DrawLines(pen,new[]{new PointF(12-spread,31+spread),new PointF(5-spread,31+spread),new PointF(5-spread,20+spread)});
+            }
+            float alpha = Math.Min(1,Math.Max(0,(progress-.25F)/.55F));
+            using (var brush = new SolidBrush(Color.FromArgb((int)(255*alpha),ForeColor)))
+                g.FillPolygon(brush,new[]{new PointF(15,12),new PointF(25,18),new PointF(15,24)});
+            g.Restore(saved);
+            using (var titleFont = new Font("Microsoft YaHei UI",23,FontStyle.Bold))
+            using (var statusFont = new Font("Microsoft YaHei UI",10))
+            {
+                TextRenderer.DrawText(g,"映序",titleFont,new Rectangle(0,(int)(cy+53*scale),Width,(int)(45*scale)),ForeColor,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(g,Text,statusFont,new Rectangle(0,(int)(cy+105*scale),Width,(int)(70*scale)),Color.FromArgb(102,107,114),TextFormatFlags.HorizontalCenter|TextFormatFlags.WordBreak);
+            }
+        }
+        internal void StartReveal()
+        {
+            bool enabled;
+            bool reduce = !SystemParametersInfo(0x1042,0,out enabled,0) || !enabled;
+            StartReveal(reduce);
+        }
+        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { animation.Stop(); animation.Dispose(); elapsed.Stop(); }
+            base.Dispose(disposing);
+        }
+    }
+
     internal sealed class StudioWindow : Form
     {
         private WebView2 web;
-        private readonly Label loading;
+        private readonly StartupSurface loading;
         private readonly ToolStripStatusLabel status;
         private readonly ToolStripStatusLabel zoomStatus;
         private readonly RegisteredWaitHandle activation;
@@ -268,8 +347,7 @@ namespace YingXu.Desktop
             tray.DoubleClick += delegate { BringToUser(); };
             exitTimer = new System.Windows.Forms.Timer { Interval = 120000 };
             exitTimer.Tick += delegate { exitTimer.Stop(); exitRequest = null; pendingInstallPlan=null; exitUnresponsive = true; Notice("页面没有完成退出确认，窗口已保留。可再次选择退出，核对故障退出提示。",true); };
-            loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
-                Text = "映序\n\n正在打开本地工作空间…", Font = new Font("Microsoft YaHei UI", 15F) };
+            loading = new StartupSurface { Dock = DockStyle.Fill, Text = "" };
             Controls.Add(loading);
             var bar = new StatusStrip { BackColor = Color.FromArgb(246, 247, 245), ForeColor = Color.FromArgb(104, 115, 108), SizingGrip = true };
             status = new ToolStripStatusLabel("本地工作台 · 关闭窗口默认保留在托盘，可从设置调整") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -301,7 +379,7 @@ namespace YingXu.Desktop
                     try { BeginInvoke((Action)BringToUser); } catch (InvalidOperationException) { }
                 }, null, Timeout.Infinite, false);
             }
-            if (initialize) Shown += async delegate { await InitializeAsync(); };
+            if (initialize) Shown += async delegate { loading.StartReveal(); await InitializeAsync(); };
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -666,9 +744,10 @@ namespace YingXu.Desktop
 
         private async Task InitializeBrowserAsync()
         {
-            loading.Text = "映序\n\n正在加载工作台…";
+            loading.Text = "";
             web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
             Controls.Add(web);
+            loading.BringToFront();
             web.QueryContinueDrag += delegate(object sender, QueryContinueDragEventArgs e)
             {
                 nativeDragReleased = !e.EscapePressed && (e.KeyState & 1) == 0;
@@ -706,7 +785,7 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
-            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup = true; window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
             core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
             {
                 if (Hub.IsLocalPage(e.Uri, Hub.Url)) { pageReady = false; if(captureRecording) {captureRecording=false;ApplyCaptureHotkey();} return; }
@@ -761,7 +840,8 @@ namespace YingXu.Desktop
             exitTimer.Stop(); exitRequest = null;
             if (web != null) web.Visible = false;
             loading.Visible = true;
-            loading.Text = "映序\n\n工作台未能打开\n\n请关闭窗口后重试。";
+            loading.StopReveal();
+            loading.Text = "工作台未能打开\n请关闭窗口后重试。";
             loading.BringToFront();
             MessageBox.Show(this, message, "映序 · 启动提示", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }

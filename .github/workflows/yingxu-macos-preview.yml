@@ -1,15 +1,24 @@
-name: YingXu macOS preview
+name: YingXu explicitly approved macOS preview
 on:
   push:
     branches: [main]
-    paths: [macos/**, macos_app.py, macos_smoke.py, macos_ui_smoke.py, tests/test_macos.py, tests/test_portable.py, .github/workflows/yingxu-macos-preview.yml]
+    paths: ['.github/release-requests/yingxu-0.4.20.json']
   workflow_dispatch:
     inputs:
-      replace_icons:
-        description: 'Explicitly replace 0.4.6-mac.1 icon repair assets; retain tag and roll back on failure'
+      approve_download_and_publish:
+        description: 'Approve one Mac build/download verification and publication'
         type: boolean
-        required: false
+        required: true
         default: false
+      source_commit:
+        description: 'Exact reviewed main source SHA'
+        type: string
+        required: true
+      mac_download_budget_mib:
+        description: 'Approved Mac download budget, including ZIP readback'
+        type: choice
+        options: ['300']
+        required: true
 permissions:
   contents: write
 concurrency:
@@ -17,26 +26,35 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    # A Windows publication retry must not rebuild the already verified Mac ZIP.
-    if: "github.event_name != 'push' || github.event.head_commit.message != 'fix: replace 0.4.6 icons [viewfinder-v1] [windows-only]'"
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
+      ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.20 cached runtime [cloud-approved-800MiB]'))
     runs-on: macos-14
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
       YINGXU_TEST_BROWSER: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify approval and absent destination before dependencies
+        run: python3 -B .github/release-support/macos_release.py preflight
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install locked build dependencies
+      - name: Install pinned build inputs
         run: |
           python -m venv .release-work/build-env
           echo "$PWD/.release-work/build-env/bin" >> "$GITHUB_PATH"
           .release-work/build-env/bin/python -B macos/prepare_dependencies.py
-      - name: Prepare locked Markdown test dependencies
+      - name: Prepare locked editor test inputs
         working-directory: tools/markdown-editor
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
@@ -47,20 +65,10 @@ jobs:
           node --check frontend/app.js
           test -x "$YINGXU_TEST_BROWSER"
           for test in tests/frontend_*.cjs; do node "$test"; done
-      - name: Native macOS synthetic checks
-        run: python -B macos_app.py --smoke-test
-      - name: Build isolated application ZIP
-        run: python -B macos/build.py
-      - name: Verify extracted delivery and real WebKit
-        run: python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.16-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.16-mac.1-verification.json
-      - name: Publish preview after full download verification
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ICON_REPAIR_PUSH: "${{ github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]' && 'true' || 'false' }}"
-          REPLACE_ICONS: "${{ ((github.event_name == 'workflow_dispatch' && inputs.replace_icons) || (github.event_name == 'push' && github.repository == 'turnsolesama/yingxu' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'fix: replace 0.4.6 icons [viewfinder-v1]')) && 'true' || 'false' }}"
-        run: python -B macos/publish.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: YingXu-0.4.16-mac.1-arm64
-          path: releases/macos-preview/*
-          if-no-files-found: error
+      - name: Native checks and isolated build
+        run: |
+          python -B macos_app.py --smoke-test
+          python -B macos/build.py
+          python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.20-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.20-mac.1-verification.json
+      - name: Upload, read back and verify before publishing
+        run: python -B .github/release-support/macos_release.py publish

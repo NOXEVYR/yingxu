@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       approve_download_and_publish:
-        description: 'Approve one run with up to 500 MiB downloads and publish Windows 0.4.20 migration.1'
+        description: 'Approve one run with up to 500 MiB downloads and publish Windows 0.4.20 startup.1'
         type: boolean
         required: true
         default: false
@@ -27,7 +27,7 @@ jobs:
       github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
       ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.20 cached runtime [cloud-approved-500MiB]'))
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.20 cached runtime [cloud-approved-800MiB]'))
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:

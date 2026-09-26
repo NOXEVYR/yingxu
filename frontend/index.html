@@ -8,6 +8,8 @@
   <title>映序 · 本地视频创作工作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23202327'/%3E%3Cpath d='M16 22v-6h12m8 0h12v12m0 8v12H36m-8 0H16V36' stroke='%23ffffff' stroke-width='4' fill='none'/%3E%3Cpath d='m27 25 12 7-12 7z' fill='%23ffffff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/startup.css">
+  <script src="/startup.js"></script>
   <link rel="stylesheet" href="/project-library.css">
   <link rel="stylesheet" href="/live-markdown.css">
   <script src="/project-library.js" defer></script>
@@ -36,6 +38,14 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <div id="startupScreen" class="startup-screen" role="status" aria-live="polite">
+    <div class="startup-content">
+      <svg class="startup-mark" viewBox="0 0 72 72" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="4"><path class="startup-corner top-left" d="M10 24V10h22"/><path class="startup-corner top-right" d="M48 10h14v22"/><path class="startup-corner bottom-right" d="M62 48v14H40"/><path class="startup-corner bottom-left" d="M24 62H10V40"/></g><path class="startup-play" d="m30 24 20 12-20 12z" fill="currentColor"/></svg>
+      <strong class="startup-name">映序</strong>
+      <p id="startupMessage" hidden></p>
+      <button id="startupDismiss" type="button" hidden>查看工作台</button>
+    </div>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" aria-label="项目导航">
       <a class="brand" href="/" aria-label="映序首页">
