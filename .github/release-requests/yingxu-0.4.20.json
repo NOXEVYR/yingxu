@@ -1,0 +1,8 @@
+{
+  "approved": true,
+  "reviewed_source_commit": "5e821d135081cfce661399ff3fabd88187f25973",
+  "download_budget_mib": 500,
+  "mac_download_budget_mib": 300,
+  "version": "0.4.20",
+  "purpose": "User-approved single Windows and macOS startup.1 build and release within 800 MiB total cloud download budget"
+}
