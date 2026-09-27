@@ -169,6 +169,16 @@ class Store:
               item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,path TEXT NOT NULL,
               device TEXT NOT NULL,file_id TEXT NOT NULL,birth TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS disk_file_identity ON disk_file_identities(device,file_id,birth);
+            CREATE TABLE IF NOT EXISTS cross_project_residuals(
+              item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+              source_project_id TEXT NOT NULL,path TEXT NOT NULL,
+              device TEXT NOT NULL,file_id TEXT NOT NULL,birth TEXT NOT NULL,
+              size INTEGER NOT NULL,mtime INTEGER NOT NULL,
+              PRIMARY KEY(item_id,source_project_id,device,file_id,birth));
+            CREATE INDEX IF NOT EXISTS cross_project_residual_path
+              ON cross_project_residuals(source_project_id,path);
+            CREATE INDEX IF NOT EXISTS cross_project_residual_identity
+              ON cross_project_residuals(source_project_id,device,file_id,birth);
             ''')
             # Additive migrations preserve earlier catalogues and soft removals.
             for table, columns in {
@@ -455,7 +465,16 @@ class Store:
         paths=list(paths)
         # Project-owned files have a physical classification; external references
         # keep their user-assigned logical classification.
-        from .disk_layout import location, register_directory
+        from .disk_layout import file_stamp, location, register_directory
+        def residual_matches(db, path, info):
+            if (restore_removed or source['is_file'] or
+                    not path.is_relative_to(Path(project['root']))):
+                return False
+            stamp=file_stamp(path,info)
+            return db.execute('''SELECT 1 FROM cross_project_residuals
+                WHERE source_project_id=? AND device=? AND file_id=? AND birth=?
+                  AND size=? AND mtime=? LIMIT 1''',
+                (source['project_id'],*stamp)).fetchone() is not None
         parents=set();owned_paths=[]
         for value in paths:
             path=Path(value)
@@ -502,6 +521,8 @@ class Store:
                     if locate_folder(actual,folder_by_path)[1]:
                         skipped+=1;continue
                     st=p.stat()
+                    if residual_matches(db,p,st):
+                        skipped+=1;continue
                     row=db.execute('SELECT id,size,mtime,removed,folder_id,removed_batch FROM items WHERE project_id=? AND path=?',(source['project_id'],str(p))).fetchone()
                     if row and row['removed_batch'] and not restore_removed and db.execute('SELECT 1 FROM trash_batches WHERE id=? AND purged=1',(row['removed_batch'],)).fetchone():
                         skipped+=1;continue
@@ -524,6 +545,11 @@ class Store:
                 if destination['category']!=target_category:raise UserError('导入目标分类已经改变。',409)
             for p,row,st,kind,content,meta in records:
                 # Another writer may have indexed the newly created path meanwhile.
+                try:
+                    if residual_matches(db,p,p.stat()):
+                        skipped+=1;continue
+                except OSError:
+                    skipped+=1;continue
                 row=db.execute('SELECT id,size,mtime,removed,folder_id,removed_batch FROM items WHERE project_id=? AND path=?',(source['project_id'],str(p))).fetchone()
                 if row and row['removed_batch'] and not restore_removed and db.execute('SELECT 1 FROM trash_batches WHERE id=? AND purged=1',(row['removed_batch'],)).fetchone():
                     skipped+=1;continue

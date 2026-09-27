@@ -104,7 +104,7 @@ test('settings distinguish a local build without changing the release version or
   s.setApi(async()=>({default_view:'grid',default_sort:'updated'}));
   vm.runInContext('showDialog=options=>{globalThis.settingsBody=options.body;};',s.context);
   await s.settingsDialog();assert.match(s.context.settingsBody,/版本 0\.4\.18 · incremental\.1 &lt;test&gt;/);assert.doesNotMatch(s.context.settingsBody,/<test>/);
-  delete s.state.bootstrap.build_revision;await s.settingsDialog();assert.match(s.context.settingsBody,/版本 0\.4\.18 · 稳定版/);assert.doesNotMatch(s.context.settingsBody,/incremental\.1/);
+  delete s.state.bootstrap.build_revision;await s.settingsDialog();assert.match(s.context.settingsBody,/版本 0\.4\.18 · Windows 版/);assert.doesNotMatch(s.context.settingsBody,/incremental\.1|稳定版/);
 });
 test('previous installation result distinguishes rollback and failure, escapes messages and survives a new check',async()=>{
   for(const [state,label] of [['installed','已安装'],['rolled_back','未安装成功，已回退旧版'],['recovery_required','未完成，需要恢复'],['failed','安装失败'],['cancelled','已取消']]){

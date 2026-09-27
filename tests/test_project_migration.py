@@ -8,6 +8,9 @@ from unittest.mock import patch
 from yingxu.project_library import ProjectLibrary
 from yingxu.project_migration import ProjectMigration, recover_pending
 from yingxu.project_storage import ProjectStorage
+from yingxu.disk_layout import identity
+from yingxu.cross_project import move_items
+from yingxu.organize import Organize
 from yingxu.settings import Settings
 from yingxu.store import CATEGORIES, Store, UserError
 
@@ -64,6 +67,54 @@ class ProjectMigrationTests(unittest.TestCase):
         self.assertEqual(json.loads(Path(result['recovery_manifest']).read_text('utf-8'))['state'],'complete')
         self.assertTrue(result['originals_retained'])
         self.assertEqual(list(self.target.glob('.yingxu-migration-*')),[])
+
+    def test_first_sync_after_migration_follows_external_rename_without_new_item(self):
+        project=self.project()
+        note=self.store.create_item({'project_id':project['id'],'category':'scripts','name':'文稿','content':'原文'})
+        opened=self.store.read_content(note['id'])
+        self.store.save_content(note['id'],{'etag':opened['etag'],'content':'带历史的正文'})
+        if identity(Path(note['path'])) is None:self.skipTest('stable file identity unavailable')
+        preview=self.preview(project);self.migration.execute({'token':preview['token']})
+        migrated=Path(self.store.get_item(note['id'])['path'])
+        with self.store.connection() as db:
+            tracked=db.execute('SELECT path,device,file_id,birth FROM disk_file_identities WHERE item_id=?',(note['id'],)).fetchone()
+        self.assertEqual(tracked['path'],str(migrated))
+        self.assertEqual(tuple(tracked)[1:],identity(migrated))
+        renamed=migrated.with_name('新名字.md');migrated.rename(renamed)
+        source=next(row for row in self.store.sources(project['id']) if not row['is_file'])
+        self.store.index_files(source,[renamed])
+        self.assertEqual(self.store.get_item(note['id'])['path'],str(renamed))
+        self.assertEqual(self.store.list_items(project['id'])['total'],1)
+        self.assertEqual(len(self.store.get_item(note['id'],True)['versions']),1)
+
+    def test_migration_repoints_cross_project_residual_guard(self):
+        first=self.project('来源');second=self.project('中间');third=self.project('目标')
+        note=self.store.create_item({'project_id':first['id'],'category':'scripts','name':'文稿','content':'原文'})
+        first_copy=Path(note['path']);unlink=Path.unlink
+        def busy(path,*args,**kwargs):
+            if path in (first_copy,second_copy):raise PermissionError('synthetic busy source')
+            return unlink(path,*args,**kwargs)
+        second_copy=None
+        with patch.object(Path,'unlink',busy):
+            first_result=move_items(Organize(self.store),[note['id']],second['id'],'scripts')
+            second_copy=Path(self.store.get_item(note['id'])['path'])
+            second_result=move_items(Organize(self.store),[note['id']],third['id'],'scripts')
+        self.assertTrue(first_result['warnings']);self.assertTrue(second_result['warnings'])
+        renamed=first_copy.with_name('改名的残留.md');first_copy.rename(renamed)
+        preview=self.preview(first,second,third);self.migration.execute({'token':preview['token']})
+        moved_first=Path(self.store.get_project(first['id'])['root'])/'文本'/'改名的残留.md'
+        moved_second=Path(self.store.get_project(second['id'])['root'])/'文本'/'文稿.md'
+        self.assertTrue(moved_first.is_file());self.assertTrue(moved_second.is_file())
+        with self.store.connection() as db:
+            residuals={row['source_project_id']:row['path'] for row in db.execute(
+                'SELECT source_project_id,path FROM cross_project_residuals WHERE item_id=?',(note['id'],))}
+        self.assertEqual(residuals,{first['id']:str(moved_first),second['id']:str(moved_second)})
+        source=next(row for row in self.store.sources(first['id']) if not row['is_file'])
+        self.store.index_files(source,[moved_first])
+        self.assertEqual(self.store.list_items(first['id'])['total'],0)
+        source=next(row for row in self.store.sources(second['id']) if not row['is_file'])
+        self.store.index_files(source,[moved_second])
+        self.assertEqual(self.store.list_items(second['id'])['total'],0)
 
     def test_internal_markdown_links_updated_only_in_copy_and_external_preserved(self):
         project=self.project(legacy=True)

@@ -7,11 +7,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 
 from .organize import _ids, _rename
 from .migration_links import rewrite_markdown
+from .disk_layout import file_stamp, remember_file
 from .store import UserError, clean_path, has_link, now, uid, TEXT_LIMIT
 
 MAX_BYTES = 2 * 1024**3
@@ -107,7 +109,8 @@ def move_items(organize, ids, target_project_id, category, folder_id=None):
             if total > MAX_BYTES:
                 raise UserError('一次跨项目移动最多 2 GiB，请分批移动。')
             plans.append({'item': item, 'source': source, 'target': target, 'owned': owned,
-                          'before': _digest(source) if owned else '', 'content': None})
+                          'before': _digest(source) if owned else '', 'content': None,
+                          'source_stamp': file_stamp(source, info) if owned else None})
         mapping = {p['source']: p['target'] for p in plans}
         # A partial transfer must not strand links in the remaining documents.
         markdown = db.execute("SELECT * FROM items WHERE project_id=? AND kind='markdown' AND removed=0 LIMIT 1001", (source_id,)).fetchall()
@@ -164,7 +167,8 @@ def move_items(organize, ids, target_project_id, category, folder_id=None):
             _receipt(record_path, record)
             for plan in plans:
                 if plan['owned']:
-                    if _digest(plan['source']) != plan['before']:
+                    if (_digest(plan['source']) != plan['before'] or
+                            file_stamp(plan['source']) != plan['source_stamp']):
                         raise UserError('原文件发生变化，请刷新后重试。', 409)
                     _rename(plan['temporary'], plan['target'])
                     created.append(plan['target'])
@@ -175,6 +179,18 @@ def move_items(organize, ids, target_project_id, category, folder_id=None):
                 info = target.stat()
                 db.execute('UPDATE items SET project_id=?,source_id=?,path=?,category=?,folder_id=?,size=?,mtime=?,updated=?,removed_batch=NULL WHERE id=?',
                            (target_project_id, sid, str(target), category, folder_id, info.st_size, info.st_mtime_ns, now(), iid))
+                # The verified target is a new inode. Persist a guard for the
+                # original in the same transaction as the move: a crash or a
+                # locked source must not make the next scan resurrect it.
+                db.execute('DELETE FROM disk_file_identities WHERE item_id=?', (iid,))
+                if plan['owned']:
+                    db.execute('''INSERT INTO cross_project_residuals
+                        (item_id,source_project_id,path,device,file_id,birth,size,mtime)
+                        VALUES(?,?,?,?,?,?,?,?)
+                        ON CONFLICT(item_id,source_project_id,device,file_id,birth)
+                        DO UPDATE SET path=excluded.path,size=excluded.size,mtime=excluded.mtime''',
+                        (iid, source_id, str(plan['source']), *plan['source_stamp']))
+                    remember_file(db, {'id': iid, 'path': str(target)})
                 if plan['content'] is not None:
                     from .store import decode_text
                     db.execute('UPDATE items SET search_content=? WHERE id=?', (decode_text(plan['content'])[0][:500000], iid))
@@ -217,14 +233,28 @@ def move_items(organize, ids, target_project_id, category, folder_id=None):
             else:
                 raise UserError('移动记录状态不一致，已保留两边文件和操作记录；请重启后核对。', 409)
         # Cleanup is deliberately after commit: crashes always leave a usable copy.
+        cleaned = []
         for plan in plans:
             if not plan['owned']:continue
             try:
-                if _digest(plan['source']) != plan['before'] or _digest(plan['target']) != plan['after']:
+                if (file_stamp(plan['source']) != plan['source_stamp'] or
+                        _digest(plan['source']) != plan['before'] or
+                        _digest(plan['target']) != plan['after'] or
+                        file_stamp(plan['source']) != plan['source_stamp']):
                     raise OSError('file changed after commit')
                 plan['source'].unlink()
+                cleaned.append((plan['item']['id'], source_id, *plan['source_stamp'][:3]))
             except (OSError, UserError):
                 warnings.append('已移动项目记录，但原位置的副本未清理，请核对：' + plan['source'].name)
+        if cleaned:
+            try:
+                db.executemany('''DELETE FROM cross_project_residuals
+                    WHERE item_id=? AND source_project_id=? AND device=? AND file_id=? AND birth=?''',
+                    cleaned)
+                db.commit()
+            except sqlite3.Error:
+                db.rollback()
+                warnings.append('已清理原位置的副本，但操作记录尚未清理；请核对跨项目移动记录。')
         record['state'] = 'cleanup_pending' if warnings else 'done'
         try:_receipt(record_path, record)
         except OSError:warnings.append('文件已移动，操作记录未能更新。')

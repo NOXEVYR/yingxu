@@ -12,6 +12,7 @@ import time
 from contextlib import closing
 
 from .project_layout import MODERN_CATEGORIES, category_paths, extra_directories
+from .disk_layout import file_stamp, remember_file
 from .store import UserError, clean_path, decode_text, has_link, now, safe_name, uid
 
 MAX_ENTRIES = 20000
@@ -83,6 +84,7 @@ def _catalogue(db,ids):
         'active_project_ids':('SELECT id FROM projects WHERE removed=0 ORDER BY id',[]),
         'trash_batches':('SELECT * FROM trash_batches WHERE project_id IN ('+marks+') ORDER BY id',ids),
         'trash_members':('SELECT m.* FROM trash_members m JOIN trash_batches b ON b.id=m.batch_id WHERE b.project_id IN ('+marks+') ORDER BY m.batch_id,m.entity_type,m.entity_id',ids),
+        'cross_project_residuals':('SELECT * FROM cross_project_residuals WHERE source_project_id IN ('+marks+') ORDER BY item_id',ids),
     }
     size=0
     for key,(query,args) in queries.items():
@@ -457,15 +459,41 @@ class ProjectMigration:
                         for row in plan['catalogue']['items']:
                             if row['project_id']!=project['id'] or row['id'] not in project['owned_items']:continue
                             target=mapped(row['path'])
+                            # The copy has a new file ID. Never leave the old source
+                            # identity attached to a migrated catalogue entry.
+                            db.execute('DELETE FROM disk_file_identities WHERE item_id=?',(row['id'],))
                             if row['id'] in project['missing_items']:
                                 db.execute('UPDATE items SET path=?,source_id=? WHERE id=?',(target,project['canonical_source'],row['id']));continue
                             info=copied[target]
                             db.execute('UPDATE items SET path=?,source_id=?,size=?,mtime=? WHERE id=?',(target,project['canonical_source'],info['size'],info['mtime'],row['id']))
+                            remember_file(db,{'id':row['id'],'path':target})
                             if row['path'] in plan['transforms']:
                                 content,_=decode_text(plan['transforms'][row['path']])
                                 db.execute('UPDATE items SET search_content=? WHERE id=?',(content,row['id']));self.store._search_row(db,row['id'])
                         for row in plan['catalogue']['versions']:
                             if Path(row['path']).is_relative_to(source):db.execute('UPDATE versions SET path=? WHERE id=?',(mapped(row['path']),row['id']))
+                        by_identity={}
+                        for entry in project['tree']:
+                            if entry['directory']:continue
+                            stamp=entry['stamp']
+                            key=(str(stamp[0]),str(stamp[1]),entry['size'],stamp[3])
+                            by_identity.setdefault(key,[]).append(entry['relative'])
+                        for row in plan['catalogue']['cross_project_residuals']:
+                            if row['source_project_id']!=project['id']:continue
+                            key=(row['item_id'],row['source_project_id'],row['device'],row['file_id'],row['birth'])
+                            candidate_key=(row['device'],row['file_id'],row['size'],row['mtime'])
+                            expected=(row['device'],row['file_id'],row['birth'],row['size'],row['mtime'])
+                            original=next((source/relative for relative in by_identity.get(candidate_key,[])
+                                if file_stamp(source/relative)==expected),None)
+                            if original is None:
+                                db.execute('''DELETE FROM cross_project_residuals WHERE
+                                    item_id=? AND source_project_id=? AND device=? AND file_id=? AND birth=?''',key)
+                                continue
+                            target=mapped(original)
+                            db.execute('''UPDATE cross_project_residuals SET
+                                path=?,device=?,file_id=?,birth=?,size=?,mtime=? WHERE
+                                item_id=? AND source_project_id=? AND device=? AND file_id=? AND birth=?''',
+                                (target,*file_stamp(target),*key))
                         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='context_exports'").fetchone():
                             current=time.time()
                             db.execute('''INSERT INTO context_exports(project_id,requested_at,first_requested_at)

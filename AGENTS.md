@@ -11,6 +11,8 @@
 - 侧栏项目列表跟随项目库所选分类（直属项目），选择保存在本地界面配置；切分类不得打开或关闭项目、丢失文稿。项目列表按可用高度自适应：默认两行，850px 高三行，1000px 高四行，更多内部滚动。全局搜索使用独立图标位于范围搜索左侧；分类根目录不重复标题，子文件夹保留祖先导航。各弹窗遮罩必须跟随配色，黑白默认不得残留绿色。
 - 回收站清理默认预览后确认（用户可在设置关闭弹窗，仍必须取得后台预览令牌）：项目内原文件移入 Windows 回收站，外部引用与外部 SKILL 保留源文件。严禁永久删除降级；共享、状态变化、未知目录内容和失败必须保留记录并解释。相关测试仅使用临时合成文件，禁止操作真实回收条目。
 - 验证：`python -B -m unittest discover -s tests -v`、`node --check frontend/app.js`、`node tests/frontend_context_menu.cjs`、`node tests/frontend_drag_drop.cjs`、`node tests/frontend_selection.cjs`。
+- 整体验收不能只验证新增功能：同时跑全部 `tests/frontend_*.cjs` 与后端套件，并保留“编辑→改名→跨项目移动→回收恢复→迁移→重启”的隔离串联回归。迁移/移动还需覆盖首次同步前外部改名、连续多次移动及源副本清理失败；草稿覆盖载入失败、载入中关闭与同 key 重开。测试目录必须是合成临时目录。
+- “稳定版”必须对应明确的平台、版本和构建，不能因运行于 Windows 就自动显示。记录发现的问题、修复后的验证、跳过项和剩余人工验收；源码通过不等于本机已经安装或云端已经发布。当前稳定性审查见 `docs/stability-audit-2026-09-27.md`。
 - Markdown 编辑器构建：在 `tools/markdown-editor` 执行 `npm ci --ignore-scripts --no-audit --no-fund`，然后 `npm run build`；每步成功后再运行前端测试。版本与完整性由 `package-lock.json` 锁定，输出本地 bundle、依赖清单和许可证，禁止从 CDN 加载。Node.js/npm 只在开发构建与测试时使用，完整包运行不需要 Node.js。
 - Markdown 文本是唯一保存模型，不将排版后的 HTML 回写文稿。超过 500000 字符或混合换行降级源码；中文 composition 期间禁止重建/关闭编辑器，保存草稿需与当前文本一致，并保留原文件 BOM 和换行方式。
 - Windows 桌面离线构建：`python desktop/build.py --sdk-package <已下载官方SDK.nupkg> --output YingXu.exe --test`。构建脚本校验固定 SDK 摘要，不下载依赖。

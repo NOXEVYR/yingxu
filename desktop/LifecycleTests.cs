@@ -105,15 +105,16 @@ namespace YingXu.Desktop
             foreach(string name in new[]{"__init__.py","paths.py"})
                 File.Copy(Path.Combine(source,"yingxu",name),Path.Combine(fixture,"yingxu",name));
             File.WriteAllText(Path.Combine(fixture,"server.py"),
-                "import json,sys,threading,time\nfrom pathlib import Path\nfrom http.server import BaseHTTPRequestHandler,HTTPServer\n"+
+                "import json,sys,threading,time\nfrom pathlib import Path\nfrom http.server import BaseHTTPRequestHandler,ThreadingHTTPServer\n"+
                 "from yingxu.paths import instance_id,default_data_root\n"+
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.20',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.21',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
-                "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
+                // Like production, serve health probes while WebView holds an idle preconnection.
+                "server=ThreadingHTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n"+
                 "def stop():\n"+
                 " deadline=time.monotonic()+30\n"+
                 " while time.monotonic()<deadline and not Path('stop-fixture').exists():time.sleep(.05)\n"+
@@ -163,7 +164,15 @@ namespace YingXu.Desktop
             await (Task)Call(window,"InitializeAsync");
             var web=(WebView2)Field(window,"web");
             Check(web!=null && web.CoreWebView2!=null,"startup initializes a real WebView controller");
-            Check(Hub.Healthy(Hub.Port),"navigation waits for validated isolated backend");
+            bool healthy=Hub.Healthy(Hub.Port);
+            Console.WriteLine("STARTUP_HEALTH elapsed_ms="+elapsed.ElapsedMilliseconds+" healthy="+healthy);
+            if (!healthy)
+                foreach (string name in new[]{"desktop.log","launcher.log","server.log"})
+                {
+                    string path=Path.Combine(Hub.Data,name);
+                    if (File.Exists(path)) Console.WriteLine("SYNTHETIC_STARTUP_LOG "+name+"\n"+File.ReadAllText(path));
+                }
+            Check(healthy,"navigation waits for validated isolated backend");
             for(int i=0;i<200 && !(bool)Field(window,"loaded");i++)await Task.Delay(25);
             Check((bool)Field(window,"loaded"),"new startup path completes real HTTP navigation");
             string body=await web.CoreWebView2.ExecuteScriptAsync("document.getElementById('fixture').textContent");

@@ -13,9 +13,50 @@ MAX_FOLDERS = 2000
 MAX_FILE_BYTES = 16 * 1024**3
 MAX_TOTAL_BYTES = 64 * 1024**3
 COPY_CHUNK = 1024 * 1024
+_PORTABLE_INVALID_CHARS = frozenset('<>:"/\\|?*')
+_WINDOWS_RESERVED_NAMES = {
+    'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$',
+    *('COM'+str(index) for index in range(1, 10)),
+    *('LPT'+str(index) for index in range(1, 10)),
+}
+
+
+def _validate_portable_component(name, label):
+    """Reject names that cannot be copied verbatim across Windows and macOS."""
+    invalid = (not name or name in ('.', '..') or name[-1:] in (' ', '.')
+               or any(char in _PORTABLE_INVALID_CHARS or ord(char) < 32 or ord(char) == 127
+                      for char in name))
+    base = name.split('.', 1)[0].upper() if name else ''
+    invalid = invalid or base in _WINDOWS_RESERVED_NAMES or any(
+        base == prefix+digit for prefix in ('COM', 'LPT') for digit in ('¹', '²', '³'))
+    try:
+        invalid = invalid or len(name.encode('utf-16-le')) // 2 > 255
+    except UnicodeEncodeError:
+        invalid = True
+    if invalid:
+        raise UserError(f'{label}名称无法跨平台保持原样，已拒绝导入：{name}')
+    return name
+
+
+def _folder_name(name):
+    _validate_portable_component(name, '文件夹')
+    sanitized = safe_name(name)
+    if sanitized != name:
+        if len(name) > 100:
+            raise UserError(f'文件夹名称超过应用支持的100字符限制，已拒绝导入以保护子路径引用：{name}')
+        raise UserError(f'文件夹名称无法保持原样，已拒绝导入以保护子路径引用：{name}')
+    return sanitized
 
 
 def validate_source(store, value, destination):
+    raw_value = os.fspath(value) if isinstance(value, os.PathLike) else str(value)
+    if isinstance(raw_value, bytes):
+        raw_value = os.fsdecode(raw_value)
+    if len(raw_value) >= 2 and raw_value[0] == raw_value[-1] == '"':
+        raw_value = raw_value[1:-1]
+    raw_name = Path(raw_value).name
+    if raw_name:
+        _validate_portable_component(raw_name, '文件或文件夹')
     path = clean_path(value)
     data = Path(store.data_root).resolve()
     destination = clean_path(destination)
@@ -26,19 +67,24 @@ def validate_source(store, value, destination):
     if path == Path(path.anchor) or path == Path.home().resolve():
         raise UserError('请选择具体的素材文件夹，不要导入整个磁盘或用户目录。')
     if path.is_file():
+        _validate_portable_component(path.name, '文件')
         if path.suffix.lower() not in SAFE_EXTENSIONS:
             raise UserError('此文件类型不支持复制导入：'+path.name)
         if path.stat().st_nlink != 1:
             raise UserError('不能复制导入硬链接文件，请选择独立的原文件。')
-    elif not path.is_dir():
+    elif path.is_dir():
+        _folder_name(path.name)
+    else:
         raise UserError('请选择普通文件或文件夹。')
     return path
 
 
 def _folder(organize, pid, category, name, parent):
-    base = safe_name(name)
+    base = _folder_name(name)
     for index in range(1000):
-        candidate = base if not index else base[:88]+' ('+str(index+1)+')'
+        candidate = base if not index else base+' ('+str(index+1)+')'
+        if safe_name(candidate) != candidate:
+            raise UserError('同名文件夹冲突，追加后缀会超过应用支持的100字符限制，已拒绝导入以保护子路径引用：'+name,409)
         try:
             return organize.create_folder(pid,category,candidate,parent)
         except UserError as error:
@@ -58,7 +104,8 @@ def _copy_file(source, parent):
         raise UserError('来源必须是独立的普通文件：'+source.name)
     if before.st_size > MAX_FILE_BYTES:
         raise UserError('单个复制文件不能超过 16 GiB：'+source.name)
-    name = safe_name(source.stem)[:88]
+    _validate_portable_component(source.name, '文件')
+    name = source.stem
     target = None
     identity = None
     try:
@@ -129,6 +176,11 @@ def import_files(store, source_path, pid, category, folder_id=None, progress=Non
         if len(errors)<20:errors.append(message)
     directories = []
     def remember_directory(path):
+        try:
+            _folder_name(path.name)
+        except UserError as error:
+            report(str(error))
+            return
         if len(directories)<MAX_FOLDERS:directories.append(path)
         elif len(errors)<20:report('一次复制最多 2000 个文件夹，额外文件夹内容已跳过。')
     files = []

@@ -57,6 +57,13 @@ def identity(path):
     return str(info.st_dev), str(info.st_ino), str(birth)
 
 
+def file_stamp(path, info=None):
+    """Identify an exact source copy without hashing it on every later scan."""
+    info = info if info is not None else Path(path).stat()
+    birth = getattr(info, 'st_birthtime_ns', info.st_ctime_ns)
+    return str(info.st_dev), str(info.st_ino), str(birth), info.st_size, info.st_mtime_ns
+
+
 def follow_move(store, db, project, path):
     """Follow a previously observed file ID only when its old path is gone."""
     from .store import clean_path

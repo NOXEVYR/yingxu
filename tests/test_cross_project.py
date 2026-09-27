@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from yingxu.cross_project import move_items
+from yingxu.disk_layout import file_stamp, identity
 from yingxu.organize import Organize
 from yingxu.resource_groups import ResourceGroups
 from yingxu.store import Store, UserError
@@ -42,6 +43,26 @@ class CrossProjectTests(unittest.TestCase):
         self.assertEqual(self.store.read_content(item['id'])['content'], '更新内容')
         self.assertEqual(result['stats']['moved'], 1)
         self.assertEqual(self.store.list_items(self.source['id'])['total'], 0)
+        with self.store.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM cross_project_residuals WHERE item_id=?', (item['id'],)).fetchone()[0], 0)
+
+    def test_first_sync_after_transfer_follows_external_rename(self):
+        item = self.item()
+        opened = self.store.read_content(item['id'])
+        self.store.save_content(item['id'], {'etag': opened['etag'], 'content': '带历史的正文'})
+        if identity(Path(item['path'])) is None:self.skipTest('stable file identity unavailable')
+        self.move([item], 'scripts')
+        moved = Path(self.store.get_item(item['id'])['path'])
+        with self.store.connection() as db:
+            tracked = db.execute('SELECT path,device,file_id,birth FROM disk_file_identities WHERE item_id=?', (item['id'],)).fetchone()
+        self.assertEqual(tracked['path'], str(moved))
+        self.assertEqual(tuple(tracked)[1:], identity(moved))
+        renamed = moved.with_name('新名字.md'); moved.rename(renamed)
+        source = next(row for row in self.store.sources(self.target['id']) if not row['is_file'])
+        self.store.index_files(source, [renamed])
+        self.assertEqual(self.store.get_item(item['id'])['path'], str(renamed))
+        self.assertEqual(self.store.list_items(self.target['id'])['total'], 1)
+        self.assertEqual(len(self.store.get_item(item['id'], True)['versions']), 1)
 
     def test_external_reference_original_is_preserved(self):
         path = self.root/'outside.txt'; path.write_text('external', encoding='utf-8')
@@ -157,6 +178,68 @@ class CrossProjectTests(unittest.TestCase):
         self.assertTrue(result['ok']); self.assertTrue(result['warnings'])
         self.assertTrue(original.exists())
         self.assertTrue(Path(self.store.get_item(item['id'])['path']).exists())
+        source = next(row for row in self.store.sources(self.source['id']) if not row['is_file'])
+        self.store.index_files(source, [original])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 0)
+        with self.store.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM cross_project_residuals WHERE item_id=?', (item['id'],)).fetchone()[0], 1)
+        renamed = original.with_name('renamed.md'); original.rename(renamed)
+        self.store.index_files(source, [renamed])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 0)
+        renamed.write_text('new independent content', encoding='utf-8')
+        self.store.index_files(source, [renamed])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 1)
+
+    def test_post_commit_interruption_keeps_source_copy_out_of_rescan(self):
+        item = self.item(); original = Path(item['path'])
+        def interrupt(db):
+            db.commit()
+            raise KeyboardInterrupt('synthetic interruption after commit')
+        with patch('yingxu.cross_project._commit', side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):self.move([item])
+        self.assertTrue(original.exists())
+        self.assertEqual(self.store.get_item(item['id'])['project_id'], self.target['id'])
+        source = next(row for row in self.store.sources(self.source['id']) if not row['is_file'])
+        self.store.index_files(source, [original])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 0)
+
+    def test_second_transfer_cleans_only_its_own_source_guard(self):
+        third = self.store.create_project('第三项目')
+        item = self.item(); first_copy = Path(item['path']); unlink = Path.unlink
+        def busy_first(path, *args, **kwargs):
+            if path == first_copy:raise PermissionError('synthetic busy first source')
+            return unlink(path, *args, **kwargs)
+        with patch.object(Path, 'unlink', busy_first):self.move([item], 'scripts')
+        second_copy = Path(self.store.get_item(item['id'])['path'])
+        move_items(self.organize, [item['id']], third['id'], 'scripts')
+        self.assertTrue(first_copy.exists())
+        self.assertFalse(second_copy.exists())
+        with self.store.connection() as db:
+            residuals = [dict(row) for row in db.execute(
+                'SELECT source_project_id,path FROM cross_project_residuals WHERE item_id=?', (item['id'],))]
+        self.assertEqual(residuals, [{'source_project_id': self.source['id'], 'path': str(first_copy)}])
+        source = next(row for row in self.store.sources(self.source['id']) if not row['is_file'])
+        self.store.index_files(source, [first_copy])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 0)
+
+    def test_post_commit_same_bytes_new_source_inode_is_retained_and_indexable(self):
+        item = self.item(); original = Path(item['path'])
+        content = original.read_bytes(); old_stamp = file_stamp(original)
+        saved = original.with_name('saved-original.md')
+        def replace_after_commit(db):
+            db.commit()
+            original.rename(saved)
+            original.write_bytes(saved.read_bytes())
+        with patch('yingxu.cross_project._commit', side_effect=replace_after_commit):
+            result = self.move([item], 'scripts')
+        self.assertTrue(result['ok']); self.assertTrue(result['warnings'])
+        self.assertTrue(original.is_file()); self.assertTrue(saved.is_file())
+        self.assertEqual(original.read_bytes(), content)
+        self.assertEqual(saved.read_bytes(), content)
+        self.assertNotEqual(file_stamp(original)[:3], old_stamp[:3])
+        source = next(row for row in self.store.sources(self.source['id']) if not row['is_file'])
+        self.store.index_files(source, [saved, original])
+        self.assertEqual(self.store.list_items(self.source['id'])['total'], 1)
 
 
 if __name__ == '__main__':unittest.main()
