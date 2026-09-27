@@ -8,10 +8,10 @@ import sys
 import cached_release as release
 
 ROOT = Path(__file__).resolve().parents[2]
-PREVIEW = '0.4.20-mac.1'
+PREVIEW = '0.4.21-mac.1'
 release.TAG = 'yingxu-v' + PREVIEW
 release.PRERELEASE = True
-release.RELEASE_TITLE = '映序 0.4.20 · 启动动效与迁移修复 · macOS M 系列试用版'
+release.RELEASE_TITLE = '映序 0.4.21 · 工作流稳定性修复 · macOS M 系列试用版'
 
 
 def authorized():
@@ -38,7 +38,7 @@ def publish(commit):
     manifest = json.loads(files[1].read_text(encoding='utf-8'))
     result = json.loads(files[3].read_text(encoding='utf-8'))
     if (manifest.get('source_commit') != commit or manifest.get('version') != PREVIEW or
-            manifest.get('source_version') != '0.4.20' or result.get('ok') is not True or
+            manifest.get('source_version') != '0.4.21' or result.get('ok') is not True or
             result.get('source_commit') != commit or manifest.get('bytes') != files[0].stat().st_size or
             manifest.get('sha256') != release.sha(files[0])):
         raise ValueError('Mac package and verification are not bound to this source')
@@ -60,16 +60,14 @@ def publish(commit):
             raise ValueError('Downloaded Mac package failed isolated native/WebKit verification')
         (cache / 'download-verification.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
 
-    notes = '''映序 0.4.20 macOS 试用版（0.4.20-mac.1），适用于 macOS 14+、Apple Silicon。
-
-- 启动采用现有黑白图标的一次性动效，不显示加载文字，不增加最低等待；尊重系统减少动态效果。
-- 同步音乐分类与播放、目录同步、项目迁移状态修复。原目录、文稿、外部引用和真实写入保护保留。
-- 使用系统 WebKit，复用已有锁定依赖，不增加模型、字库或动画库。
-
-本包未做 Apple Developer ID 签名或公证，不支持 Intel Mac；Windows 截图、目录联接打开与增量安装不属于 Mac 功能。人工输入法、权限提示和长期稳定性仍需试用反馈。
-
-最终 ZIP 经解压、签名、原生及真实 WKWebView 合成验证，再按资产 ID 下载、核对 SHA-256 并重复运行验证，之后公开。所有验收使用隔离合成数据。
-'''+f'\n来源提交：{commit}\n'
+    notes = '\n'.join([
+        '映序 0.4.21 macOS 试用版（0.4.21-mac.1），适用于 macOS 14+、Apple Silicon。', '',
+        '- 同步文稿异步载入与关闭时的草稿保护、迁移和跨项目移动文件身份维护、源副本残留管理。',
+        '- 保留完整合法导入文件名，修复切换项目时旧资源重现和搜索范围残留。',
+        '- 使用系统 WebKit，复用既有锁定依赖与无文字启动动效，不增加模型、字体或动画库。', '',
+        '本包未做 Apple Developer ID 签名或公证，不支持 Intel Mac；Windows 截图、目录联接打开与增量安装不属于 Mac 功能。人工输入法、权限提示、多显示器和长期稳定性仍需试用反馈，不标记为稳定版。', '',
+        '最终 ZIP 经解压、临时签名、原生与 WKWebView 合成检查，再按附件 ID 下载、校验 SHA-256 并重复验证后公开；测试仅使用隔离合成数据。',
+        f'来源提交：{commit}', ''])
     release.publish_draft(cache,commit,files,notes,verify_uploaded=verify_uploaded)
 
 

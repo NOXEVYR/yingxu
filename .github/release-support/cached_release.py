@@ -1,4 +1,4 @@
-"""Review-only fallback: explicit Windows 0.4.20 release, no implicit dependencies.
+"""Review-only fallback: explicit Windows 0.4.21 release, no implicit dependencies.
 
 Install at .github/release-support/cached_release.py after review. Running prepare
 downloads fixed public inputs; running publish mutates a new GitHub release.
@@ -19,21 +19,21 @@ import zipfile
 from urllib.parse import quote
 
 REPO = 'NOXEVYR/yingxu'
-VERSION = '0.4.20'
-BUILD_REVISION = 'startup.1'
+VERSION = '0.4.21'
+BUILD_REVISION = 'audit.1'
 PRERELEASE = False
-RELEASE_TITLE = '映序 0.4.20 · 启动动效与项目迁移修复'
+RELEASE_TITLE = '映序 0.4.21 · 工作流稳定性修复'
 TAG = 'yingxu-v' + VERSION
-BASE_TAG = 'yingxu-v0.4.19'
-BASE_NAME = 'YingXu-v0.4.19-Windows-x64.zip'
-BASE_BYTES = 448218186
-BASE_SHA = 'ba78f3e858a57491cef2937bbcfa1f09d76c39bd5e42a9cddb2181f1d9ed7e4f'
+BASE_TAG = 'yingxu-v0.4.20'
+BASE_NAME = 'YingXu-v0.4.20-Windows-x64.zip'
+BASE_BYTES = 448226972
+BASE_SHA = '2f21324888691e778ea4226c092aeb355d8cec568fb1a3473660efa838dbe91d'
 SDK_URL = 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4191.47/microsoft.web.webview2.1.0.4191.47.nupkg'
 SDK_BYTES = 9259926
 SDK_SHA = 'f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
 DOWNLOAD_BUDGET = 500 * 1024**2
-REQUEST_PATH = '.github/release-requests/yingxu-0.4.20.json'
-PUSH_TITLE = 'release: YingXu 0.4.20 cached runtime [cloud-approved-800MiB]'
+REQUEST_PATH = '.github/release-requests/yingxu-0.4.21.json'
+PUSH_TITLE = 'release: YingXu 0.4.21 cached runtime [cloud-approved-800MiB]'
 SOURCE_TESTS = {'tests/' + name for name in ('frontend_live_markdown.cjs', 'frontend_live_tables.cjs',
                  'frontend_markdown_links.cjs', 'frontend_obsidian_images.cjs')}
 
@@ -256,16 +256,16 @@ def publish(root, cache, commit):
             raise ValueError('Missing/mismatched incremental manifest proof')
         if json.loads(internal).get('build_revision') != BUILD_REVISION:
             raise ValueError('Internal manifest build differs from the reviewed release')
-    notes=(f'Windows {VERSION} · {BUILD_REVISION}：启动图标动效与项目迁移状态修复。\n\n'
-           '- 黑白图标启动动效只播放一次，正常启动不显示加载文字、不增加最低等待；尊重系统减少动态效果。\n'
-           '- 文件夹选择窗口等待输入时不再误算作文件写入，避免少量文件也提示“还有文件操作正在进行”。\n'
-           '- 真实写入、迁移中和跨项目移动中的保护保留；不会强制关闭选择窗口。\n'
-           '- 前端区分选择目录、请求未入队与已入队迁移，避免未启动却持续显示迁移进度。\n'
-           '- 迁移仍保留原目录，复制校验通过后才更新位置；不自动保存或放弃未保存文稿。\n'
-           '- 官方 0.4.19 运行时经固定 ZIP 摘要和内部文件清单核验后复用，无新增运行依赖。\n\n'
-           '云端执行后端、无开发依赖的前端、原生与完整包隔离验证。4 个依赖 esbuild 的编辑器源码测试本轮云端未运行；复用前核对相关源码、构建输入和产物与 0.4.19 一致。\n\n'
-           '回归使用临时合成项目与模拟选择器；未操作反馈者真实项目，尚未完成反馈者实机验收。\n\n'
-           '上传后按 GitHub 资产 ID、大小和 SHA-256 核对本地四附件；本轮没有再次完整下载新版 ZIP。\n'
+    notes=(f'Windows {VERSION} · {BUILD_REVISION}：工作流稳定性修复。\n\n'
+           '- 修复文稿载入中、载入失败、关闭后重新打开时的草稿保护。\n'
+           '- 修复迁移及跨项目移动后的文件身份维护；连续移动、源副本清理失败和外部改名不再造成重复登记或误清理。\n'
+           '- 保留可用的完整导入文件名；不支持的目录名明确提示，避免静默改名导致 Markdown 图片和链接失效。\n'
+           '- 修复切换项目时旧资源短暂重现、跨工作区搜索范围残留；Windows 不再自动标注为稳定版。\n'
+           '- 保留无文字启动图标动效和既有功能；复用经摘要验证的官方 0.4.20 运行库，无新增运行依赖。\n\n'
+           '本机已完成 662 项后端回归（656 通过、6 跳过）、65 个前端测试文件、Windows 原生及 32 项整包验收，并在实际安装目录重复隔离功能和串联流程测试。\n'
+           '本轮云端重新验证后端、无开发依赖的前端、原生和整包；4 个依赖 esbuild 的编辑器源码测试在本机已运行，云端复用前核对源码、构建输入和产物与 0.4.20 一致。\n\n'
+           '未完成人工输入法、多显示器和长期使用验收；本次不标记稳定版。相同文件身份、大小且恢复修改时间的外部改写仍可能避过轻量扫描。\n'
+           '上传后按 GitHub 资产 ID、大小和 SHA-256 核对四个附件；不重复下载整个 Windows 新包。所有测试使用隔离合成数据。\n'
            f'来源提交：{commit}\n')
     notes_file=cache/'release-notes.md'; notes_file.write_text(notes,encoding='utf-8',newline='\n')
     publish_draft(cache, commit, files, notes)

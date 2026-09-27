@@ -2,7 +2,7 @@ name: YingXu explicitly approved macOS preview
 on:
   push:
     branches: [main]
-    paths: ['.github/release-requests/yingxu-0.4.20.json']
+    paths: ['.github/release-requests/yingxu-0.4.21.json']
   workflow_dispatch:
     inputs:
       approve_download_and_publish:
@@ -29,7 +29,7 @@ jobs:
     if: >-
       github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
       ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.20 cached runtime [cloud-approved-800MiB]'))
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.21 cached runtime [cloud-approved-800MiB]'))
     runs-on: macos-14
     timeout-minutes: 40
     env:
@@ -71,6 +71,6 @@ jobs:
         run: |
           python -B macos_app.py --smoke-test
           python -B macos/build.py
-          python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.20-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.20-mac.1-verification.json
+          python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.21-mac.1-macOS-arm64.zip --output releases/macos-preview/YingXu-v0.4.21-mac.1-verification.json
       - name: Upload, read back and verify before publishing
         run: python -B .github/release-support/macos_release.py publish

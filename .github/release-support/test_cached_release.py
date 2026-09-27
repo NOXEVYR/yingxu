@@ -63,11 +63,11 @@ class GuardTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.run_guard()
 
     def test_exact_fixed_inputs_and_budget(self):
-        self.assertEqual(m.BASE_BYTES + m.SDK_BYTES, 457478112)
+        self.assertEqual(m.BASE_BYTES + m.SDK_BYTES, 457486898)
         self.assertEqual(m.DOWNLOAD_BUDGET, 524288000)
         self.assertLess(m.BASE_BYTES + m.SDK_BYTES, m.DOWNLOAD_BUDGET)
-        self.assertEqual(m.BASE_TAG, 'yingxu-v0.4.19')
-        self.assertEqual(m.BASE_SHA, 'ba78f3e858a57491cef2937bbcfa1f09d76c39bd5e42a9cddb2181f1d9ed7e4f')
+        self.assertEqual(m.BASE_TAG, 'yingxu-v0.4.20')
+        self.assertEqual(m.BASE_SHA, '2f21324888691e778ea4226c092aeb355d8cec568fb1a3473660efa838dbe91d')
         with patch.object(m, 'BASE_BYTES', m.DOWNLOAD_BUDGET):
             with self.assertRaises(ValueError): self.run_guard()
 
@@ -95,7 +95,7 @@ class GuardTests(unittest.TestCase):
             self.request[key] = saved
 
     def test_default_request_disabled(self):
-        request = json.loads(Path(__file__).with_name('yingxu-0.4.20.json').read_text(encoding='utf-8'))
+        request = json.loads(Path(__file__).with_name('yingxu-0.4.21.json').read_text(encoding='utf-8'))
         self.assertIs(request['approved'], False)
 
 
