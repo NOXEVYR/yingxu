@@ -48,7 +48,7 @@ def _commit(db):
     db.commit()
 
 
-def move_items(organize, ids, target_project_id, category, folder_id=None):
+def move_items(organize, ids, target_project_id, category, folder_id=None,physical_only=False):
     ids = _ids(ids)
     if not isinstance(target_project_id, str) or not target_project_id:
         raise UserError('请选择目标项目。')
@@ -93,6 +93,8 @@ def move_items(organize, ids, target_project_id, category, folder_id=None):
         for item in items:
             source = store.resolve_item_path(item, db)
             owned = source.is_relative_to(root)
+            if physical_only and not owned:
+                raise UserError('所选文件是项目外部引用，请通过“导入 → 复制到项目分类”保存到目标目录；外部原文件保留。',409)
             target = destination / source.name if owned else source
             info = source.stat()
             if owned and info.st_nlink != 1:

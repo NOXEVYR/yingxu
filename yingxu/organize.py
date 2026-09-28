@@ -18,6 +18,13 @@ def _ids(values):
     return values
 
 
+class MoveConflict(UserError):
+    """A preflight collision: no file or index has been changed."""
+    def __init__(self, conflicts):
+        super().__init__('目标文件夹已有同名文件：'+conflicts[0]['name']+'；未移动任何文件。请选择保留两份或跳过同名项。',409)
+        self.conflicts=conflicts
+
+
 def _rename(source,target):
     """Only publish to a vacant path; the caller verifies the project boundary."""
     if target.exists() or target.is_symlink():raise UserError('目标位置已有同名文件或文件夹，未覆盖任何内容。',409)
@@ -182,7 +189,9 @@ class Organize:
                 raise
         return self.get_folder(folder_id)
 
-    def move_items(self,ids,category,folder_id=None,move_files=True):
+    def move_items(self,ids,category,folder_id=None,move_files=True,conflict='error'):
+        if not isinstance(conflict,str) or conflict not in ('error','rename','skip'):
+            raise UserError('同名文件处理方式无效。')
         ids=_ids(ids);folder_id=None if folder_id in ('',None,'root') else folder_id
         with self.store.lock:
             columns='id,project_id,source_id,name,category,folder_id,path,kind,ext'
@@ -194,18 +203,40 @@ class Organize:
             if len(pids)!=1:raise UserError('一次只能移动同一个项目的条目。')
             pid=items[0]['project_id'];project=self.store.get_project(pid)
             destination=self.folder_path(pid,category,folder_id);root=clean_path(project['root'])
-            plans=[];reserved=set();stats={'moved':0,'referenced':0,'unchanged':0,'copied':0}
+            plans=[];reserved=set();conflicts=[];skipped=[];stats={'moved':0,'referenced':0,'unchanged':0,'copied':0}
+            def occupied(source,target):
+                if os.path.normcase(str(target)) in reserved or target.exists() or target.is_symlink():return True
+                # An absent file can still have an active or trashed index entry.
+                # Include every project whose reference will be repointed below.
+                with self.store.connection() as db:
+                    return db.execute('''SELECT 1 FROM items WHERE path=? AND project_id IN
+                        (SELECT project_id FROM items WHERE path=?) LIMIT 1''',(str(target),str(source))).fetchone() is not None
             for item in items:
                 path=self.store.resolve_item_path(item)
+                if move_files and not path.is_relative_to(root):
+                    raise UserError('所选文件是项目外部引用，不能只修改文件夹归属。请通过“导入 → 复制到项目分类”保存到目标目录；外部原文件保留。',409)
                 owned=bool(move_files and path.is_relative_to(root))
                 target=destination/path.name if owned else path
                 changed=path!=target
                 if changed:
                     key=os.path.normcase(str(target))
-                    if key in reserved or target.exists() or target.is_symlink():raise UserError('目标文件夹已有同名文件：'+target.name+'；未移动任何文件。',409)
+                    if occupied(path,target):
+                        conflicts.append({'id':item['id'],'name':path.name,'source':str(path),'target':str(target)})
+                        if conflict=='skip':
+                            skipped.append(item['id']);continue
+                        if conflict=='rename':
+                            for number in range(2,10002):
+                                candidate=destination/(path.stem+' ('+str(number)+')'+path.suffix)
+                                candidate_key=os.path.normcase(str(candidate))
+                                if not occupied(path,candidate):
+                                    target=candidate;key=candidate_key;break
+                            else:raise UserError('同名文件过多，请选择另一个文件夹。',409)
+                            stats['renamed']=stats.get('renamed',0)+1
                     reserved.add(key)
                 action='moved' if changed else ('referenced' if item['category']!=category or item.get('folder_id')!=folder_id else 'unchanged')
                 stats[action]+=1;plans.append((item,path,target))
+            if conflicts and conflict=='error':raise MoveConflict(conflicts)
+            if skipped:stats['skipped']=len(skipped)
             completed=[]
             try:
                 with self.store.connection() as db:
@@ -219,16 +250,19 @@ class Organize:
                                     raise UserError('目标路径已有项目记录，请先恢复或整理同名条目。',409)
                             _rename(path,target);completed.append((path,target))
                             self._repoint_file(db,path,target)
+                            if path.name!=target.name:
+                                db.execute('UPDATE items SET name=? WHERE id=?',(target.stem,item['id']))
                         db.execute('UPDATE items SET category=?,folder_id=?,updated=? WHERE id=?',(category,folder_id,now(),item['id']))
                         self.store._search_row(db,item['id'])
             except Exception:
                 for old,new in reversed(completed):_rename(new,old)
                 raise
             with self.store.connection() as db:
-                returned=[dict(r) for r in db.execute('SELECT '+columns+' FROM items WHERE id IN ('+','.join('?' for _ in ids)+')',ids)]
+                applied=[item['id'] for item,path,target in plans]
+                returned=[dict(r) for r in db.execute('SELECT '+columns+' FROM items WHERE id IN ('+','.join('?' for _ in applied)+')',applied)] if applied else []
             display=self.get_folder(folder_id)['folder_path'] if folder_id else ''
             for item in returned:item['folder_path']=display
-        return {'ok':True,'project_id':pid,'items':returned,'stats':stats}
+        return {'ok':True,'project_id':pid,'items':returned,'stats':stats,'skipped_ids':skipped}
 
     def assign_imported(self,source,paths,category,folder_id=None):
         pid=source['project_id'];self.folder_path(pid,category,folder_id)

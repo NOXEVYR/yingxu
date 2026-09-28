@@ -226,3 +226,15 @@ test('project switch and busy state cancel member gestures; rejected drop releas
  for(const change of ['project','busy']){const s=memberDragSetup();s.begin();change==='project'?s.setProject(id(101)):s.setBusy(true);s.node.fire('pointerup',{clientX:30,clientY:200});await flush();assert.equal(s.drops.length,0);}
  const s=memberDragSetup();s.setDrop(async()=>{throw new Error('conflict');});s.begin();s.node.fire('pointerup',{clientX:30,clientY:200});await flush();assert.equal(s.errors.length,1);assert.equal(s.controller.isBusy(),false);s.controller.destroy();assert.equal(s.handlers.size,0);
 });
+
+test('physical category and subfolder views retain file cards and refuse logical grouping',()=>{
+ const s=setup(),group={project_id:id(100),member_ids:[id(1),id(2)]},target=s.node({item:id(2)});s.root.append(target);s.ctx.items=[{id:id(2),category:'characters'}];
+ for(const folderId of [null,'nested']){
+  s.ctx.category='characters';s.ctx.folderId=folderId;
+  assert.equal(s.library.visibleGroups([group],s.ctx).length,0);
+  s.controller.beginDrag([id(1)]);assert.equal(s.fire('dragover',target).prevented,undefined);s.arm();assert.equal(s.fire('drop',target).prevented,undefined);
+  s.document.point=target;assert.equal(s.controller.handleNativeDrop({released:true,inside:true,width:100,height:100,x:10,y:10}),false);
+ }
+ assert.equal(s.calls.length,0);
+ s.ctx.category='all';s.ctx.folderId=null;assert.equal(s.library.visibleGroups([group],s.ctx).length,1);
+});

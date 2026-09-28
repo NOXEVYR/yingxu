@@ -6,7 +6,7 @@
   const validId = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
   const uniqueIds = values => Array.isArray(values) && values.length <= 200 ? [...new Set(values.filter(validId))] : [];
   function visibleGroups(groups, context) {
-    if (context.section !== 'assets' || !['grid','board'].includes(context.view) || context.q || context.status || context.kind) return [];
+    if (context.section !== 'assets' || context.category !== 'all' || !['grid','board'].includes(context.view) || context.q || context.status || context.kind) return [];
     const page = new Set((context.items || []).map(item => item.id));
     return groups.filter(group => group.project_id === context.projectId && group.member_ids.some(id => page.has(id)));
   }
@@ -130,15 +130,15 @@
       if (parent) root = parent;
       if (!root || disposed) return;
       const current = context();
-      const inputs = () => [root,root.firstChild,root.lastChild,groups,projectId,current.projectId,current.section,current.items,current.view,current.q,current.status,current.kind];
+      const inputs = () => [root,root.firstChild,root.lastChild,groups,projectId,current.projectId,current.section,current.category,current.items,current.view,current.q,current.status,current.kind];
       const before = inputs();
       if (lastRender?.every((value,index) => value === before[index])) return;
       for (const node of root.querySelectorAll('[data-yx-group-hidden]')) { node.hidden = false; node.removeAttribute('data-yx-group-hidden'); }
       root.querySelectorAll('.yx-group-card,.yx-groups-bar,.yx-group-board-strip').forEach(node => node.remove());
       if (projectId !== current.projectId || current.section !== 'assets') return;
-      if (groups.length) {
+      if (groups.length && current.category === 'all') {
         const bar = document.createElement('div'); bar.className = 'yx-groups-bar';
-        bar.innerHTML = `<button type="button" class="button button-ghost button-small">管理素材组 · ${groups.length}</button><span>分组保留文件原位置</span>`;
+        bar.innerHTML = `<button type="button" class="button button-ghost button-small">管理逻辑素材组 · ${groups.length}</button><span>逻辑分组保留文件原位置</span>`;
         bar.querySelector('button').addEventListener('click',() => open().catch(error)); root.prepend(bar);
       }
       const visible = visibleGroups(groups,current);
@@ -301,7 +301,7 @@
     function endDrag() { clearHover(); drag = null; }
     function candidate(target) {
       const current = context();
-      if (!drag || dialog || drag.projectId !== current.projectId || current.section !== 'assets' || !['grid','board'].includes(current.view)) return null;
+      if (!drag || dialog || drag.projectId !== current.projectId || current.section !== 'assets' || current.category !== 'all' || !['grid','board'].includes(current.view)) return null;
       return dropTarget(target,drag.ids,root);
     }
     function hoverAt(target) {

@@ -169,3 +169,11 @@ test('native mouse release over another project opens confirmation without byte 
 test('dropping within same project does not open cross-project confirmation',async()=>{
   const s=setup(),target=s.node({project:'synthetic'}),transfer=s.transfer([],{'application/x-yingxu-item':'a'});await s.fire('drop',target,transfer).result;assert.equal(s.projectMoves.length,0);assert.equal(s.moves.length,0);assert.equal(s.uploads.length,0);
 });
+
+test('All Resources selection moves to physical root or subfolder without import',async()=>{
+ for(const desktop of [false,true])for(const dataset of [{category:'characters'},{folderDrop:'nested',folderCategory:'characters'}]){
+  const s=setup(desktop),card=s.node({item:'a'}),target=s.node(dataset);Object.assign(s.app.state,{category:'all',folderId:null});s.app.state.selectedIds=new Set(['a','b']);
+  const transfer=s.transfer();s.fire('dragstart',card,transfer);await s.fire('drop',target,desktop?s.transfer([{name:'a.png'},{name:'b.png'}]):transfer).result;
+  assert.deepEqual(JSON.parse(JSON.stringify(s.moves)),[[['a','b'],'characters',dataset.folderDrop||null]]);assert.equal(s.uploads.length,0);
+ }
+});

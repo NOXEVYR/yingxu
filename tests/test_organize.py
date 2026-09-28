@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from yingxu.organize import Organize
+from yingxu.organize import Organize,MoveConflict
 from yingxu.store import Store,UserError,now,uid
 from yingxu.project_layout import category_paths
 from yingxu.jobs import Jobs
@@ -73,7 +73,12 @@ class OrganizeTests(unittest.TestCase):
         path=self.base/'外部素材.md';path.write_text('外部原文',encoding='utf-8')
         source,item=self.reference(path);before=path.read_bytes()
         destination=self.folder('第03集','characters')
-        result=self.org.move_items([item['id']],'characters',destination['id'])
+        with self.assertRaisesRegex(UserError,'外部引用'):
+            self.org.move_items([item['id']],'characters',destination['id'])
+        self.assertEqual(self.store.get_item(item['id'])['category'],'references')
+        self.assertIsNone(self.store.get_item(item['id'])['folder_id'])
+        # Explicit legacy organisation is separate from the physical move API.
+        result=self.org.move_items([item['id']],'characters',destination['id'],move_files=False)
         self.assertEqual(result['stats']['referenced'],1)
         self.assertEqual(result['stats']['moved'],0)
         self.assertEqual(self.store.get_item(item['id'])['path'],str(path))
@@ -100,6 +105,64 @@ class OrganizeTests(unittest.TestCase):
         with self.assertRaises(UserError):self.org.move_items([a['id'],foreign['id']],'scenes')
         with self.assertRaises(UserError):self.org.delete_items([a['id'],foreign['id']])
         with self.assertRaises(UserError):self.org.move_items([a['id'],a['id']],'scenes')
+
+    def test_aggregate_selection_skip_conflict_moves_disk_and_preserves_ids(self):
+        folder=self.folder('女主')
+        existing=self.item('图片节点 2',folder=folder['id'])
+        conflict=self.item('图片节点 2','characters')
+        move=self.item('另一张','scenes')
+        original={i['id']:Path(i['path']).read_bytes() for i in (existing,conflict,move)}
+        ids=[move['id'],conflict['id'],existing['id']]
+        with self.assertRaises(MoveConflict) as caught:self.org.move_items(ids,'scripts',folder['id'])
+        self.assertEqual(caught.exception.conflicts,[{'id':conflict['id'],'name':Path(conflict['path']).name,'source':conflict['path'],'target':existing['path']}])
+        self.assertTrue(Path(move['path']).exists())
+        result=self.org.move_items(ids,'scripts',folder['id'],conflict='skip')
+        self.assertEqual(result['skipped_ids'],[conflict['id']])
+        self.assertEqual(result['stats']['moved'],1);self.assertEqual(result['stats']['unchanged'],1)
+        self.assertEqual(result['stats']['skipped'],1)
+        self.assertEqual({r['id'] for r in result['items']},{move['id'],existing['id']})
+        self.assertFalse(Path(move['path']).exists())
+        for item in (existing,conflict,move):
+            current=self.store.get_item(item['id'])
+            self.assertEqual(Path(current['path']).read_bytes(),original[item['id']])
+        self.assertEqual(self.store.get_item(conflict['id'])['path'],conflict['path'])
+        # Rescan and reopen cannot restore the old physical location or duplicate IDs.
+        source=self.store.sources(self.project['id'])[0]
+        paths=[Path(self.store.get_item(iid)['path']) for iid in ids];self.store.index_files(source,paths)
+        reopened=Store(self.store.data_root,self.store.project_root)
+        self.assertEqual({r['id'] for r in reopened.list_items(self.project['id'])['items']},set(ids))
+        self.assertEqual(Path(reopened.get_item(move['id'])['path']).parent,Path(folder['path']))
+
+    def test_keep_both_reserves_batch_names_and_never_overwrites(self):
+        folder=self.folder('目标','scenes');existing=self.item('同名','scenes',folder['id'])
+        one=self.item('同名','scripts');two=self.item('同名','characters')
+        result=self.org.move_items([one['id'],two['id']],'scenes',folder['id'],conflict='rename')
+        self.assertEqual(result['stats']['moved'],2);self.assertEqual(result['stats']['renamed'],2)
+        self.assertEqual({r['name'] for r in result['items']},{'同名 (2)','同名 (3)'})
+        self.assertEqual(Path(existing['path']).read_text(encoding='utf-8'),'# 同名\n\n原始内容雨夜。')
+        self.assertFalse(Path(one['path']).exists());self.assertFalse(Path(two['path']).exists())
+        for item in result['items']:self.assertEqual(Path(item['path']).stem,item['name'])
+
+    def test_skip_all_returns_no_false_destination_and_new_collision_is_preserved(self):
+        one=self.item('A');destination=self.org.folder_path(self.project['id'],'scenes')
+        occupied=destination/Path(one['path']).name;occupied.write_bytes(b'different')
+        result=self.org.move_items([one['id']],'scenes',conflict='skip')
+        self.assertEqual(result['items'],[]);self.assertEqual(result['stats']['moved'],0)
+        self.assertEqual(self.store.get_item(one['id'])['path'],one['path'])
+        self.assertEqual(occupied.read_bytes(),b'different')
+        for invalid in (None,True,{},'overwrite'):
+            with self.assertRaises(UserError):self.org.move_items([one['id']],'scenes',conflict=invalid)
+
+    def test_stale_target_index_is_a_preflight_conflict_including_skip_and_rename(self):
+        one=self.item('first');two=self.item('same')
+        stale=self.item('same','scenes');Path(stale['path']).unlink()
+        with patch('yingxu.organize._rename',side_effect=AssertionError('preflight must not move')):
+            with self.assertRaises(MoveConflict):self.org.move_items([one['id'],two['id']],'scenes')
+        skipped=self.org.move_items([one['id'],two['id']],'scenes',conflict='skip')
+        self.assertEqual(skipped['skipped_ids'],[two['id']]);self.assertEqual(skipped['stats']['moved'],1)
+        kept=self.org.move_items([two['id']],'scenes',conflict='rename')
+        self.assertEqual(Path(kept['items'][0]['path']).name,'same (2).md')
+        self.assertEqual(self.store.get_item(stale['id'])['path'],stale['path'])
 
     def test_mid_batch_filesystem_failure_rolls_back_paths_and_database(self):
         import yingxu.organize as module

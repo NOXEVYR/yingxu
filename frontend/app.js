@@ -64,7 +64,7 @@ async function api(path, options = {}) {
   catch(error) { if (error.name === 'AbortError') throw error; const connection = $('#connectionState'); if (connection) connection.textContent = '连接暂时中断'; throw new Error('本地服务暂时无法连接。请确认映序仍在运行，然后重试。'); }
   let result;
   try { result = await response.json(); } catch { result = {}; }
-  if (!response.ok) { const error = new Error(result.error || `请求未完成（${response.status}）`); error.status = response.status; throw error; }
+  if (!response.ok) { const error = new Error(result.error || `请求未完成（${response.status}）`); error.status = response.status; error.code = result.code; error.conflicts = result.conflicts; throw error; }
   if (result.focus_folder && window.yingxuDesktopFocus && window.chrome?.webview?.postMessage) window.chrome.webview.postMessage(result.native_open === true ? {action:'focus-folder',path:result.focus_folder,open:true,select:result.reveal_file || null} : {action:'focus-folder',path:result.focus_folder});
   return result;
 }
@@ -665,7 +665,7 @@ async function moveDialog(ids,targetProjectId = null) {
   const projectId = targetProjectId || sample.project_id, initial = sample.category || 'references'; let sequence = 0;
   if (!state.projects.some(project => String(project.id) === String(projectId))) throw new Error('目标项目已不存在，请重新选择。');
   const projects = state.projects.map(project => ({key:project.id,label:project.name}));
-  const dialog = showDialog({title:ids.length === 1 ? '移动文件' : `移动 ${ids.length} 个文件`,subtitle:'选择目标项目、分类和文件夹。项目内文件会移到目标目录，外部引用保留原文件位置。',submit:'移动到这里',body:`<div class="field"><label for="moveProject">目标项目</label><select id="moveProject" name="target_project_id">${optionHtml(projects,projectId)}</select></div><div class="field"><label for="moveCategory">目标分类</label><select id="moveCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),initial)}</select></div><div class="field"><label for="moveFolder">目标文件夹</label><select id="moveFolder" name="folder_id" disabled><option value="">正在读取文件夹…</option></select></div><p class="dialog-hint">同名文件不会覆盖。跨项目移动时，有关联的文件或素材组可能需要一起选择；移动成功后关闭这些文件的预览标签。外部工具或非 Markdown 文件内的旧链接需自行核对。</p>`,onSubmit:async form => { requireFolderSelection('#moveFolder'); const data = new FormData(form); return await performMove(ids,data.get('category'),data.get('folder_id') || null,data.get('target_project_id')); }});
+  const dialog = showDialog({title:ids.length === 1 ? '移动文件' : `移动 ${ids.length} 个文件`,subtitle:'选择目标项目、分类和文件夹。项目内文件会实际移到目标目录。外部引用请先通过导入复制进项目。',submit:'移动到这里',body:`<div class="field"><label for="moveProject">目标项目</label><select id="moveProject" name="target_project_id">${optionHtml(projects,projectId)}</select></div><div class="field"><label for="moveCategory">目标分类</label><select id="moveCategory" name="category">${optionHtml(categoryDefs.filter(value => value.key !== 'all'),initial)}</select></div><div class="field"><label for="moveFolder">目标文件夹</label><select id="moveFolder" name="folder_id" disabled><option value="">正在读取文件夹…</option></select></div><p class="dialog-hint">同项目遇到同名文件时，可选择自动改名保留两份或跳过。跨项目移动时，有关联的文件或素材组可能需要一起选择；移动成功后关闭这些文件的预览标签。外部工具或非 Markdown 文件内的旧链接需自行核对。</p>`,onSubmit:async form => { requireFolderSelection('#moveFolder'); const data = new FormData(form); return await performMove(ids,data.get('category'),data.get('folder_id') || null,data.get('target_project_id')); }});
   const modal = state.modalSequence;
   const populate = async () => {
     const seq = ++sequence, category = $('#moveCategory').value, target = $('#moveProject').value;
@@ -678,9 +678,23 @@ async function moveDialog(ids,targetProjectId = null) {
   $('#moveProject').addEventListener('change',populate); $('#moveCategory').addEventListener('change',populate); await populate();
   } finally { state.moveDialogOpening = false; }
 }
+function chooseMoveConflict(conflicts) {
+  // Use a separate modal so a move submitted from appDialog keeps its form and error handler.
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog'); dialog.className = 'app-dialog';
+    dialog.setAttribute('aria-label','目标文件夹已有同名文件');
+    dialog.innerHTML = `<div class="dialog-heading"><div><h2>目标文件夹已有同名文件</h2><p>尚未移动任何文件。自动改名会为移入的文件添加编号，保留两份文件；跳过只移动没有冲突的文件。</p></div></div><div class="dialog-body" style="overflow:auto"><ul>${conflicts.map(value => `<li><strong>${escapeHtml(value.name)}</strong><br><small>来源：${escapeHtml(value.source)}<br>目标：${escapeHtml(value.target)}</small></li>`).join('')}</ul></div><div class="dialog-actions"><button type="button" class="button button-ghost" data-move-choice="cancel">取消</button><button type="button" class="button button-secondary" data-move-choice="rename">自动改名并移动</button><button type="button" class="button button-primary" data-move-choice="skip" autofocus>跳过同名项，移动其余</button></div>`;
+    let choice = null;
+    dialog.addEventListener('keydown',event => event.stopPropagation());
+    dialog.querySelectorAll('[data-move-choice]').forEach(button => button.addEventListener('click',() => { choice = button.dataset.moveChoice; dialog.close(); }));
+    dialog.addEventListener('close',() => { dialog.remove(); resolve(choice); },{once:true});
+    document.body.append(dialog); dialog.showModal();
+  });
+}
 async function performMove(ids,category,folderId,targetProjectId = null) {
   if (state.moveBusy || state.migrationBusy || state.uploading || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再移动文件。');
   if (!ids.length) return false;
+  ids = [...ids];
   state.moveBusy = true;
   try {
     if (!await prepareTabs(fileTabs(ids))) return false;
@@ -688,7 +702,18 @@ async function performMove(ids,category,folderId,targetProjectId = null) {
     const tabs = fileTabs(ids), sample = state.items.find(item => String(item.id) === String(ids[0])) || tabs[0]?.item;
     const crossProject = targetProjectId && String(targetProjectId) !== String(sample?.project_id || state.projectId);
     const body = {ids,category,folder_id:folderId || null}; if (targetProjectId) body.target_project_id = targetProjectId;
-    const result = await api('/api/move',{method:'POST',body});
+    let result;
+    try { result = await api('/api/move',{method:'POST',body}); }
+    catch(error) {
+      if (crossProject || error.status !== 409 || error.code !== 'move_name_conflict' || !Array.isArray(error.conflicts) || !error.conflicts.length) throw error;
+      const conflict = await chooseMoveConflict(error.conflicts);
+      if (!['rename','skip'].includes(conflict)) return false;
+      if (state.migrationBusy || state.uploading || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再移动文件。');
+      if (!await prepareTabs(fileTabs(ids))) return false;
+      if (state.migrationBusy || state.uploading || state.exitBusy) throw new Error('当前操作尚未完成，请稍后再移动文件。');
+      // Only this explicit precommit refusal permits one user-confirmed retry.
+      result = await api('/api/move',{method:'POST',body:{...body,conflict}});
+    }
     if (crossProject) {
       const changed = tabs.filter(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.markdownEditor?.isComposing());
       removeOpenTabs(tabs.filter(tab => !changed.includes(tab)));
@@ -701,9 +726,11 @@ async function performMove(ids,category,folderId,targetProjectId = null) {
     state.selectedIds.clear();
     // A display refresh failure must not leave an already committed move ready to submit again.
     try { await refreshProjects({preserveLocation:true}); if (state.section === 'assets') await loadItems(); }
-    catch { toast('文件已移动，但列表刷新未完成，请刷新列表查看结果，无需重复移动。','info',9000); }
+    catch { toast('移动请求已处理，但列表刷新未完成，请刷新列表查看结果，无需重复移动。','info',9000); }
+    const skipped = new Set((result.skipped_ids || []).map(String));
+    if (skipped.size && state.section === 'assets') { state.selectedIds = new Set(state.items.filter(item => skipped.has(String(item.id))).map(item => String(item.id))); updateSelection(); }
     renderTabs(); renderInspector();
-    const stats = result.stats || {}; toast(`整理完成${stats.moved ? `：${stats.moved} 个项目文件已移动` : ''}${stats.referenced ? `，${stats.referenced} 个外部引用保留原位` : ''}。`);
+    const stats = result.stats || {}; toast(`${stats.skipped && !stats.moved ? '未移动文件' : '整理完成'}${stats.moved ? `：${stats.moved} 个项目文件已移动` : ''}${stats.renamed ? `，其中 ${stats.renamed} 个已自动改名` : ''}${stats.skipped ? `，${stats.skipped} 个同名文件已跳过` : ''}${stats.unchanged ? `，${stats.unchanged} 个文件已在目标位置` : ''}${stats.referenced ? `，${stats.referenced} 个外部引用保留原位` : ''}。`);
     for (const warning of result.warnings || []) toast(warning,'info',9000);
     return true;
   } finally { state.moveBusy = false; }

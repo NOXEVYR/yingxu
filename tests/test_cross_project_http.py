@@ -51,6 +51,37 @@ class CrossProjectHttpTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/move', body)[0], 200)
         self.assertEqual(self.app.store.get_item(self.item['id'])['project_id'], self.source['id'])
 
+    def test_same_project_conflict_details_and_explicit_skip(self):
+        folder=self.app.organize.create_folder(self.source['id'],'characters','nested')
+        target=Path(folder['path'])/Path(self.item['path']).name;target.write_bytes(b'existing')
+        another=self.app.store.create_item({'project_id':self.source['id'],'name':'second','content':'second bytes'})
+        body={'ids':[self.item['id'],another['id']],'category':'characters','folder_id':folder['id']}
+        status,result=self.request('POST','/api/move',body)
+        self.assertEqual(status,409);self.assertEqual(result['code'],'move_name_conflict')
+        self.assertEqual(result['conflicts'][0]['source'],self.item['path'])
+        self.assertEqual(result['conflicts'][0]['target'],str(target))
+        self.assertTrue(Path(another['path']).exists())
+        body['conflict']='skip'
+        with patch.object(self.app,'changed',side_effect=RuntimeError('synthetic refresh failure')):
+            status,result=self.request('POST','/api/move',body)
+        self.assertEqual(status,200,result);self.assertEqual(result['stats']['skipped'],1)
+        self.assertTrue(result['warnings']);self.assertFalse(Path(another['path']).exists())
+        self.assertEqual(target.read_bytes(),b'existing')
+        body['conflict']='overwrite';self.assertEqual(self.request('POST','/api/move',body)[0],400)
+
+    def test_external_reference_cannot_masquerade_as_physical_folder_move(self):
+        path=self.root/'external.md';path.write_bytes(b'original')
+        source=self.app.store.register_source(self.source['id'],str(path),'references')
+        self.app.store.index_files(source,[path])
+        with self.app.store.connection() as db:
+            iid=db.execute('SELECT id FROM items WHERE path=?',(str(path),)).fetchone()[0]
+        for target in (self.source,self.target):
+            body={'ids':[iid],'category':'characters','target_project_id':target['id']}
+            status,result=self.request('POST','/api/move',body)
+            self.assertEqual(status,409,result);self.assertIn('外部引用',result['error'])
+        self.assertEqual(self.app.store.get_item(iid)['category'],'references')
+        self.assertEqual(path.read_bytes(),b'original')
+
     def test_move_rejects_running_import_and_migration(self):
         with self.app.jobs.lock:self.app.jobs.jobs['synthetic'] = {'state': 'running'}
         self.assertEqual(self.request('POST', '/api/move', self.body())[0], 409)

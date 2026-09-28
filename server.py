@@ -676,21 +676,32 @@ class Handler(BaseHTTPRequestHandler):
                     result=self.app.organize.create_folder(data.get('project_id'),data.get('category'),data.get('name',''),data.get('parent_id'))
                     self.app.changed(result['project_id']);return self.json(result,201)
                 if path=='/api/move':
+                    conflict=data.get('conflict','error')
+                    if not isinstance(conflict,str) or conflict not in ('error','rename','skip'):
+                        raise UserError('同名文件处理方式无效。')
                     target=data.get('target_project_id')
                     if target is not None and (not isinstance(target,str) or not re.fullmatch(r'[a-f0-9]{32}',target)):
                         raise UserError('目标项目无效。')
                     source=self.app.store.get_item(data['ids'][0])['project_id'] if target and isinstance(data.get('ids'),list) and data['ids'] else None
                     if target and target!=source:
+                        if conflict!='error':raise UserError('跨项目同名文件请先重命名后再移动。')
                         from yingxu.cross_project import move_items
                         with self.app.migration_jobs.cross_project_move():
-                            result=move_items(self.app.organize,data.get('ids'),target,data.get('category'),data.get('folder_id'))
+                            result=move_items(self.app.organize,data.get('ids'),target,data.get('category'),data.get('folder_id'),physical_only=True)
                         try:self.app.changed()
                         except Exception:
                             traceback.print_exc()
                             result.setdefault('warnings',[]).append('文件已移动，项目索引需要重新刷新。')
                         return self.json(result)
-                    result=self.app.organize.move_items(data.get('ids'),data.get('category'),data.get('folder_id'))
-                    self.app.changed();return self.json(result)
+                    from yingxu.organize import MoveConflict
+                    try:result=self.app.organize.move_items(data.get('ids'),data.get('category'),data.get('folder_id'),conflict=conflict)
+                    except MoveConflict as error:
+                        return self.json({'error':str(error),'code':'move_name_conflict','conflicts':error.conflicts},409)
+                    try:self.app.changed()
+                    except Exception:
+                        traceback.print_exc()
+                        result.setdefault('warnings',[]).append('文件已移动，项目索引需要重新刷新。')
+                    return self.json(result)
                 if path=='/api/trash/items':
                     result=self.app.organize.delete_items(data.get('ids'));self.app.changed(result['project_id']);return self.json(result)
                 restoring=re.fullmatch(r'/api/trash/([a-f0-9]{32})/restore',path)
