@@ -1,4 +1,4 @@
-"""Review-only fallback: explicit Windows 0.4.21 release, no implicit dependencies.
+"""Review-only fallback: explicit Windows 0.4.22 release, no implicit dependencies.
 
 Install at .github/release-support/cached_release.py after review. Running prepare
 downloads fixed public inputs; running publish mutates a new GitHub release.
@@ -19,10 +19,10 @@ import zipfile
 from urllib.parse import quote
 
 REPO = 'NOXEVYR/yingxu'
-VERSION = '0.4.21'
-BUILD_REVISION = 'audit.1'
+VERSION = '0.4.22'
+BUILD_REVISION = 'workflow.1'
 PRERELEASE = False
-RELEASE_TITLE = '映序 0.4.21 · 工作流稳定性修复'
+RELEASE_TITLE = '映序 0.4.22 · SKILL 收藏、连续交接与软件内更新'
 TAG = 'yingxu-v' + VERSION
 BASE_TAG = 'yingxu-v0.4.20'
 BASE_NAME = 'YingXu-v0.4.20-Windows-x64.zip'
@@ -32,8 +32,8 @@ SDK_URL = 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.419
 SDK_BYTES = 9259926
 SDK_SHA = 'f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
 DOWNLOAD_BUDGET = 500 * 1024**2
-REQUEST_PATH = '.github/release-requests/yingxu-0.4.21.json'
-PUSH_TITLE = 'release: YingXu 0.4.21 cached runtime [cloud-approved-800MiB]'
+REQUEST_PATH = '.github/release-requests/yingxu-0.4.22.json'
+PUSH_TITLE = 'release: YingXu 0.4.22 cached runtime [cloud-approved-500MiB]'
 SOURCE_TESTS = {'tests/' + name for name in ('frontend_live_markdown.cjs', 'frontend_live_tables.cjs',
                  'frontend_markdown_links.cjs', 'frontend_obsidian_images.cjs')}
 
@@ -256,13 +256,14 @@ def publish(root, cache, commit):
             raise ValueError('Missing/mismatched incremental manifest proof')
         if json.loads(internal).get('build_revision') != BUILD_REVISION:
             raise ValueError('Internal manifest build differs from the reviewed release')
-    notes=(f'Windows {VERSION} · {BUILD_REVISION}：工作流稳定性修复。\n\n'
-           '- 修复文稿载入中、载入失败、关闭后重新打开时的草稿保护。\n'
-           '- 修复迁移及跨项目移动后的文件身份维护；连续移动、源副本清理失败和外部改名不再造成重复登记或误清理。\n'
-           '- 保留可用的完整导入文件名；不支持的目录名明确提示，避免静默改名导致 Markdown 图片和链接失效。\n'
-           '- 修复切换项目时旧资源短暂重现、跨工作区搜索范围残留；Windows 不再自动标注为稳定版。\n'
+    notes=(f'Windows {VERSION} · {BUILD_REVISION}：SKILL 收藏、连续交接与软件内更新。\n\n'
+           '- SKILL 完整包本地收藏、用途分类、项目固定版本和少量可选内置规范；更换端口不改变项目绑定。\n'
+           '- AI 协作按项目、客户端、会话生成完整或增量交接；保留本轮任务全文，复制不自动推进已确认基线。\n'
+           '- Windows 自动检查官方版本并后台下载不超过 50 MiB 的变化文件；更大下载先确认，软件内保存工作后退出安装，保留回退。\n'
+           '- 保留 0.4.21 草稿、迁移和导入稳定性修复，并合入云端同名移动的跳过/自动编号与真实目录显示修复。\n'
+           '- 共享目录供曜核或客户端登记；不宣称已自动安装或执行技能。Mac 此次不发布，现有试用版保留。\n'
            '- 保留无文字启动图标动效和既有功能；复用经摘要验证的官方 0.4.20 运行库，无新增运行依赖。\n\n'
-           '本机已完成 662 项后端回归（656 通过、6 跳过）、65 个前端测试文件、Windows 原生及 32 项整包验收，并在实际安装目录重复隔离功能和串联流程测试。\n'
+           '本地候选完成后端、前端、Windows 原生、完整包和编辑至迁移重启的隔离验证；平台及符号链接权限跳过项另行保留。\n'
            '本轮云端重新验证后端、无开发依赖的前端、原生和整包；4 个依赖 esbuild 的编辑器源码测试在本机已运行，云端复用前核对源码、构建输入和产物与 0.4.20 一致。\n\n'
            '未完成人工输入法、多显示器和长期使用验收；本次不标记稳定版。相同文件身份、大小且恢复修改时间的外部改写仍可能避过轻量扫描。\n'
            '上传后按 GitHub 资产 ID、大小和 SHA-256 核对四个附件；不重复下载整个 Windows 新包。所有测试使用隔离合成数据。\n'

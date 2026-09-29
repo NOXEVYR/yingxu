@@ -1,6 +1,8 @@
 # 映序 · AI 资产与项目管理
 
-本轮拖拽修复：同项目遇到同名文件时，可明确选择跳过同名项、移动其余文件，或自动加编号保留两份；具体分类和文件夹按真实文件展示，跨目录逻辑素材组仅在“全部资源”显示。移动接口不再把外部引用只改显示归属当作真实移动，外部文件需先复制导入。源码及本地待安装包包含这些修复，公开下载版本仍以下方入口为准。
+同时包含云端拖拽修复：同项目遇到同名文件时，可明确选择跳过同名项、移动其余文件，或自动加编号保留两份；具体分类和文件夹按真实文件展示，跨目录逻辑素材组仅在“全部资源”显示。移动接口不再把外部引用只改显示归属当作真实移动，外部文件需先复制导入。
+
+**0.4.22 开发候选：SKILL 收藏与项目版本绑定、按会话增量交接、Windows 后台检查与小补丁下载。** 此处说明的是开发中的源码功能，不代表下载区已经更新。[使用与边界](docs/skill-workflow.md)
 
 **0.4.21 源码已同步，安装包待发布：工作流稳定性修复。** 修复草稿生命周期、迁移与跨项目移动的文件身份维护、完整文件名导入和导航搜索范围。Windows 构建 `audit.1` 已在本机完成后端、前端、原生、整包及安装后隔离回归；尚未标记稳定版。云端下载链接保留已公开的 0.4.20，待新附件通过验收后更新。[审查范围与剩余限制](docs/stability-audit-2026-09-27.md)
 
@@ -22,7 +24,7 @@
 
 **Windows 0.4.17 已发布：音乐播放与目录同步。** 左侧增加“音乐”，对应新项目的真实 `音乐` 目录，支持拖入、移动和子文件夹；既有音频保留原位置，可通过“全部资源 → 音频”找到后移动。音乐最小化或留在 Windows 托盘后继续播放，视频仍在隐藏时暂停。播放器提供进度、音量、0.5–2 倍速、单曲循环和本页上一首/下一首；切换到其他文件或关闭标签会释放播放器。复用内置音频解码，无新增依赖、模型、常驻任务或音频预加载队列。倍速与音量仅影响播放，不改写文件。本版同时收录下文的目录同步、快速阅览和整分类删除；完整包已完成上传后完整下载、摘要核对与隔离运行验收。
 
-本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/turnsolesama/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
+本仓库独立维护映序的公开源码与文档。[各平台发布包与校验](https://github.com/NOXEVYR/yingxu/releases)集中在本仓库；既有 `portfolio` Releases 的历史包与下载地址保留。
 
 0.4.16 新增：[从文件夹导入项目](docs/project-folder-import.md)。拖到左侧项目库，复制到配置的存放位置并自动归类；拖到项目资源区则保留文件夹层级，原目录保留。
 
@@ -48,7 +50,7 @@
 - macOS 提供选择文件夹导入项目入口；全局截图与 Windows 原生拖放桥接仍属于 Windows 功能。
 - 无新增运行依赖、启动扫描或常驻监控。隔离对照测试未见明显启动与内存退化；这不代表所有电脑的冷启动时间。
 
-[Windows 0.4.15 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15) · [macOS 0.4.15-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.15-mac.1)
+[Windows 0.4.15 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.15) · [macOS 0.4.15-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.15-mac.1)
 
 **0.4.15 已发布：Windows 截图线宽选择。** Windows 与 macOS 分别完成完整包验证和上传后下载回检。
 
@@ -57,7 +59,7 @@
 - 已通过 930 项实际窗口绘制与交互检查；使用合成截图内容，不代表已完成人工多显示器及真实剪贴板验收。
 - macOS 仅同步版本，未新增截图或标注功能。无新增运行依赖、启动联网或后台轮询。
 
-[Windows 0.4.14 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14) · [macOS 0.4.14-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.14-mac.1)
+[Windows 0.4.14 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.14) · [macOS 0.4.14-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.14-mac.1)
 
 **0.4.14 已发布：Windows 截图工具栏与绘制修复。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
@@ -66,7 +68,7 @@
 - 使用实际窗口消息重绘检查正常与窄屏布局，并在 100%、150%、200% 缩放下验证；这不等于已完成人工多显示器组合验收。
 - macOS 仅同步版本与来源提交，未新增 Windows 专属截图功能。无新增运行依赖、启动联网或后台轮询。
 
-[Windows 0.4.13 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.13) · [macOS 0.4.13-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.13-mac.1)
+[Windows 0.4.13 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.13) · [macOS 0.4.13-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.13-mac.1)
 
 **0.4.13 已发布：回收站清理确认修复。** Windows 与 macOS 由同一来源提交构建，均已通过完整包验证和上传后下载回检。
 
@@ -74,7 +76,7 @@
 - 被保留的条目显示具体名称，区分活动引用与其他回收批次；先处理子文件后，可重新预览父目录。
 - 保留 0.4.12 的手动检查更新、笔记图片兼容和阅读布局；无新增依赖、启动联网或后台轮询。
 
-[Windows 0.4.12 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12) · [macOS 0.4.12-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.12-mac.1)
+[Windows 0.4.12 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.12) · [macOS 0.4.12-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.12-mac.1)
 
 **0.4.12 已发布：笔记图片兼容、阅读布局与手动更新。** Windows 与 macOS 由同一来源提交构建，分别完成完整包验证和上传后下载回检。
 
@@ -84,7 +86,7 @@
 - Windows 从不同安装位置反复打开时，复用同一数据目录的桌面实例。
 - 无新增运行依赖或后台轮询。macOS 仍限 Apple Silicon 试用范围；人工输入法、权限和长期稳定性仍需反馈。
 
-[Windows 0.4.11 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11) · [macOS 0.4.11-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.11-mac.1)
+[Windows 0.4.11 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.11) · [macOS 0.4.11-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.11-mac.1)
 
 **0.4.11 已发布：拖拽导入修复与跨项目移动。** Windows 与 macOS 共享相同功能代码，并分别完成上传后完整下载、解压与隔离验证。Windows 来源提交另含浏览器测试等待及临时测试目录清理修正，不改变应用功能。
 
@@ -94,7 +96,7 @@
 - 移动保留条目身份、历史、完整素材组与批次内关系；部分素材组、跨批次本地文稿链接会明确拒绝。最多 200 项、受管文件合计 2 GiB，大文件移动期间暂停冲突写入。
 - 无新增启动扫描、模型或运行依赖。原生拖拽桥接和窗口行为使用隔离测试，仍需对方电脑复测；macOS 维持 M 系列试用范围。
 
-[Windows 0.4.10 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10) · [macOS 0.4.10-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.10-mac.1)
+[Windows 0.4.10 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.10) · [macOS 0.4.10-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.10-mac.1)
 
 **0.4.10 已发布：项目存放位置与迁移。** Windows 和 macOS 使用同一份功能源码，分别完成最终包验证与上传后下载回检。
 
@@ -105,7 +107,7 @@
 
 详情见[项目存放位置与分类目录](docs/功能指南.md#项目存放位置与分类目录)。完成后在新位置工作，原目录作为迁移时的备份保留。
 
-[Windows 0.4.9 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9) · [macOS 0.4.9-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.9-mac.1)
+[Windows 0.4.9 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.9) · [macOS 0.4.9-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.9-mac.1)
 
 **0.4.9 已发布：浏览器图片粘贴修复。** Windows 正式包与 macOS 0.4.9-mac.1 试用包分别完成构建、隔离验证和上传后完整下载回检。
 
@@ -115,7 +117,7 @@
 
 图片粘贴回归使用合成位图、模拟剪贴板与浏览器事件，不能代替每台电脑、每种浏览器的真实剪贴板验收。另有用户反馈的“本地连接中断”发生在其他电脑，尚未定位，不属于本次已确认修复项。
 
-[Windows 0.4.8 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8) · [macOS 0.4.8-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.8-mac.1)
+[Windows 0.4.8 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.8) · [macOS 0.4.8-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.8-mac.1)
 
 **0.4.8 已发布：启动提速与创作交互改进。** Windows 与 macOS 安装包分别完成构建、隔离验证和上传后完整下载回检，保留原有功能与历史版本。
 
@@ -125,7 +127,7 @@
 - Markdown 实时预览支持表格，可从表格定位回源码编辑，保留原始文稿和输入法状态。
 - Windows 截图新增矩形、箭头、Shift 画直线、马赛克与桌面置顶，工具栏采用图标和色板。macOS 试用版仍不提供截图及原生拖出。
 
-[Windows 0.4.7 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7) · [macOS 0.4.7-mac.1 历史包](https://github.com/turnsolesama/yingxu/releases/tag/yingxu-v0.4.7-mac.1)
+[Windows 0.4.7 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.7) · [macOS 0.4.7-mac.1 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.7-mac.1)
 
 **0.4.7 已发布：** 基于 0.4.6 完成以下六项交互修复。Windows 正式包与 macOS 0.4.7-mac.1 试用包均已完成最终 ZIP 验收和上传后完整下载核对，上方入口已同步。
 
@@ -146,11 +148,11 @@
 - 去掉重复的项目标题，修复黑白、暖纸外观下仍出现绿色弹窗遮罩的问题。
 - 修复确认放弃画板修改后仍不能退出的问题；取消退出、保存失败或输入尚未完成时继续保留相应编辑状态。
 
-**0.4.5 已发布：Windows 正式包与 macOS 0.4.5-mac.1 试用包。** SKILL 库新增来源分组、扫描目录筛选和自定义目录登记，可按需关闭外部扫描位置。外部技能保持只读，关闭或移除登记保留源文件与项目绑定记录；扫描有上限并复用缓存，不新增运行依赖或模型。各平台可下载版本以[发布页](https://github.com/turnsolesama/yingxu/releases)及其验证附件为准，新功能说明见[功能指南](docs/功能指南.md)。
+**0.4.5 已发布：Windows 正式包与 macOS 0.4.5-mac.1 试用包。** SKILL 库新增来源分组、扫描目录筛选和自定义目录登记，可按需关闭外部扫描位置。外部技能保持只读，关闭或移除登记保留源文件与项目绑定记录；扫描有上限并复用缓存，不新增运行依赖或模型。各平台可下载版本以[发布页](https://github.com/NOXEVYR/yingxu/releases)及其验证附件为准，新功能说明见[功能指南](docs/功能指南.md)。
 
 0.4.4 修复画板切换后的撤销和离线字体加载，减少缩放时的重复处理。文档内支持 `Ctrl+F` 查找，Word 预览分段显示并可跨页定位；在项目 Markdown 中拖入文件可建立可点击链接。右键菜单按打开、编辑整理、删除分组，多选时明确操作数量。设置中可预览缓存和历史占用，确认后清理选定范围；默认不清理文稿历史。
 
-[功能指南](docs/功能指南.md) · [安装与运行](docs/安装与运行.md) · [开发说明](docs/开发说明.md) · [版本与校验](https://github.com/turnsolesama/yingxu/releases) · [旧版校验记录](https://github.com/turnsolesama/portfolio/blob/d3b47d7fc4320f627e6b5fc8f653fcbd35007670/yingxu/releases/README.md)
+[功能指南](docs/功能指南.md) · [安装与运行](docs/安装与运行.md) · [开发说明](docs/开发说明.md) · [版本与校验](https://github.com/NOXEVYR/yingxu/releases) · [旧版校验记录](https://github.com/turnsolesama/portfolio/blob/d3b47d7fc4320f627e6b5fc8f653fcbd35007670/yingxu/releases/README.md)
 
 ## 适合怎样的工作
 

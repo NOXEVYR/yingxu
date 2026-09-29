@@ -157,6 +157,8 @@ class SkillLibrary:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN purged INTEGER NOT NULL DEFAULT 0')
             if 'recycle_started' not in columns:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN recycle_started INTEGER NOT NULL DEFAULT 0')
+        from .skill_collections import SkillCollections
+        self.collections = SkillCollections(self)
         self._startup_lock = threading.Lock()
         self._startup_future = None
         self._startup_error = ''
@@ -588,25 +590,71 @@ class SkillLibrary:
             result.update(content=content, etag=record["etag"])
             return result
 
-    def bind(self, project_id, skill_id, bound):
+    def bind(self, project_id, skill_id, bound, *, collection_id=None, version=None, _collection_only=False):
         if not isinstance(bound, bool):
             raise UserError("技能绑定状态必须为 true 或 false。")
         self.store.get_project(project_id)
-        row = self._row(skill_id)
+        pin = None
         if bound:
-            self._trusted_path(row)
+            if collection_id:
+                collection = self.collections._get_collection(collection_id)
+                if collection["source_skill_id"] != str(skill_id):
+                    raise UserError("收藏技能与来源技能标识不匹配。", 409)
+                selected = version or collection["current_version"]
+                self.collections.get(collection_id, selected)
+                pin = {"collection_id": collection_id, "collection_version": selected}
+                skill_id = collection["source_skill_id"]
+                if not _collection_only:
+                    self._trusted_path(self._row(skill_id))
+            elif not _collection_only:
+                self._trusted_path(self._row(skill_id))
         with self.store.lock, self.store.connection() as db:
-            if bound:
-                db.execute("INSERT OR IGNORE INTO yx_project_skills(project_id,skill_id,created) VALUES(?,?,?)", (project_id, skill_id, now()))
-            else:
+            existing = db.execute("SELECT collection_id,collection_version FROM yx_project_skills WHERE project_id=? AND skill_id=?",
+                                  (project_id, skill_id)).fetchone()
+            if not bound:
                 db.execute("DELETE FROM yx_project_skills WHERE project_id=? AND skill_id=?", (project_id, skill_id))
-        return {"ok": True}
+            elif pin:
+                if existing:
+                    db.execute("UPDATE yx_project_skills SET collection_id=?,collection_version=? WHERE project_id=? AND skill_id=?",
+                               (pin["collection_id"], pin["collection_version"], project_id, skill_id))
+                else:
+                    db.execute("INSERT INTO yx_project_skills(project_id,skill_id,created,collection_id,collection_version) VALUES(?,?,?,?,?)",
+                               (project_id, skill_id, now(), pin["collection_id"], pin["collection_version"]))
+            elif not existing:
+                pin = self.collections.latest_for_source(skill_id)
+                db.execute("INSERT INTO yx_project_skills(project_id,skill_id,created,collection_id,collection_version) VALUES(?,?,?,?,?)",
+                           (project_id, skill_id, now(), pin["collection_id"] if pin else "",
+                            pin["collection_version"] if pin else ""))
+            elif existing["collection_id"] and existing["collection_version"]:
+                pin = {"collection_id": existing["collection_id"],
+                       "collection_version": existing["collection_version"]}
+        return {"ok": True, **(pin or {})}
 
     def bound_skills(self, project_id):
         self.store.get_project(project_id)
         with self.store.connection() as db:
-            rows = db.execute("SELECT s.* FROM yx_skills s JOIN yx_project_skills b ON b.skill_id=s.id WHERE b.project_id=? AND s.removed=0 ORDER BY s.name,s.id", (project_id,)).fetchall()
-        return [self._item(row, True) for row in rows]
+            rows = db.execute("SELECT s.*,b.collection_id,b.collection_version FROM yx_skills s JOIN yx_project_skills b ON b.skill_id=s.id WHERE b.project_id=? AND (s.removed=0 OR (b.collection_id!='' AND b.collection_version!='')) ORDER BY s.name,s.id", (project_id,)).fetchall()
+        result = []
+        for row in rows:
+            item = self._item(row, True)
+            collection_id = row["collection_id"]
+            version = row["collection_version"]
+            item.update(collection_id=collection_id or "", version=version or "", pinned=bool(collection_id and version))
+            if item["pinned"]:
+                try:
+                    collected = self.collections.get(collection_id, version)
+                    item.update(name=collected["name"], description=collected["description"],
+                                available=True, collection_path=collected["path"],
+                                collection_entry_path=str(Path(collected["path"]) / next(f["path"] for f in collected["manifest"]["files"] if f["path"].casefold()=="skill.md")),
+                                collection_manifest_path=collected["manifest_path"],
+                                collection_available=True)
+                except UserError:
+                    item["collection_available"] = False
+                    item["available"] = False
+            else:
+                item["collection_available"] = False
+            result.append(item)
+        return result
 
     def remove(self, skill_id):
         """Remove only from YingXu. Source files and bindings remain recoverable."""

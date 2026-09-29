@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       approve_download_and_publish:
-        description: 'Approve one run with up to 500 MiB downloads and publish Windows 0.4.21 audit.1'
+        description: 'Approve one run with up to 500 MiB downloads and publish Windows 0.4.22 workflow.1'
         type: boolean
         required: true
         default: false
@@ -15,7 +15,7 @@ on:
         required: true
   push:
     branches: [main]
-    paths: ['.github/release-requests/yingxu-0.4.21.json']
+    paths: ['.github/release-requests/yingxu-0.4.22.json']
 permissions:
   contents: write
 concurrency:
@@ -27,7 +27,7 @@ jobs:
       github.repository == 'NOXEVYR/yingxu' && github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
       ((github.event_name == 'workflow_dispatch' && inputs.approve_download_and_publish == true && inputs.source_commit == github.sha) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.21 cached runtime [cloud-approved-800MiB]'))
+       (github.event_name == 'push' && github.event.head_commit.message == 'release: YingXu 0.4.22 cached runtime [cloud-approved-500MiB]'))
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
@@ -97,9 +97,9 @@ jobs:
           if ($LASTEXITCODE) { throw 'Native build or tests failed' }
           python -B tools/package_release.py
           if ($LASTEXITCODE) { throw 'Package build failed' }
-          $report = python -B tools/verify_release.py releases/YingXu-v0.4.21-Windows-x64.zip
+          $report = python -B tools/verify_release.py releases/YingXu-v0.4.22-Windows-x64.zip
           if ($LASTEXITCODE) { throw 'Complete package verification failed' }
-          [IO.File]::WriteAllText((Join-Path $PWD 'releases/YingXu-v0.4.21-verification.json'),($report -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $PWD 'releases/YingXu-v0.4.22-verification.json'),($report -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
       - name: Upload draft and compare GitHub digests before publishing
         run: |
           python -B .github/release-support/cached_release.py publish

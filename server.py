@@ -56,6 +56,8 @@ class Application:
         self.organize=Organize(self.store)
         self.skills=SkillLibrary(self.store,scan=False)
         self.context=ContextExporter(self.store,self.skills)
+        from yingxu.handoffs import HandoffService
+        self.handoffs=HandoffService(self.store,self.skills,self.context)
         self.jobs=Jobs(self.store,self.context.request)
         self.thumbnails=Thumbnails(self.store)
         from yingxu.trash import TrashDeletion
@@ -100,7 +102,7 @@ class Application:
         return {'app':'yingxu','version':__version__,'build_revision':__build__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True}}
+          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True,'automatic_updates':True,'skill_collections':True,'incremental_handoff':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -447,6 +449,23 @@ class Handler(BaseHTTPRequestHandler):
             parsed=urlsplit(self.path);path=parsed.path
             query={k:v[-1] for k,v in parse_qs(parsed.query).items()}
             if self.command in ('GET','HEAD'):
+                if path=='/api/updates/automatic/status':
+                    self.check_origin(True)
+                    if query:raise UserError('自动更新状态不接受额外参数。')
+                    return self.json(self.app.update_service.automatic_status())
+                if path=='/api/handoffs':
+                    if set(query)!={'project_id','client_id','conversation_id'}:raise UserError('交接查询参数无效。')
+                    return self.json(self.app.handoffs.status(**query))
+                handoff=re.fullmatch(r'/api/handoffs/([a-f0-9]{32})',path)
+                if handoff:
+                    if query:raise UserError('交接记录不接受额外参数。')
+                    return self.json(self.app.handoffs.get(handoff[1]))
+                if path=='/api/skill-collections':
+                    if set(query)-{'project'}:raise UserError('收藏查询参数无效。')
+                    return self.json(self.app.skills.collections.list(query.get('project','')))
+                if path.startswith('/api/skill-collections/'):
+                    if set(query)-{'version'}:raise UserError('收藏读取参数无效。')
+                    return self.json(self.app.skills.collections.get(path.rsplit('/',1)[-1],query.get('version')))
                 if path=='/api/updates/status':
                     self.check_origin(True)
                     if query:raise UserError('更新状态不接受额外参数。')
@@ -527,6 +546,13 @@ class Handler(BaseHTTPRequestHandler):
             data=self.body()
             if self.command=='POST' and path.startswith('/api/updates/'):
                 service=self.app.update_service
+                if path=='/api/updates/automatic/start':
+                    if data or query:raise UserError('自动更新参数无效。')
+                    service.start_automatic_updates()
+                    return self.json(service.automatic_status())
+                if path=='/api/updates/automatic/check':
+                    if data or query:raise UserError('自动更新参数无效。')
+                    return self.json(service.automatic_check(force=True))
                 if path=='/api/updates/plan':
                     if data or query:raise UserError('检查差异不接受额外参数。')
                     return self.json(service.plan())
@@ -550,6 +576,28 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/updates/install/cancel':
                     if set(data)!={'ticket'} or query:raise UserError('取消安装参数无效。')
                     return self.json(service.cancel(data['ticket']))
+            if self.command=='POST' and path.startswith('/api/skill-collections/'):
+                if query:raise UserError('收藏操作参数无效。')
+                library=self.app.skills.collections
+                if path=='/api/skill-collections/preview' and set(data)=={'skill_id'}:
+                    return self.json(library.preview(data['skill_id']))
+                if path=='/api/skill-collections/collect' and set(data)=={'token'}:
+                    return self.json(library.collect(data['token']),201)
+                if path=='/api/skill-collections/classify' and set(data)=={'id','category','tags'}:
+                    return self.json(library.classify(data['id'],data['category'],data['tags']))
+                if path=='/api/skill-collections/bind' and {'id','project_id','bound'}<=set(data) and not set(data)-{'id','project_id','bound','version'}:
+                    result=library.bind(data['project_id'],data['id'],data['bound'],data.get('version'))
+                    self.app.context.request(data['project_id'])
+                    return self.json(result)
+                if path=='/api/skill-collections/export' and set(data)=={'project_id'}:
+                    return self.json(library.export(data['project_id']))
+                raise UserError('收藏操作或参数无效。')
+            if self.command=='POST' and path=='/api/handoffs':
+                if query or not {'project_id','client_id','conversation_id','task','asset_ids'}<=set(data) or set(data)-{'project_id','client_id','conversation_id','task','asset_ids','force_full'}:raise UserError('交接参数无效。')
+                return self.json(self.app.handoffs.create(**data),201)
+            if self.command=='POST' and path=='/api/handoffs/acknowledge':
+                if query or set(data)!={'snapshot_id'}:raise UserError('交接确认参数无效。')
+                return self.json(self.app.handoffs.acknowledge(data['snapshot_id']))
             if self.command == 'POST' and path == '/api/updates/check':
                 if data or query:raise UserError('检查更新不接受额外参数。')
                 from yingxu.updates import check_update
@@ -666,7 +714,7 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/skills':return self.json(self.app.skills.create(data),201)
                 if path=='/api/skills/refresh':return self.json(self.app.skills.refresh())
                 if path=='/api/skills/bind':
-                    result=self.app.skills.bind(data.get('project_id'),data.get('skill_id'),bool(data.get('bound')));self.app.context.request(data.get('project_id'));return self.json(result)
+                    result=self.app.skills.bind(data.get('project_id'),data.get('skill_id'),data.get('bound'));self.app.context.request(data.get('project_id'));return self.json(result)
                 if path=='/api/context/refresh':return self.json(self.app.context.export(data.get('project_id')))
                 if path=='/api/backup':return self.json({'path':str(self.app.store.backup_database())})
                 if path=='/api/trash/delete-preview':return self.json(self.app.trash_deletion.preview(data))

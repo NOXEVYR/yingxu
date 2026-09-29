@@ -1,0 +1,68 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
+test('actual navigation preserves project-scoped resource selection for handoff',async()=>{
+  const vm=require('node:vm'),nodes=new Map();
+  const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',classList:{toggle(){}}});return nodes.get(key);};
+  const context=vm.createContext({window:{},document:{querySelector:node},localStorage:{getItem(){return null;},setItem(){}},setTimeout,clearTimeout});
+  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
+  vm.runInContext(source+`;guardProperties=async()=>true;rememberWorkspace=()=>{};renderWorkspace=renderNavigation=renderHero=configureSection=()=>{};loadSection=async()=>{};globalThis.fixture={state,selectSection};`,context);
+  const {state,selectSection}=context.fixture;state.projectId='project-one';state.section='assets';state.selectedIds.add('picked');
+  await selectSection('context');assert.equal(state.selectedIds.size,0);assert.equal(state.handoffSelection.projectId,'project-one');assert.equal(state.handoffSelection.ids.join(','),'picked');
+});
+test('real Chromium collection filtering and per-conversation handoff lifecycle',async t=>{
+  const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p=>p&&fs.existsSync(p));
+  if(!browser){t.skip('Existing Chromium required; no downloads');return;}
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-workflow-ui-'));
+  t.after(()=>{const resolved=path.resolve(temporary);assert.ok(resolved.startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(resolved).startsWith('yingxu-workflow-ui-'));fs.rmSync(resolved,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  for(const file of ['workflow-library.js','workflow-library.css','styles.css','appearance.css'])fs.copyFileSync(path.join(__dirname,'../frontend',file),path.join(temporary,file));
+  const runner=`(async()=>{
+    const checks=[],check=(name,ok)=>{checks.push({name,ok:!!ok});if(!ok)throw Error(name);};
+    try{
+      const state={projectId:'p1',skills:[{id:'s1',name:'<external>',description:'text',bound:false}],q:'',offset:0,limit:48,selectedIds:new Set(),tabs:[]};
+      const collection={id:'col1',skill_id:'s1',name:'<favorite>',description:'method',category:'visual',tags:['shot'],version:'abc123',bound:true,versions:[]};
+      const calls=[],dialogs=[],toasts=[],pending=[],root=document.querySelector('#root');let copies=0,total=0,delayLoads=false;
+      const api=async(path,options)=>{calls.push({path,options});if(path.startsWith('/api/skill-collections?'))return delayLoads?new Promise(resolve=>pending.push(resolve)):{collections:[collection]};if(path==='/api/handoffs')return {snapshot_id:'snap1',mode:'full',prompt:'<instruction> current task'};if(path==='/api/handoffs/acknowledge')return {ok:true};throw Error(path);};
+      const env={state,api,escapeHtml:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),icon:()=>'',showDialog:d=>dialogs.push(d),toast:m=>toasts.push(m),report:e=>{throw e;},copyText:async()=>{copies++;},formatSize:n=>n+' bytes',sourcesHtml:()=>'',setSource:async()=>{},pagination:n=>{total=n;},openSkill:async()=>{},reloadSkills:async()=>{}};
+      const ui=window.YingXuWorkflow.create(env);env.render=()=>ui.render(root); // object callbacks are read when used
+      await ui.load();ui.render(root);
+      check('project opens with its own bound skills',root.querySelector('[data-workflow="view"][data-id="project"]').getAttribute('aria-pressed')==='true');
+      root.querySelector('[data-workflow="view"][data-id="all"]').click();
+      check('collection deduplicates same source in all view',root.querySelectorAll('.skill-library-row').length===1);
+      check('untrusted names escaped',!root.querySelector('favorite')&&root.textContent.includes('<favorite>'));
+      check('list pagination uses visible count',total===1);
+      env.matchesCollectionSource=()=>false;ui.render(root);check('source filter also excludes unrelated collections',!root.textContent.includes('<favorite>'));
+      env.matchesCollectionSource=()=>true;ui.render(root);
+      const purpose=root.querySelector('#skillPurpose');purpose.value='audio';purpose.dispatchEvent(new Event('change'));
+      check('purpose filter applies',root.querySelectorAll('.skill-library-row').length===0);
+      purpose.value=''; // node replaced, use current
+      root.querySelector('#skillPurpose').value='';root.querySelector('#skillPurpose').dispatchEvent(new Event('change'));
+      delayLoads=true;state.projectId='old-project';const oldLoad=ui.load();state.projectId='p1';const newLoad=ui.load();
+      pending[1]({collections:[{...collection,name:'Newest project binding'}]});await newLoad;
+      pending[0]({collections:[{...collection,name:'Stale project binding'}]});await oldLoad;ui.render(root);
+      check('late collection load cannot overwrite current project binding',root.textContent.includes('Newest project binding')&&!root.textContent.includes('Stale project binding'));delayLoads=false;
+      root.innerHTML='<div class="handoff-card"></div>';ui.mountHandoff(root);
+      const q=s=>root.querySelector(s),tick=()=>new Promise(r=>setTimeout(r,0));
+      q('[data-generate]').click();await tick();check('missing conversation prevents creation',calls.every(c=>c.path!='/api/handoffs'));
+      q('[name=conversation]').value='scene-one';q('[name=task]').value='First full task';state.tabs=[{dirty:true}];q('[data-generate]').click();await tick();check('dirty editor prevents stale handoff',calls.every(c=>c.path!='/api/handoffs'));
+      state.tabs=[];q('[data-generate]').click();await tick();check('generates explicit scoped snapshot',calls.some(c=>c.path==='/api/handoffs'&&c.options.body.asset_ids===null&&c.options.body.conversation_id==='scene-one'));
+      check('prompt displayed as text',!q('instruction')&&q('.handoff-output').textContent.includes('<instruction>'));
+      check('selected scope is a real selectable option',q('[name=scope]').querySelector('option[value=selected]'));
+      state.handoffSelection={projectId:'p1',ids:['picked-one']};root.innerHTML='<div class="handoff-card"></div>';ui.mountHandoff(root);
+      check('explicit resource selection survives cleared UI selection',q('[name=scope]').value==='selected'&&state.selectedIds.size===0);
+      q('[data-generate]').click();await tick();check('request contains only explicitly selected asset',calls.filter(c=>c.path==='/api/handoffs').at(-1).options.body.asset_ids.join(',')==='picked-one');
+      q('[data-copy]').click();await tick();check('copy never advances baseline',copies===1&&calls.every(c=>c.path!='/api/handoffs/acknowledge'));
+      q('[data-ack]').click();await tick();check('explicit handoff advances baseline',calls.some(c=>c.path==='/api/handoffs/acknowledge'));
+      q('[name=task]').value='Changed';q('[name=task]').dispatchEvent(new Event('input'));check('editing invalidates generated result',!q('[data-ack]'));
+      q('[data-new]').click();check('new conversation has distinct identity',q('[name=conversation]').value!=='scene-one');
+      state.projectId='p2';root.innerHTML='<div class="handoff-card"></div>';ui.mountHandoff(root);check('project switch clears task and conversation',q('[name=task]').value===''&&q('[name=conversation]').value==='');
+      document.querySelector('#result').textContent=JSON.stringify(checks);
+    }catch(error){document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack,checks});}
+  })();`;
+  fs.writeFileSync(path.join(temporary,'runner.js'),runner);
+  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><div id="root"></div><pre id="result"></pre><script src="workflow-library.js"></script><script src="runner.js"></script>');
+  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--window-size=1100,800','--virtual-time-budget=2000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
+  const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-2000));
+  const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
+  assert.ok(Array.isArray(result),JSON.stringify(result));assert.ok(result.length>=12);for(const row of result)assert.equal(row.ok,true,row.name);
+});

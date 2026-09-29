@@ -1,9 +1,9 @@
 # 映序公开版开发约定
 
-- Windows 增量更新只在用户点击检查、确认下载和确认退出安装后执行；固定官方仓库 `NOXEVYR/yingxu`，禁止启动联网、静默整包回退或终止用户进程。`tools/package_release.py` 的外部清单必须包含精确内部清单摘要 `release_manifest_sha256`。程序和数据目录必须分离；项目、草稿、数据库、配置、未登记文件不能纳入更新。按文件复用、摘要校验、进程退出握手、持久事务回退和恢复不得跳过。定向运行 `test_incremental*.py`、`test_update_service.py`、`frontend_incremental_update.cjs`，原生 `desktop/build.py --test` 包含安装退出桥接；独立运行时测试设置 `YINGXU_INSTALLER_TEST_RUNTIME` 指向已验证官方 runtime。详见 `docs/incremental-updates.md`。
+- 按 2026-09-29 用户授权，Windows 增量更新在工作台就绪后延迟自动检查，跨重启每日节流；设置可关闭自动检查/小补丁下载。仅不超过 50 MiB 的差异可后台下载，更大须明确确认；安装仍走保存、放弃、取消的退出握手。固定官方仓库 `NOXEVYR/yingxu`，禁止阻塞启动、静默整包回退或终止用户进程。`tools/package_release.py` 的外部清单必须包含精确内部清单摘要 `release_manifest_sha256`。程序和数据目录必须分离；项目、草稿、数据库、配置、未登记文件不能纳入更新。按文件复用、摘要校验、进程退出握手、持久事务回退和恢复不得跳过。定向运行 `test_incremental*.py`、`test_update_service.py`、`frontend_incremental_update.cjs`，原生 `desktop/build.py --test` 包含安装退出桥接；独立运行时测试设置 `YINGXU_INSTALLER_TEST_RUNTIME` 指向已验证官方 runtime。详见 `docs/incremental-updates.md`。
 
 - 中文本地视频创作项目工作台；独立仓库根目录。公开版不包含任何个人素材、数据库、缓存、日志或帐号配置。
-- Python 3.11+ 标准库 HTTP + SQLite，原生 HTML/CSS/JS；源码运行可使用 Pillow 与 PATH 中的 FFmpeg；公开完整包必须自带锁定来源的运行环境。无 CDN、遥测或启动时自动下载。开发构建可以显式下载锁定的上游档案。
+- Python 3.11+ 标准库 HTTP + SQLite，原生 HTML/CSS/JS；源码运行可使用 Pillow 与 PATH 中的 FFmpeg；公开完整包必须自带锁定来源的运行环境。无 CDN、遥测；更新仅在界面就绪后按设置执行，不阻塞启动。开发构建可以显式下载锁定的上游档案。
 - 默认应用数据 `%LOCALAPPDATA%\YingXu`，项目在 Windows“文档”目录的 `YingXu\Projects`。`YINGXU_DATA_DIR` 和 `YINGXU_PROJECTS_DIR` 只接受绝对路径；测试必须覆盖到临时目录，禁止在真实用户数据上测试。
 - 桌面仅监听 127.0.0.1:8791，开发后台可用 `--port`。写接口要求同源和会话令牌；保留版本备份、原子替换、冲突检查和有界后台工作队列。
 - 界面默认黑白，雾白松绿和暖纸书卷为可选浅色配色（appearance_theme: swiss/pine/paper）。使用系统已有字体，工具区与正文独立排版，不下载字库、不加日夜模式；侧栏悬停只做短暂透明度过渡，尊重减少动态效果。删除是可恢复的应用回收站，不永久删除素材。

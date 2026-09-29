@@ -18,9 +18,9 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("映序")]
 [assembly: AssemblyDescription("映序 本地视频创作项目工作台")]
 [assembly: AssemblyProduct("映序桌面版")]
-[assembly: AssemblyVersion("0.4.21.0")]
-[assembly: AssemblyFileVersion("0.4.21.0")]
-[assembly: AssemblyInformationalVersion("0.4.21+audit.1")]
+[assembly: AssemblyVersion("0.4.22.0")]
+[assembly: AssemblyFileVersion("0.4.22.0")]
+[assembly: AssemblyInformationalVersion("0.4.22+workflow.1")]
 
 namespace YingXu.Desktop
 {

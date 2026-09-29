@@ -63,7 +63,7 @@ def wait_health(port, process=None):
 
 def check_server(port, data, projects, restart=None):
     health = wait_health(port)
-    assert health['version'] == '0.4.21'
+    assert health['version'] == '0.4.22'
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')
@@ -132,6 +132,32 @@ def check_server(port, data, projects, restart=None):
     assert bootstrap['capabilities']['resource_groups'] is True
     project = request(port, 'POST', '/api/projects', {'name': '公开包 隔离验收'}, token)
     assert Path(project['root']).is_relative_to(projects.resolve())
+    for capability in ('skill_collections', 'incremental_handoff', 'automatic_updates'):
+        assert bootstrap['capabilities'][capability] is True
+    method = request(port, 'POST', '/api/skills',
+                     {'name': '合成收藏验收', 'description': 'release fixture', 'content': '# Synthetic method'}, token)
+    preview = request(port, 'POST', '/api/skill-collections/preview', {'skill_id': method['id']}, token)
+    collection = request(port, 'POST', '/api/skill-collections/collect', {'token': preview['token']}, token)
+    request(port, 'POST', '/api/skill-collections/classify',
+            {'id': collection['id'], 'category': 'planning', 'tags': ['synthetic']}, token)
+    request(port, 'POST', '/api/skill-collections/bind',
+            {'id': collection['id'], 'project_id': project['id'], 'bound': True}, token)
+    pinned = request(port, 'GET', '/api/skill-collections?project=' + project['id'])['collections'][0]
+    assert pinned['pinned'] and pinned['bound_version'] == collection['version']
+    payload = dict(project_id=project['id'], client_id='synthetic-client', conversation_id='release-check',
+                   task='First task', asset_ids=[])
+    first = request(port, 'POST', '/api/handoffs', payload, token)
+    assert first['mode'] == 'full'
+    unsent = request(port, 'POST', '/api/handoffs', payload | {'task': 'Not handed off'}, token)
+    assert unsent['mode'] == 'full'
+    request(port, 'POST', '/api/handoffs/acknowledge', {'snapshot_id': first['snapshot_id']}, token)
+    delta = request(port, 'POST', '/api/handoffs', payload | {'task': 'Continue'}, token)
+    assert delta['mode'] == 'delta' and delta['base_snapshot_id'] == first['snapshot_id']
+    exported = request(port, 'POST', '/api/skill-collections/export', {'project_id': project['id']}, token)
+    assert Path(exported['path']).is_relative_to(data.resolve())
+    assert request(port, 'POST', '/api/skill-collections/export', {'project_id': project['id']}, token)['path'] == exported['path']
+    assert settings['automatic_update_check'] is True and settings['automatic_update_download'] is True
+    request(port, 'GET', '/api/updates/automatic/status', token=token)
     renamed = request(port, 'PATCH', '/api/projects/' + project['id'], {'name': '项目改名验收'}, token)
     assert renamed['name'] == '项目改名验收' and renamed['root'] == project['root']
     # Exercise persisted classification moves through the packaged HTTP API.
@@ -239,6 +265,9 @@ def check_server(port, data, projects, restart=None):
             'SKILL source registry lists bounded local locations and empty counts',
             'custom source registration and source_id/query filters expose read-only synthetic skill',
             'custom source disable/re-enable/remove preserves skill ID and original file SHA-256',
+            'collected SKILL classification, immutable project version and idempotent shared directory export',
+            'per-conversation full/delta handoff advances only after explicit acknowledgement',
+            'automatic update capabilities, defaults and authenticated local status without external network',
             'Chinese project/folder/document creation', 'capture settings default to enabled, Ctrl+Alt+Shift+S and annotate; quick/annotate modes persist',
             'cross-category group create/list/atomic transfer/remove/dissolve preserves file paths, bytes and categories',
             'batch tags append without replacing individual tags and batch status preserves original file bytes',
@@ -402,7 +431,10 @@ def main():
         assert editor['dependencies'] and (root / 'frontend/live-markdown.LICENSE.txt').stat().st_size > 0
         assert (root / 'frontend/live-markdown.css').is_file()
         assert (root / 'frontend/global-search.js').is_file() and (root / 'frontend/global-search.css').is_file()
-        for relative in ('frontend/capture.js', 'frontend/resource-groups.js', 'frontend/resource-groups.css',
+        for relative in ('docs/skill-workflow.md', 'frontend/workflow-library.js', 'frontend/workflow-library.css',
+                         'frontend/automatic-updates.js', 'yingxu/automatic_updates.py',
+                         'yingxu/skill_collections.py', 'yingxu/handoffs.py',
+                         'frontend/capture.js', 'frontend/resource-groups.js', 'frontend/resource-groups.css',
                          'yingxu/markdown_assets.py', 'yingxu/resource_groups.py', 'yingxu/skill_sources.py',
                          'frontend/docx-editor.js', 'frontend/docx-editor.css',
                          'frontend/html-preview.js', 'frontend/html-preview.css', 'frontend/svg-preview.css',

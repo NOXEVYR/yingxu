@@ -21,6 +21,8 @@ DEFAULTS = {
     'capture_hotkey': 'Ctrl+Alt+Shift+S',
     'capture_mode': 'annotate',
     'project_storage_root': '',
+    'automatic_update_check': True,
+    'automatic_update_download': True,
 }
 OPTIONS = {'default_view': {'grid','list','board'}, 'default_sort': {'updated','name','order'},
            'capture_mode': {'quick','annotate'}, 'appearance_theme': {'swiss','pine','paper'}}
