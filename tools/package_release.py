@@ -80,7 +80,7 @@ def main():
     paths += list(runtime_files(args.runtime_dir))
     manifest = {
         'application': 'YingXu', 'version': VERSION, 'root': 'YingXu/',
-        'build_revision': 'workflow.1',
+        'build_revision': 'workflow.2',
         'icon_revision': 'viewfinder-v1',
         'icon_sha256': hashlib.sha256((ROOT / 'desktop/brand.ico').read_bytes()).hexdigest(),
         'source_commit': os.environ.get('GITHUB_SHA', ''),

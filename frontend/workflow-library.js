@@ -2,11 +2,12 @@
 // UI adapters use the existing authenticated API and dialog/draft lifecycle.
 window.YingXuWorkflow = (() => {
   const categories = [['','全部用途'],['planning','策划与文本'],['visual','视觉与分镜'],['video','视频与预演'],['audio','声音与配音'],['development','开发与工具'],['delivery','整理与交付']];
-  let view = null, category = '', selected = new Set(), collections = [], revision = 0;
+  let view = 'all', category = '', selected = new Set(), collections = [], revision = 0;
   let handoffDraft = {client_id:'codex',conversation_id:'',task:''}, handoffProject = null;
   function create(env) {
     const {api,escapeHtml:e,icon,state,showDialog,toast,report,copyText} = env;
-    if(view === null)view = state.projectId ? 'project' : 'favorites';
+    const scopes = [['all','全部技能'],['favorites','我的收藏'],['project','本项目已绑定']];
+    let mountedRoot = null, selectionAnchor = null, sourcesExpanded = false;
     let loadGeneration = 0;
     const button = (action,label,id='') => `<button type="button" class="button button-ghost button-small" data-workflow="${action}" data-id="${e(id)}">${label}</button>`;
     async function load() {
@@ -16,24 +17,41 @@ window.YingXuWorkflow = (() => {
       collections = result.collections || [];
       for(const c of result.categories || [])if(!categories.some(x=>x[0]===c.id))categories.push([c.id,c.label]);
     }
-    function items() {
+    function items(scope = view) {
       const external = state.skills.map(x=>({...x,collection:false}));
       const own = collections.filter(x=>!env.matchesCollectionSource || env.matchesCollectionSource(x)).map(x=>({...x,collection:true}));
-      const collected = new Set(own.map(x=>x.skill_id));
-      let result = view === 'favorites' ? own : view === 'project' ? [...own.filter(x=>x.bound),...external.filter(x=>x.bound && !collected.has(x.id))] : [...own,...external.filter(x=>!collected.has(x.id))];
+      const collected = new Set(own.filter(x=>scope !== 'project' || x.bound).map(x=>x.skill_id));
+      let result = scope === 'favorites' ? own : scope === 'project' ? [...own.filter(x=>x.bound),...external.filter(x=>x.bound && !collected.has(x.id))] : [...own,...external.filter(x=>!collected.has(x.id))];
       const query = state.q.trim().toLocaleLowerCase();
       return result.filter(x=>(!category || x.category===category) && (!query || `${x.name} ${x.description} ${(x.tags||[]).join(' ')}`.toLocaleLowerCase().includes(query)));
     }
     function render(root) {
+      mountedRoot = root;
       const rows=items(), ids=new Set(rows.map(x=>x.id)); selected=new Set([...selected].filter(id=>ids.has(id)));
-      root.className='resource-grid skill-grid skill-library-list';
-      root.innerHTML=env.sourcesHtml()+`<div class="skill-library-tools" role="group" aria-label="SKILL 范围">${[['project','本项目'],['favorites','我的收藏'],['all','全部来源']].map(([key,label])=>`<button type="button" class="button button-secondary button-small ${view===key?'active':''}" data-workflow="view" data-id="${key}" aria-pressed="${view===key}">${label}</button>`).join('')}<select id="skillPurpose" aria-label="按用途筛选">${categories.map(([id,label])=>`<option value="${id}" ${id===category?'selected':''}>${label}</option>`).join('')}</select>${button('batch-bind','绑定所选')}${button('batch-category','分类所选')}${button('batch-collect','收藏所选')}${button('builtin','内置规范')}${button('shared-library','曜核 / 客户端接入')}</div><p class="field-hint">收藏保留完整技能包；项目绑定固定版本。端口变化不影响绑定。共 ${rows.length} 项。</p>`+
-        (rows.length?rows.slice(state.offset,state.offset+state.limit).map(x=>`<div class="skill-library-row"><input type="checkbox" data-workflow-select="${e(x.id)}" aria-label="选择 ${e(x.name)}" ${selected.has(x.id)?'checked':''}><button class="skill-copy" type="button" data-workflow="open" data-id="${e(x.id)}"><strong>${e(x.name)}</strong><small>${e(x.description || '查看技能说明')}</small><small>${e(categories.find(c=>c[0]===x.category)?.[1] || '未分类')} · ${e(x.collection?'我的收藏':x.source_label || x.source || '本机')} ${x.bound?' · 项目已启用':''}${x.version?' · '+e(x.version.slice(0,8)):''}${x.tags?.length?' · '+e(x.tags.join(' / ')):''}</small></button><div class="skill-actions">${x.collection?button('classify','分类',x.id)+button('versions','版本',x.id)+button('bind',x.bound?'解绑':'绑定项目',x.id):button('collect','收藏',x.id)}</div></div>`).join(''):'<p class="field-hint">这个范围暂无 SKILL。可在全部来源中选择收藏，再绑定当前项目。</p>');
+      state.offset=Math.min(state.offset,Math.max(0,Math.ceil(rows.length/state.limit)-1)*state.limit);
+      root.className='resource-grid skill-grid skill-library-cards';
+      const empty = state.q || category || env.hasSourceFilter?.() ? '没有符合筛选条件的技能。' : view==='project' ? '当前项目尚未绑定技能，已扫描的技能仍在全部技能中。' : view==='favorites' ? '还没有收藏技能，可以从全部技能中选择。' : '尚未发现技能，请扫描本机 SKILL 或登记扫描位置。';
+      root.innerHTML=`<div class="skill-library-tools" role="group" aria-label="SKILL 范围">${scopes.map(([key,label])=>`<button type="button" class="button button-secondary button-small ${view===key?'active':''}" data-workflow="view" data-id="${key}" aria-pressed="${view===key}">${label} <small>${items(key).length}</small></button>`).join('')}<select id="skillPurpose" aria-label="按用途筛选">${categories.map(([id,label])=>`<option value="${id}" ${id===category?'selected':''}>${label}</option>`).join('')}</select><details class="skill-library-more"><summary>更多</summary><div>${button('builtin','内置规范')}${button('shared-library','曜核 / 客户端接入')}</div></details></div>`+`<details class="skill-library-sources" ${sourcesExpanded?'open':''}><summary>来源筛选 · ${e(env.sourceSummary?.() || '全部来源')}</summary>${env.sourcesHtml()}</details><div class="skill-library-selection"><span data-workflow-count></span><span data-workflow-batch hidden>${button('batch-collect','收藏所选')}${button('batch-category','分类所选')}${button('batch-bind','绑定所选')}${button('clear-selection','取消选择')}</span></div>`+
+        (rows.length?rows.slice(state.offset,state.offset+state.limit).map(x=>`<article class="skill-card" tabindex="0" role="button" data-workflow-card="${e(x.id)}" ${!x.collection?`data-skill="${e(x.id)}"`:""} aria-label="打开 ${e(x.name)}"><div class="skill-card-top"><span class="skill-symbol">${icon('skills')}</span><span class="skill-source">${e(x.collection?'我的收藏':x.source_label || x.source || '本机')}</span><input type="checkbox" data-workflow-select="${e(x.id)}" aria-label="选择 ${e(x.name)}"></div><h3>${e(x.name)}</h3><p>${e(x.description || '查看技能说明')}</p><div class="skill-card-bottom"><span>${e(categories.find(c=>c[0]===x.category)?.[1] || (x.editable?'可编辑':'只读源文件'))}${x.bound?' · 项目已启用':''}</span>${x.collection?button('classify','分类',x.id)+button('versions','版本',x.id)+button('bind',x.bound?'解绑':'绑定',x.id):button('collect','收藏',x.id)+`<button type="button" class="icon-button" data-skill-menu="${e(x.id)}" title="SKILL 选项" aria-label="${e(x.name)} SKILL 选项">${icon('more')}</button>`}</div>${x.tags?.length?`<small class="skill-card-tags">${e(x.tags.join(' / '))}</small>`:''}</article>`).join(''):`<div class="skill-library-empty"><p>${empty}</p>${button('browse-all','查看全部技能')}</div>`);
       root.querySelector('#skillPurpose').onchange=event=>{category=event.target.value;state.offset=0;render(root);};
-      root.querySelectorAll('[data-workflow-select]').forEach(node=>node.onchange=()=>{node.checked?selected.add(node.dataset.workflowSelect):selected.delete(node.dataset.workflowSelect);});
+      root.querySelectorAll('[data-workflow-select]').forEach(node=>{node.onclick=event=>event.stopPropagation();node.onchange=()=>{node.checked?selected.add(node.dataset.workflowSelect):selected.delete(node.dataset.workflowSelect);updateSelection();};});
       root.querySelectorAll('[data-workflow]').forEach(node=>node.onclick=event=>{event.stopPropagation(); action(node.dataset.workflow,node.dataset.id).catch(report);});
+      root.querySelectorAll('[data-workflow-card]').forEach(node=>{
+        const activate=event=>{if(event.target.closest('button,input,summary'))return;event.stopPropagation();const id=node.dataset.workflowCard;
+          if(event.ctrlKey || event.metaKey || event.shiftKey){const page=rows.slice(state.offset,state.offset+state.limit).map(x=>x.id);if(event.shiftKey && page.includes(selectionAnchor)){const a=page.indexOf(selectionAnchor),b=page.indexOf(id);page.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>selected.add(x));}else{selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;}updateSelection();return;}
+          action('open',id).catch(report);
+        };node.onclick=activate;node.onkeydown=event=>{if(event.target!==node || !['Enter',' '].includes(event.key))return;event.preventDefault();event.stopPropagation();if(event.key===' '){const id=node.dataset.workflowCard;selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;updateSelection();}else activate(event);};
+      });
       root.querySelector('#skillSourceDirectory')?.addEventListener('change',event=>env.setSource(event.target.value).catch(report));
-      env.pagination(rows.length);
+      root.querySelector('.skill-library-sources').ontoggle=event=>{sourcesExpanded=event.target.open;};
+      updateSelection();env.pagination(rows.length,scopes.find(x=>x[0]===view)[1]);
+    }
+    function updateSelection() {
+      if(!mountedRoot)return;
+      mountedRoot.querySelectorAll('[data-workflow-card]').forEach(node=>{const on=selected.has(node.dataset.workflowCard);node.classList.toggle('checked',on);node.setAttribute('aria-pressed',String(on));});
+      mountedRoot.querySelectorAll('[data-workflow-select]').forEach(node=>node.checked=selected.has(node.dataset.workflowSelect));
+      const count=mountedRoot.querySelector('[data-workflow-count]');if(count)count.textContent=selected.size?`已选 ${selected.size} 项`:'在卡片间的空白处拖动可框选；Ctrl / Shift 可多选。';
+      const batch=mountedRoot.querySelector('[data-workflow-batch]');if(batch){batch.hidden=!selected.size;const own=[...selected].some(id=>collections.some(x=>x.id===id)),external=[...selected].some(id=>!collections.some(x=>x.id===id));batch.querySelector('[data-workflow="batch-collect"]').disabled=!external;batch.querySelector('[data-workflow="batch-category"]').disabled=!own;batch.querySelector('[data-workflow="batch-bind"]').disabled=!own || !state.projectId;}
     }
     async function refresh() { await load(); env.render(); }
     async function collect(ids) {
@@ -55,7 +73,9 @@ window.YingXuWorkflow = (() => {
       await env.reloadSkills();await refresh();toast(bound?'已绑定当前收藏版本。':'已解绑，收藏与源文件保留。');
     }
     async function action(name,id) {
-      if(name==='view'){view=id;state.offset=0;return env.render();}
+      if(name==='view'){view=id;selected.clear();state.offset=0;return env.render();}
+      if(name==='clear-selection'){selected.clear();return updateSelection();}
+      if(name==='browse-all'){view='all';category='';selected.clear();state.q='';state.offset=0;await env.resetFilters?.();return env.render();}
       const own=collections.find(x=>x.id===id);
       if(name==='open'){
         if(!own)return env.openSkill(id);
@@ -113,7 +133,7 @@ window.YingXuWorkflow = (() => {
         }catch(err){if(alive())report(err);}finally{busy=false;if(alive())q('[data-generate]').disabled=false;}
       };
     }
-    return {load,render,mountHandoff};
+    return {load,render,mountHandoff,getSelection:()=>selected,setSelection:ids=>{selected=new Set(ids);updateSelection();},selectionContext:()=>[view,category,state.q].join('|')};
   }
   return {create};
 })();

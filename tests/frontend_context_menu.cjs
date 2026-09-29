@@ -126,6 +126,25 @@ test('SKILL reveal sends its registered id and leaves the active editor untouche
   assert.equal(s.app.state.activeKey,'file:draft');
 });
 
+test('reader right-click returns to its list without closing a dirty tab or resetting filters',async()=>{
+  const s=setup(),tab={key:'skill:one',source:'skill',id:'one',item:{kind:'skill'},draft:'unsaved',dirty:true};
+  Object.assign(s.app.state,{tabs:[tab],activeKey:tab.key,section:'skills',q:'director',offset:48});
+  vm.runInContext('guardProperties=async()=>true;renderWorkspace=()=>calls.push(["workspace"]);',s.context);
+  const event=s.event(s.element('#editor','reader'));s.listeners.get('contextmenu')(event);
+  assert.equal(event.prevented,true);assert.match(s.node('#resourceMenu').innerHTML,/返回列表/);
+  const captured=s.app.state.menu;await s.app.runMenu('return-list',captured);
+  assert.equal(s.app.state.activeKey,null);assert.equal(s.app.state.tabs[0],tab);assert.equal(tab.draft,'unsaved');assert.equal(tab.dirty,true);
+  assert.equal(s.app.state.section,'skills');assert.equal(s.app.state.q,'director');assert.equal(s.app.state.offset,48);
+});
+
+test('reader menu preserves native copy selection and stale return cannot leave another tab',async()=>{
+  const s=setup(),tab={key:'skill:one',item:{kind:'skill'}};s.app.state.tabs=[tab];s.app.state.activeKey=tab.key;
+  s.context.window.getSelection=()=>({toString:()=> 'selected text'});
+  const event=s.event(s.element('#editor','reader'));s.listeners.get('contextmenu')(event);assert.equal(event.prevented,undefined);
+  vm.runInContext('guardProperties=async()=>{throw Error("must not be called");};',s.context);
+  await s.app.runMenu('return-list',{id:'skill:stale'});assert.equal(s.app.state.activeKey,tab.key);
+});
+
 test('new note keeps the right-click folder and creates plain Markdown even in shots',async()=>{
   const s=setup();Object.assign(s.app.state,{projectId:'project',category:'shots',folderId:null,folders:[{id:'episode',category:'shots'}]});
   s.listeners.get('contextmenu')(s.event(s.element('[data-folder-open]','episode','data-folder-open')));

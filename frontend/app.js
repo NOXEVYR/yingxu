@@ -552,7 +552,8 @@ function hideMenu(restoreFocus = false) { const anchor = state.menu?.anchor; $('
 function menuCommands(kind,item,count,busy) {
   const create = [['new-note','新建笔记','script'],['new-folder',kind === 'folder' ? '新建子文件夹' : '新建文件夹','folder'],['new-canvas','新建画板','board']];
   let commands;
-  if (kind === 'location') commands = [...create,null,['paste-files','粘贴文件','copy','Ctrl+V'],null,['reveal-location','在资源管理器中打开','folder']];
+  if (kind === 'reader') commands = [['return-list','返回列表','left']];
+  else if (kind === 'location') commands = [...create,null,['paste-files','粘贴文件','copy','Ctrl+V'],null,['reveal-location','在资源管理器中打开','folder']];
   else if (kind === 'folder') commands = [['open-folder','在映序中进入','open'],null,...create,null,['paste-files','粘贴到此文件夹','copy','Ctrl+V'],null,['reveal-folder','在资源管理器中打开','folder'],['rename-folder','重命名文件夹','file'],null,['trash-folder','移入回收站','trash']];
   else if (kind === 'project') commands = [['new-note','新建笔记','script'],null,['rename-project','重命名项目','file'],['classify-project','移到项目分类…','folder'],null,['reveal-project','在资源管理器中打开','folder'],null,['trash-project','移入回收站','trash']];
   else if (kind === 'skill') commands = [['open-skill','打开 SKILL','skills'],['reveal-skill','在资源管理器中显示','folder'],null,['trash-skill',item?.editable ? '删除自建 SKILL' : '隐藏这个 SKILL','trash']];
@@ -578,6 +579,8 @@ function showMenu(anchor,kind,id,point = null) {
 }
 function contextMenuTarget(target) {
   if (target.closest('input,textarea,select,[contenteditable],#appDialog,#resourceMenu')) return null;
+  const reader = target.closest('#editor');
+  if (reader && readingDocument(activeTab()) && !target.closest('a,button,video,audio,iframe') && !window.getSelection?.()?.toString()) return {anchor:reader,kind:'reader',id:state.activeKey};
   for (const [selector,kind,attribute] of [['[data-folder-open]','folder','data-folder-open'],['.resource-card[data-item],.resource-row[data-item]','item','data-item'],['.project-row','project',null],['[data-skill]','skill','data-skill']]) {
     const anchor = target.closest(selector);
     if (anchor) { const id = attribute ? anchor.getAttribute(attribute) : $('[data-project]',anchor)?.dataset.project; if (kind === 'folder' && id === 'root') return {anchor,kind:'location',id:{project_id:state.projectId,category:anchor.dataset.folderCategory || state.category}}; if (id) return {anchor,kind,id}; }
@@ -591,6 +594,7 @@ function contextMenuTarget(target) {
 async function runMenu(command,context) {
   const id = context.id;
   try {
+    if (command === 'return-list') return returnToResourceList(id);
     if (command === 'new-canvas') return newCanvasDialog(context.location);
     if (command === 'new-folder') return newFolderDialog(context.location);
     if (command === 'paste-files') return pasteResourceFiles(context.location);
@@ -1017,6 +1021,14 @@ function toggleReadingLibrary() {
   applyReadingLayout(tab);
   renderEditorToolbar(tab);
   $('[data-action="toggle-reading-library"]')?.focus();
+}
+async function returnToResourceList(key = state.activeKey) {
+  const tab=activeTab();
+  if(!tab || tab.key!==key || state.exitBusy || state.modalBusy || !markdownInputReady(tab))return;
+  if(!await guardProperties(tab) || activeTab()!==tab || !markdownInputReady(tab))return;
+  state.activeKey=null;
+  renderWorkspace();
+  $('#resourceViewport').focus();
 }
 let imageZoomObserver = null;
 let imagePreviewCleanup = null;
@@ -1565,7 +1577,10 @@ function workflowController() {
   return workflowLibrary ||= window.YingXuWorkflow.create({api,escapeHtml,icon,state,showDialog,toast,report,copyText,formatSize,storage,
     hasPendingEdits:()=>{state.tabs.forEach(flushCanvas);return state.migrationBusy || captureUI?.isBusy() || state.tabs.some(tab=>tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab));},
     sourcesHtml:skillSourcesHtml,matchesCollectionSource:collectionMatchesSkillSource,setSource:value=>setSkillSourceFilter('directory',value),render:renderSkills,reloadSkills:loadSkills,openSkill,
-    pagination:total=>{ state.skillWorkflowTotal=total;$('#resourceCount').textContent=total;updatePagination(); }});
+    hasSourceFilter:()=>!!(skillSourceState.group || skillSourceState.directory),
+    sourceSummary:()=>skillSourceState.sources.find(x=>x.id===skillSourceState.directory)?.label || skillSourceState.groups.find(x=>x.id===skillSourceState.group)?.label || '全部来源',
+    resetFilters:async()=>{skillSourceState.group='';skillSourceState.directory='';$('#searchInput').value='';await loadSkills();},
+    pagination:(total,label)=>{ state.skillWorkflowTotal=total;$('#sectionTitle').textContent=label;$('#resourceCount').textContent=total;updatePagination(); }});
 }
 function renderSkills() {
   if(workflowController()) { workflowController().render($('#resourceItems'));return; }
@@ -1651,11 +1666,13 @@ async function handleAction(action,target) {
 }
 
 function installResourceMarquee() {
-  return window.YingXuMarquee?.install({viewport:$('#resourceViewport'),getItems:() => $$('#resourceItems [data-item]'),getSelection:() => state.selectedIds,
+  const skills=()=>state.section==='skills' && workflowController();
+  return window.YingXuMarquee?.install({viewport:$('#resourceViewport'),getItems:() => $$(skills()?'#resourceItems [data-workflow-card]':'#resourceItems [data-item]'),getSelection:() => skills()?workflowController().getSelection():state.selectedIds,
+    getId:node=>skills()?node.dataset.workflowCard:node.dataset.item,
     onStart:hideMenu,
-    enabled:() => state.section === 'assets' && !state.loadingItems && !document.querySelector('dialog[open]'),
-    getContext:() => [state.projectId,state.section,state.category,state.folderId,state.offset,state.view,state.listSequence].join('|'),
-    onChange:ids => { state.selectedIds = new Set(ids); updateSelection(); }});
+    enabled:() => (state.section === 'assets' && !state.loadingItems || !!skills() && !skillSourceState.busy) && !state.exitBusy && !state.modalBusy && !document.querySelector('dialog[open]'),
+    getContext:() => [state.projectId,state.section,state.category,state.folderId,state.offset,state.view,state.listSequence,skills()?workflowController().selectionContext():''].join('|'),
+    onChange:ids => { if(skills())return workflowController().setSelection(ids);state.selectedIds = new Set(ids); updateSelection(); }});
 }
 function wireEvents() {
   $('#batchPropertiesButton').addEventListener('click',() => batchPropertiesDialog().catch(report));

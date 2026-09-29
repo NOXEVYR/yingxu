@@ -8,10 +8,10 @@
     for (const id of hits) { if (mode === 'toggle' && base.has(id)) next.delete(id); else next.add(id); }
     return next;
   }
-  function install({viewport,getItems,getSelection,onChange,onStart = () => {},enabled = () => true,getContext = () => ''}) {
+  function install({viewport,getItems,getSelection,onChange,getId = node => node.dataset.item,onStart = () => {},enabled = () => true,getContext = () => ''}) {
     if (!viewport) return null;
     const doc = viewport.ownerDocument, win = doc.defaultView;
-    const blocked = '[data-item],[data-resource-group],[data-folder-open],button,a,input,textarea,select,label,[contenteditable],[role="button"],[role="tab"],[draggable="true"]';
+    const blocked = '[data-item],[data-resource-group],[data-folder-open],button,a,input,textarea,select,label,summary,.skill-library-tools,.skill-library-sources,.skill-library-selection,[contenteditable],[role="button"],[role="tab"],[draggable="true"]';
     let gesture = null, frame = 0, suppressClick = false;
     const subscriptions = [];
     const on = (node,type,fn,opts) => { node.addEventListener(type,fn,opts); subscriptions.push(() => node.removeEventListener(type,fn,opts)); };
@@ -52,7 +52,7 @@
       if (gesture || !enabled() || event.button !== 0 || (event.pointerType && event.pointerType !== 'mouse') || event.target.closest(blocked)) return;
       const b = bounds(); if (event.clientX < b.left || event.clientX >= b.right || event.clientY < b.top || event.clientY >= b.bottom) return;
       const items = [...getItems()].filter(node => !node.hidden && !node.hasAttribute('data-yx-group-hidden') && node.getClientRects().length).map(node => {
-        const r = node.getBoundingClientRect(); return {node,id:String(node.dataset.item),rect:{left:r.left-b.left+viewport.scrollLeft,right:r.right-b.left+viewport.scrollLeft,top:r.top-b.top+viewport.scrollTop,bottom:r.bottom-b.top+viewport.scrollTop}};
+        const r = node.getBoundingClientRect(); return {node,id:String(getId(node)),rect:{left:r.left-b.left+viewport.scrollLeft,right:r.right-b.left+viewport.scrollLeft,top:r.top-b.top+viewport.scrollTop,bottom:r.bottom-b.top+viewport.scrollTop}};
       });
       if (!items.length) return;
       gesture = {pointerId:event.pointerId,context:getContext(),items,base:new Set(getSelection()),mode:event.shiftKey ? 'add' : event.ctrlKey || event.metaKey ? 'toggle' : 'replace',start:{x:event.clientX-b.left+viewport.scrollLeft,y:event.clientY-b.top+viewport.scrollTop},downX:event.clientX,downY:event.clientY,x:event.clientX,y:event.clientY,started:false,box:null};

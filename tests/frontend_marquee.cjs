@@ -60,10 +60,21 @@ test('navigation or replaced cards abort the gesture without restoring stale pag
 test('disabled views and destroyed handlers never select resources',()=>{
  const s=setup();s.disable();s.emit('pointerdown');s.emit('pointermove',{clientX:5,clientY:5});assert.equal(s.frames.size,0);s.controller.destroy();assert.equal([...s.viewport.events.values()].flat().length,0);assert.equal([...s.doc.events.values()].flat().length,0);
 });
-test('app integration is restricted to assets and routes changes through updateSelection',()=>{
+test('app integration preserves resource selection and separates skill selection',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8');const region=source.slice(source.indexOf('function installResourceMarquee()'),source.indexOf('function wireEvents()'));
  assert.match(region,/state\.section === 'assets'/);assert.match(region,/!state\.loadingItems/);assert.match(region,/onStart:hideMenu/);assert.match(region,/state\.selectedIds = new Set\(ids\); updateSelection\(\)/);assert.doesNotMatch(region,/openItem|insertText|selectionStart/);
  const html=fs.readFileSync(path.join(__dirname,'../frontend/index.html'),'utf8');assert.ok(html.indexOf('/marquee.js')<html.indexOf('/app.js'));assert.match(html,/\/marquee\.css/);
+});
+
+test('real app marquee adapter isolates skill IDs, cancels across filters and blocks dialogs',()=>{
+ const nodes=[],source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
+ const context=vm.createContext({window:{YingXuMarquee:{install:options=>options}},document:{querySelector:()=>null,querySelectorAll:()=>nodes},localStorage:{getItem:()=>null},setTimeout,clearTimeout});
+ vm.runInContext(source+`;const selectedSkills=new Set();let scope='all';workflowController=()=>({getSelection:()=>selectedSkills,setSelection:ids=>{selectedSkills.clear();ids.forEach(x=>selectedSkills.add(x));},selectionContext:()=>scope});globalThis.fixture={state,adapter:installResourceMarquee(),selectedSkills,setScope:value=>scope=value};`,context);
+ const {state,adapter,selectedSkills,setScope}=context.fixture;state.section='skills';state.selectedIds=new Set(['resource-one']);
+ assert.equal(adapter.enabled(),true);adapter.onChange(new Set(['skill-one']));assert.equal(adapter.getId({dataset:{workflowCard:'skill-one'}}),'skill-one');
+ assert.deepEqual([...adapter.getSelection()],['skill-one']);assert.deepEqual([...state.selectedIds],['resource-one']);
+ const before=adapter.getContext();setScope('project');assert.notEqual(adapter.getContext(),before);
+ state.modalBusy=true;assert.equal(adapter.enabled(),false);state.modalBusy=false;state.section='context';assert.equal(adapter.enabled(),false);assert.equal(selectedSkills.size,1);
 });
 test('start callback hides the old menu only after a valid blank drag crosses the threshold',()=>{
  const s=setup();s.emit('pointerdown',{target:{closest:()=>({})}});s.emit('pointermove',{clientX:5,clientY:5});assert.equal(s.starts(),0);

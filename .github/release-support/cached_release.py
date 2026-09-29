@@ -20,7 +20,7 @@ from urllib.parse import quote
 
 REPO = 'NOXEVYR/yingxu'
 VERSION = '0.4.22'
-BUILD_REVISION = 'workflow.1'
+BUILD_REVISION = 'workflow.2'
 PRERELEASE = False
 RELEASE_TITLE = '映序 0.4.22 · SKILL 收藏、连续交接与软件内更新'
 TAG = 'yingxu-v' + VERSION

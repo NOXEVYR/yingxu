@@ -15,7 +15,7 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
   if(!browser){t.skip('Existing Chromium required; no downloads');return;}
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-workflow-ui-'));
   t.after(()=>{const resolved=path.resolve(temporary);assert.ok(resolved.startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(resolved).startsWith('yingxu-workflow-ui-'));fs.rmSync(resolved,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
-  for(const file of ['workflow-library.js','workflow-library.css','styles.css','appearance.css'])fs.copyFileSync(path.join(__dirname,'../frontend',file),path.join(temporary,file));
+  for(const file of ['workflow-library.js','workflow-library.css','styles.css','appearance.css','marquee.js'])fs.copyFileSync(path.join(__dirname,'../frontend',file),path.join(temporary,file));
   const runner=`(async()=>{
     const checks=[],check=(name,ok)=>{checks.push({name,ok:!!ok});if(!ok)throw Error(name);};
     try{
@@ -26,15 +26,38 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
       const env={state,api,escapeHtml:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),icon:()=>'',showDialog:d=>dialogs.push(d),toast:m=>toasts.push(m),report:e=>{throw e;},copyText:async()=>{copies++;},formatSize:n=>n+' bytes',sourcesHtml:()=>'',setSource:async()=>{},pagination:n=>{total=n;},openSkill:async()=>{},reloadSkills:async()=>{}};
       const ui=window.YingXuWorkflow.create(env);env.render=()=>ui.render(root); // object callbacks are read when used
       await ui.load();ui.render(root);
-      check('project opens with its own bound skills',root.querySelector('[data-workflow="view"][data-id="project"]').getAttribute('aria-pressed')==='true');
+      check('library opens with all skills even without project bindings',root.querySelector('[data-workflow="view"][data-id="all"]').getAttribute('aria-pressed')==='true');
       root.querySelector('[data-workflow="view"][data-id="all"]').click();
-      check('collection deduplicates same source in all view',root.querySelectorAll('.skill-library-row').length===1);
+      check('collection deduplicates same source in all view',root.querySelectorAll('.skill-card').length===1);
+      collection.bound=false;await ui.load();ui.render(root);
+      check('unbound skill stays visible by default',root.querySelectorAll('.skill-card').length===1);
+      root.querySelector('[data-workflow="view"][data-id="project"]').click();
+      check('empty project explains binding scope',root.textContent.includes('当前项目尚未绑定技能')&&root.querySelector('[data-workflow="browse-all"]'));
+      root.querySelector('[data-workflow="browse-all"]').click();await new Promise(r=>setTimeout(r,0));
+      check('empty project can return to all without scanning',root.querySelectorAll('.skill-card').length===1);
+      state.skills[0].bound=true;root.querySelector('[data-workflow="view"][data-id="project"]').click();
+      check('legacy binding is not hidden by unbound collection',root.textContent.includes('<external>'));
+      state.skills[0].bound=false;root.querySelector('[data-workflow="view"][data-id="all"]').click();
+      check('batch actions are hidden until selection',root.querySelector('[data-workflow-batch]').hidden);
+      const card=root.querySelector('[data-workflow-card]');
+      ui.setSelection(new Set(['col1']));check('selection updates cards without replacing nodes',root.querySelector('[data-workflow-card]')===card&&card.classList.contains('checked')&&!root.querySelector('[data-workflow-batch]').hidden);
+      root.querySelector('[data-workflow="clear-selection"]').click();check('clear selection hides batch actions',root.querySelector('[data-workflow-batch]').hidden);
+      card.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true}));check('Ctrl click selects without opening',card.classList.contains('checked'));
+      card.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true}));check('Space toggles selection accessibly',!card.classList.contains('checked'));
+      const viewport=document.querySelector('#viewport');viewport.setPointerCapture=()=>{};viewport.hasPointerCapture=()=>false;
+      const marquee=window.YingXuMarquee.install({viewport,getItems:()=>root.querySelectorAll('[data-workflow-card]'),getId:node=>node.dataset.workflowCard,getSelection:ui.getSelection,onChange:ui.setSelection,getContext:ui.selectionContext});
+      const r=card.getBoundingClientRect(),send=(type,x,y,extra={})=>viewport.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:1,pointerType:'mouse',button:0,clientX:x,clientY:y,...extra}));
+      send('pointerdown',r.right+4,r.bottom+4);send('pointermove',r.left,r.top);send('pointerup',r.left,r.top);
+      check('blank drag selects actual rendered card using skill identity',ui.getSelection().has('col1')&&card.classList.contains('checked')&&root.querySelector('[data-workflow-card]')===card);
+      send('pointerdown',r.right+4,r.bottom+4,{ctrlKey:true});send('pointermove',r.left,r.top);send('pointerup',r.left,r.top);
+      check('Ctrl marquee toggles skill without resource IDs',ui.getSelection().size===0);
+      marquee.destroy();
       check('untrusted names escaped',!root.querySelector('favorite')&&root.textContent.includes('<favorite>'));
       check('list pagination uses visible count',total===1);
       env.matchesCollectionSource=()=>false;ui.render(root);check('source filter also excludes unrelated collections',!root.textContent.includes('<favorite>'));
       env.matchesCollectionSource=()=>true;ui.render(root);
       const purpose=root.querySelector('#skillPurpose');purpose.value='audio';purpose.dispatchEvent(new Event('change'));
-      check('purpose filter applies',root.querySelectorAll('.skill-library-row').length===0);
+      check('purpose filter applies',root.querySelectorAll('.skill-card').length===0);
       purpose.value=''; // node replaced, use current
       root.querySelector('#skillPurpose').value='';root.querySelector('#skillPurpose').dispatchEvent(new Event('change'));
       delayLoads=true;state.projectId='old-project';const oldLoad=ui.load();state.projectId='p1';const newLoad=ui.load();
@@ -60,7 +83,7 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
     }catch(error){document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack,checks});}
   })();`;
   fs.writeFileSync(path.join(temporary,'runner.js'),runner);
-  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><div id="root"></div><pre id="result"></pre><script src="workflow-library.js"></script><script src="runner.js"></script>');
+  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><style>#viewport{width:1000px;height:600px;overflow:auto;padding:20px}#root{padding:20px}</style><div id="viewport"><div id="root"></div></div><pre id="result"></pre><script src="marquee.js"></script><script src="workflow-library.js"></script><script src="runner.js"></script>');
   const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--window-size=1100,800','--virtual-time-budget=2000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
   const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-2000));
   const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
