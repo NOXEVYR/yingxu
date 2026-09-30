@@ -2,9 +2,9 @@
 
 同时包含云端拖拽修复：同项目遇到同名文件时，可明确选择跳过同名项、移动其余文件，或自动加编号保留两份；具体分类和文件夹按真实文件展示，跨目录逻辑素材组仅在“全部资源”显示。移动接口不再把外部引用只改显示归属当作真实移动，外部文件需先复制导入。
 
-**0.4.22 开发候选：SKILL 收藏与项目版本绑定、按会话增量交接、Windows 后台检查与小补丁下载。** 此处说明的是开发中的源码功能，不代表下载区已经更新。[使用与边界](docs/skill-workflow.md)
+**Windows 0.4.22 完整包已发布（workflow.3）：SKILL 收藏与项目版本绑定、按会话增量交接、Windows 后台检查与小补丁下载。** 本次发布用户提供的原始 ZIP，未重新构建；已通过 34 项完整包隔离检查，并完整下载 GitHub 附件核对大小、SHA-256 与 ZIP 完整性。[使用与边界](docs/skill-workflow.md)
 
-**0.4.21 源码已同步，安装包待发布：工作流稳定性修复。** 修复草稿生命周期、迁移与跨项目移动的文件身份维护、完整文件名导入和导航搜索范围。Windows 构建 `audit.1` 已在本机完成后端、前端、原生、整包及安装后隔离回归；尚未标记稳定版。云端下载链接保留已公开的 0.4.20，待新附件通过验收后更新。[审查范围与剩余限制](docs/stability-audit-2026-09-27.md)
+**0.4.21 历史源码修复：工作流稳定性修复。** 修复草稿生命周期、迁移与跨项目移动的文件身份维护、完整文件名导入和导航搜索范围。Windows 构建 `audit.1` 已在本机完成后端、前端、原生、整包及安装后隔离回归；该次审查未标记稳定版，当前 Windows 下载已更新为 0.4.22。[审查范围与剩余限制](docs/stability-audit-2026-09-27.md)
 
 **0.4.20 双端已发布：启动动效与项目迁移修复。** 启动使用现有黑白图标动效，不显示加载文字，不设置最低等待时间，工作台就绪即进入。动画单次约 0.7 秒并尊重系统减少动态效果，不新增模型、字体、动画库或视频。保留文件夹选择器假写入阻塞与迁移进度修复，原目录、未保存文稿与真实写入保护不变。Windows 构建标识为 `startup.1`；Mac 试用版为 `0.4.20-mac.1`，两端来自同一来源提交。Windows 完整包通过 32 项隔离检查，上传后核对附件大小和 SHA-256；Mac 通过 20 项整包、原生与 WebKit 检查，并在上传后完整下载回检。
 
@@ -30,7 +30,7 @@
 
 同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
 
-**[下载 Windows x64 完整包 · v0.4.20](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.20/YingXu-v0.4.20-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20) · [0.4.19 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
+**[下载 Windows x64 完整包 · v0.4.22](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.22/YingXu-v0.4.22-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [0.4.20 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20) · [0.4.19 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
