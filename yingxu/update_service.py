@@ -11,9 +11,11 @@ from .store import UserError
 
 class UpdateService:
     def __init__(self, app, install_root, current_version):
+        from . import __build__
         self.app = app
         self.install_root = install_root
         self.current_version = current_version
+        self.current_build = __build__
         self.lock = threading.RLock()
         self.action_lock = threading.RLock()
         self.writers = 0

@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 
 from yingxu import updates
 from yingxu.store import UserError
+from test_incremental_support import Fixture
 
 
 def response(payload, link=''):
@@ -21,6 +22,119 @@ def release(version, mac=False, **extra):
 
 
 class UpdatesTests(unittest.TestCase):
+    def test_new_version_exposes_exact_bound_build_without_archive_requests(self):
+        # The same release tag can be replaced after a previous plan was
+        # cached: the check must expose the currently published build target.
+        for build in ('workflow.2', 'workflow.3'):
+            with self.subTest(build=build), Fixture(new_version='0.4.22', old_version='0.4.21',
+                                                  old_build='workflow.1', new_build=build) as fixture:
+                updates._cache = None
+                opener = Mock()
+                opener.open.return_value = response(json.dumps(fixture.releases).encode())
+                with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
+                        patch.object(updates, '__build__', 'workflow.1'), patch.object(updates, 'build_opener', return_value=opener):
+                    result = updates.check_update()
+                self.assertTrue(result['update_available'])
+                self.assertEqual(result['update_kind'], 'version')
+                self.assertEqual(result['latest_version'], '0.4.22')
+                self.assertEqual(result['latest_build'], build)
+                self.assertEqual([kind for kind, _, _ in fixture.requests], ['manifest'])
+
+    def test_new_version_legacy_contract_preserves_detection_with_unknown_build(self):
+        with Fixture(new_version='0.4.22', old_version='0.4.21') as fixture:
+            opener = Mock()
+            opener.open.return_value = response(json.dumps(fixture.releases).encode())
+            with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
+                    patch.object(updates, 'build_opener', return_value=opener):
+                result = updates.check_update()
+            self.assertTrue(result['update_available'])
+            self.assertEqual(result['update_kind'], 'version')
+            self.assertEqual(result['latest_build'], '')
+            self.assertFalse(result['identity_verified'])
+            self.assertIn('重新核对', result['message'])
+            self.assertEqual([kind for kind, _, _ in fixture.requests], ['manifest'])
+
+    def test_new_version_invalid_or_oversize_contract_cannot_supply_build(self):
+        for oversized in (False, True):
+            with self.subTest(oversized=oversized), Fixture(new_version='0.4.22', old_version='0.4.21',
+                                                          new_build='workflow.3') as fixture:
+                if oversized:
+                    fixture.metadata['padding'] = 'x' * (1024 * 1024)
+                else:
+                    fixture.metadata['sha256'] = '0' * 64
+                fixture.refresh_metadata()
+                updates._cache = None
+                opener = Mock()
+                opener.open.return_value = response(json.dumps(fixture.releases).encode())
+                with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
+                        patch.object(updates, 'build_opener', return_value=opener):
+                    if oversized:
+                        # The existing asset selector already rejects external
+                        # manifests above its stricter 128 KiB limit.
+                        result = updates.check_update()
+                        self.assertTrue(result['update_available'])
+                        self.assertEqual(result['latest_build'], '')
+                        self.assertFalse(result['identity_verified'])
+                    else:
+                        with self.assertRaises(UserError):
+                            updates.check_update()
+                        self.assertIsNone(updates._cache)
+                self.assertFalse(any(kind == 'zip' for kind, _, _ in fixture.requests))
+                if oversized:
+                    self.assertEqual(fixture.requests, [])
+
+    def test_build_comparison_semantic_version_priority_and_manual_boundary(self):
+        rows = [release('0.4.22')]
+        for build, kind in [('workflow.3', 'build'), ('workflow.2', 'current'),
+                            ('workflow.1', 'current'), ('patch.3', 'manual'), ('', 'manual'),
+                            ('workflow.03', 'manual')]:
+            result = updates.select_release(rows, 'win32', '0.4.22', 'workflow.2', build)
+            self.assertEqual(result['update_kind'], kind)
+            self.assertEqual(result['update_available'], kind == 'build')
+        self.assertEqual(updates.select_release([release('0.4.23')], 'win32', '0.4.22',
+                                               'workflow.9', 'patch.1')['update_kind'], 'version')
+        self.assertFalse(updates.select_release([release('0.4.21')], 'win32', '0.4.22',
+                                                'workflow.1', 'workflow.99')['update_available'])
+
+    def test_check_update_current_build_and_verified_same_version_range(self):
+        with Fixture(new_version='0.4.22', old_version='0.4.22', old_build='workflow.2', new_build='workflow.3') as fixture:
+            opener = Mock()
+            opener.open.return_value = response(json.dumps(fixture.releases).encode())
+            with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.22'), \
+                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'build_opener', return_value=opener):
+                result = updates.check_update()
+                self.assertTrue(result['update_available'])
+                self.assertEqual(result['update_kind'], 'build')
+                self.assertEqual(result['current_build'], 'workflow.2')
+                self.assertEqual(result['latest_build'], 'workflow.3')
+                self.assertEqual(updates.check_update(), result)
+            self.assertTrue(any(kind == 'zip' for kind, _, _ in fixture.requests))
+            left, right = fixture.data_range('runtime/python313.zip')
+            self.assertFalse(any(kind == 'zip' and start <= right and end >= left for kind, start, end in fixture.requests))
+
+    def test_equal_version_unbound_release_is_manual_and_no_extra_request(self):
+        opener = Mock()
+        opener.open.return_value = response(json.dumps([release('0.4.11')]).encode())
+        with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__build__', 'workflow.2'), \
+                patch.object(updates, 'build_opener', return_value=opener):
+            result = updates.check_update()
+        self.assertFalse(result['update_available'])
+        self.assertEqual(result['update_kind'], 'manual')
+        self.assertIn('人工核对', result['message'])
+        opener.open.assert_called_once()
+
+    def test_equal_version_external_internal_build_mismatch_is_not_available(self):
+        with Fixture(new_version='0.4.22', old_version='0.4.22', old_build='workflow.2', new_build='workflow.4') as fixture:
+            fixture.metadata['build_revision'] = 'workflow.3'
+            fixture.refresh_metadata()
+            opener = Mock()
+            opener.open.return_value = response(json.dumps(fixture.releases).encode())
+            with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.22'), \
+                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'build_opener', return_value=opener):
+                with self.assertRaises(UserError):
+                    updates.check_update()
+            self.assertIsNone(updates._cache)
+
     def setUp(self):
         updates._cache = None
         version=patch.object(updates,'__version__','0.4.11');version.start();self.addCleanup(version.stop)

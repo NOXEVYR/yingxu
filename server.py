@@ -58,6 +58,8 @@ class Application:
         self.context=ContextExporter(self.store,self.skills)
         from yingxu.handoffs import HandoffService
         self.handoffs=HandoffService(self.store,self.skills,self.context)
+        from yingxu.mcp import ProjectMCP
+        self.mcp=ProjectMCP(self.store,self.skills)
         self.jobs=Jobs(self.store,self.context.request)
         self.thumbnails=Thumbnails(self.store)
         from yingxu.trash import TrashDeletion
@@ -86,6 +88,7 @@ class Application:
         with self._close_lock:
             if self._closed:return
             self._closed=True
+            self.mcp.close()
             try:
                 try:self.update_service.close()
                 finally:self.migration_jobs.close()
@@ -102,7 +105,7 @@ class Application:
         return {'app':'yingxu','version':__version__,'build_revision':__build__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True,'automatic_updates':True,'skill_collections':True,'incremental_handoff':True}}
+          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True,'automatic_updates':True,'skill_collections':True,'skill_organization':True,'incremental_handoff':True,'mcp_project_read':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -429,6 +432,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk);remaining-=len(chunk)
 
     def handle_request(self):
+        if urlsplit(self.path).path=='/mcp':return self.handle_mcp_request()
         if self.command in ('GET','HEAD'):return self.handle_application_request()
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
@@ -443,12 +447,56 @@ class Handler(BaseHTTPRequestHandler):
             self.json({'error':str(error)},error.status)
         except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
 
+    def mcp_endpoint(self):
+        return f'http://127.0.0.1:{self.server.server_port}/mcp'
+
+    def handle_mcp_request(self):
+        from yingxu.mcp import MAX_REQUEST, ProjectMCP
+        try:
+            # This is a separate read-only authorization surface. Never accept
+            # the workbench session token or bypass its write guards elsewhere.
+            self.check_origin(False)
+            if urlsplit(self.path).query:raise UserError('MCP 不接受 URL 参数。',400)
+            with self.app.mcp.request_slot():
+                self.app.mcp.authorize(self.headers.get('Authorization',''))
+                if self.command!='POST':
+                    self.close_connection=True
+                    return self.json(ProjectMCP.error(None,-32600,'Use POST for MCP'),405,{'Allow':'POST'})
+                if self.headers.get('Transfer-Encoding'):raise UserError('MCP 不支持此传输格式。',400)
+                try:size=int(self.headers.get('Content-Length','0'))
+                except ValueError:raise UserError('MCP 请求长度无效。',400)
+                if not 0<size<=MAX_REQUEST:raise UserError('MCP 请求大小无效。',413)
+                if self.headers.get('Content-Type','').split(';',1)[0].strip().lower()!='application/json':
+                    raise UserError('MCP 仅接受 JSON。',415)
+                try:message=json.loads(self.rfile.read(size).decode('utf-8'))
+                except (ValueError,UnicodeError,RecursionError):
+                    self.close_connection=True
+                    return self.json(ProjectMCP.error(None,-32700,'Invalid JSON'),400)
+                result,status=self.app.mcp.handle(message,self.headers,reserved=True)
+                if result is None:
+                    self.send_response(status);self.headers_common('application/json')
+                    self.send_header('Cache-Control','no-store');self.send_header('Content-Length','0');self.end_headers()
+                    return
+                return self.json(result,status)
+        except UserError as error:
+            self.close_connection=True
+            return self.json(ProjectMCP.error(None,-32000,str(error)),error.status)
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
+        except Exception:
+            # Documents, paths and credential fields never enter an MCP error.
+            self.close_connection=True
+            return self.json(ProjectMCP.error(None,-32603,'MCP read failed'),500)
+
     def handle_application_request(self):
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
             parsed=urlsplit(self.path);path=parsed.path
             query={k:v[-1] for k,v in parse_qs(parsed.query).items()}
             if self.command in ('GET','HEAD'):
+                if path=='/api/mcp/status':
+                    self.check_origin(True)
+                    if query:raise UserError('MCP 状态不接受额外参数。')
+                    return self.json(self.app.mcp.status(self.mcp_endpoint()))
                 if path=='/api/updates/automatic/status':
                     self.check_origin(True)
                     if query:raise UserError('自动更新状态不接受额外参数。')
@@ -460,6 +508,9 @@ class Handler(BaseHTTPRequestHandler):
                 if handoff:
                     if query:raise UserError('交接记录不接受额外参数。')
                     return self.json(self.app.handoffs.get(handoff[1]))
+                if path=='/api/skill-organization':
+                    if query:raise UserError('技能整理列表不接受额外参数。')
+                    return self.json(self.app.skills.organization.list())
                 if path=='/api/skill-collections':
                     if set(query)-{'project'}:raise UserError('收藏查询参数无效。')
                     return self.json(self.app.skills.collections.list(query.get('project','')))
@@ -544,6 +595,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.file(static)
             if self.command=='POST' and path=='/api/upload':return self.json(self.app.receive_upload(self,query),201)
             data=self.body()
+            if self.command=='POST' and path=='/api/mcp/configure':
+                if query:raise UserError('MCP 设置不接受额外参数。')
+                return self.json(self.app.mcp.configure(data,self.mcp_endpoint()))
+            if self.command=='POST' and path=='/api/mcp/connection':
+                if data or query:raise UserError('MCP 连接参数无效。')
+                return self.json(self.app.mcp.connection(self.mcp_endpoint()))
             if self.command=='POST' and path.startswith('/api/updates/'):
                 service=self.app.update_service
                 if path=='/api/updates/automatic/start':
@@ -576,6 +633,20 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/updates/install/cancel':
                     if set(data)!={'ticket'} or query:raise UserError('取消安装参数无效。')
                     return self.json(service.cancel(data['ticket']))
+            if path=='/api/skill-folders' and self.command=='POST':
+                if query or 'name' not in data or set(data)-{'name','parent_id'}:raise UserError('技能文件夹参数无效。')
+                return self.json(self.app.skills.organization.create_folder(**data),201)
+            skill_folder=re.fullmatch(r'/api/skill-folders/(fld_[a-f0-9]{32})',path)
+            if skill_folder:
+                if query:raise UserError('技能文件夹操作不接受额外参数。')
+                if self.command=='PATCH' and data and not set(data)-{'name','parent_id'}:
+                    return self.json(self.app.skills.organization.update_folder(skill_folder[1],**data))
+                if self.command=='DELETE' and not data:
+                    return self.json(self.app.skills.organization.delete_folder(skill_folder[1]))
+                raise UserError('技能文件夹操作或参数无效。')
+            if path=='/api/skill-metadata' and self.command=='POST':
+                if query or 'skill_ids' not in data or set(data)-{'skill_ids','folder_id','tags','notes','tags_mode'}:raise UserError('技能整理参数无效。')
+                return self.json(self.app.skills.organization.update_metadata(**data))
             if self.command=='POST' and path.startswith('/api/skill-collections/'):
                 if query:raise UserError('收藏操作参数无效。')
                 library=self.app.skills.collections

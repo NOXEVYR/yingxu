@@ -159,6 +159,8 @@ class SkillLibrary:
                 db.execute('ALTER TABLE yx_skills ADD COLUMN recycle_started INTEGER NOT NULL DEFAULT 0')
         from .skill_collections import SkillCollections
         self.collections = SkillCollections(self)
+        from .skill_organization import SkillOrganization
+        self.organization = SkillOrganization(self)
         self._startup_lock = threading.Lock()
         self._startup_future = None
         self._startup_error = ''

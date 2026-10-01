@@ -17,23 +17,24 @@ from yingxu import macos
 
 class MacAdaptersTests(unittest.TestCase):
     def test_preview_and_close_drains_all_workers_in_order_once(self):
-        self.assertEqual(PREVIEW, '0.4.22-mac.1')
+        self.assertEqual(PREVIEW, '0.4.23-mac.1')
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
         events=[]
-        app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.mcp.close.side_effect=lambda:events.append(('mcp',{}))
         app.update_service.close.side_effect=lambda:events.append(('updates',{}))
         app.migration_jobs.close.side_effect=lambda:events.append(('migration',{}))
         app.jobs.pool.shutdown.side_effect=lambda **kw:events.append(('jobs',kw))
         app.thumbnails.pool.shutdown.side_effect=lambda **kw:events.append(('thumbnails',kw))
         app.context.close.side_effect=lambda:events.append(('context',{})) or True
         app.close();app.close()
-        self.assertEqual(events,[('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
+        self.assertEqual(events,[('mcp',{}),('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
 
     def test_close_attempts_remaining_cleanup_when_one_worker_fails(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.jobs.pool.shutdown.side_effect=RuntimeError('synthetic worker failure')
         with self.assertRaises(RuntimeError):app.close()
         app.thumbnails.pool.shutdown.assert_called_once()
@@ -46,7 +47,11 @@ class MacAdaptersTests(unittest.TestCase):
     def test_real_isolated_backend_stops_threads_and_keeps_044_capabilities(self):
         before={thread.ident for thread in threading.enumerate()}
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary).resolve();app=Application(root/'data',root/'projects')
+            root=Path(temporary).resolve()
+            # This worker lifecycle test must not discover the developer's
+            # real skills or depend on their shared scan time budget.
+            with patch('yingxu.skills.Path.home',return_value=root/'synthetic-home'):
+                app=Application(root/'data',root/'projects')
             server=Server(('127.0.0.1',0),app)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:

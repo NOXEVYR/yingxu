@@ -56,6 +56,28 @@ class SkillSourcesHttpTests(unittest.TestCase):
         status,removed=self.request('/api/skill-sources/'+sid,'DELETE')
         self.assertEqual(status,200);self.assertFalse(any(s['id']==sid for s in removed['sources']))
 
+    def test_codex_plugin_cache_is_listed_and_refreshed_through_http(self):
+        self.app._skills_startup.result(timeout=10)
+        home=self.root/'empty-home'
+        skill=home/'.codex/plugins/cache/marketplace/plugin/1.2.3/skills/oil-codex-title/SKILL.md'
+        skill.parent.mkdir(parents=True)
+        skill.write_text('---\nname: synthetic-plugin\n---\nfixture',encoding='utf-8')
+
+        status,sources=self.request('/api/skill-sources')
+        self.assertEqual(status,200)
+        cached=next(source for source in sources['sources'] if source['id']=='codex_plugins')
+        self.assertEqual(cached['group'],'codex')
+        self.assertTrue(cached['readonly'])
+        self.assertIn('不代表启用',cached['label'])
+
+        status,refreshed=self.request('/api/skills/refresh','POST',{})
+        self.assertEqual(status,200,refreshed)
+        self.assertEqual(refreshed['total'],1)
+        self.assertEqual(refreshed['skills'][0]['path'],str(skill))
+        status,filtered=self.request('/api/skills?source=codex&source_id=codex_plugins')
+        self.assertEqual(status,200,filtered)
+        self.assertEqual([row['path'] for row in filtered['skills']],[str(skill)])
+
     def test_mutations_require_same_origin_and_token(self):
         for method,path,body in [('POST','/api/skill-sources',{'path':str(self.external.parent)}),
                                  ('PATCH','/api/skill-sources/dsh',{'enabled':False}),

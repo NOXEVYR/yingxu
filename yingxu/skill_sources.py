@@ -22,6 +22,7 @@ def catalogue(home, local, settings):
     definitions = [
         ('yingxu','yingxu','映序本地',local,'directory'),
         ('codex','codex','Codex 用户技能',home/'.codex/skills','directory'),
+        ('codex_plugins','codex','Codex 插件缓存（不代表启用）',home/'.codex/plugins/cache','codex_plugins'),
         ('claude','claude','Claude 用户技能',home/'.claude/skills','directory'),
         ('dsh','dsh','DSH 用户技能',home/'.dsh/skills','directory'),
         ('workbuddy','workbuddy','WorkBuddy 用户技能',home/'.workbuddy/skills','directory'),
@@ -95,6 +96,35 @@ def scan_roots(location, check, deadline=None):
                         roots.append(folder)
         except (ValueError, TypeError, KeyError, RecursionError) as exc:
             raise UserError('插件安装清单无效或路径越界；没有扫描历史缓存。') from exc
+    elif mode == 'codex_plugins':
+        # Codex caches skills at cache/marketplace/plugin/version/skills.
+        # Keep this layout exact: cache contents alone do not establish that
+        # a plugin is enabled, and arbitrary cache trees are not skill roots.
+        visits = 0
+        def child_directories(folder):
+            nonlocal visits
+            budget()
+            folder = check(folder)
+            children = []
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    visits += 1
+                    budget()
+                    if visits > MAX_PLUGIN_ENTRIES:
+                        raise DiscoveryBudget('Codex 插件目录发现达到预算，请稍后重试。')
+                    path = Path(entry.path)
+                    if entry.name.startswith('.') or has_link(path) or not entry.is_dir(follow_symlinks=False):
+                        continue
+                    children.append(check(path))
+            return children
+
+        for marketplace in child_directories(root):
+            for plugin in child_directories(marketplace):
+                for version in child_directories(plugin):
+                    budget()
+                    candidate = check(version/'skills')
+                    if candidate.is_dir():
+                        roots.append(candidate)
     else:
         # Only the observed marketplace/plugin/version/skills layout. Never
         # recurse into arbitrary app cache contents or plugin executables.

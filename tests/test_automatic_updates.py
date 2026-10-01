@@ -56,8 +56,10 @@ class StubUpdateService:
         self.planned = False
         self.plan_calls = 0
         self.plan_version = '0.4.22'
+        self.plan_build = 'workflow.3'
         self.plan_id = 'a' * 32
         self.current_version = '0.4.21'
+        self.current_build = ''
 
     def _manager(self):
         return self.manager
@@ -66,7 +68,7 @@ class StubUpdateService:
         self.planned = True
         self.plan_calls += 1
         self.manager.value.update(state='planned', plan_id=self.plan_id,
-                                  latest_version=self.plan_version)
+                                  latest_version=self.plan_version, latest_build=self.plan_build)
         return self.manager.status()
 
     def download(self, plan_id):
@@ -177,8 +179,9 @@ class AutomaticUpdatesTests(unittest.TestCase):
         automatic = AutomaticUpdates(self.service)
         self.addCleanup(automatic.close)
         automatic._set(state='ready', last_attempt=2_000_000, latest_version='0.4.22',
-                       update_available=True, plan_id='a' * 32, download_bytes=123)
-        self.service.manager.value.update(state='ready', plan_id='a' * 32, latest_version='0.4.22')
+                       latest_build='workflow.3', update_available=True, plan_id='a' * 32, download_bytes=123)
+        self.service.manager.value.update(state='ready', plan_id='a' * 32, latest_version='0.4.22',
+                                         latest_build='workflow.3')
         self.assertEqual(automatic.status()['state'], 'ready')
 
         self.service.manager.value.update(state='idle', plan_id='', latest_version='')
@@ -189,6 +192,7 @@ class AutomaticUpdatesTests(unittest.TestCase):
 
         automatic.close()
         self.service.current_version = '0.4.22'
+        self.service.current_build = 'workflow.3'
         reopened = AutomaticUpdates(self.service)
         self.addCleanup(reopened.close)
         status = reopened.status()
@@ -272,6 +276,182 @@ class AutomaticUpdatesTests(unittest.TestCase):
         self.assertEqual(state['state'], 'manual_required')
         self.assertIn('已阻止自动下载', state['message'])
         self.assertEqual(service.manager.download_calls, [])
+
+    def test_same_version_newer_build_downloads_and_survives_restart(self):
+        self.service.current_version = self.service.plan_version = '0.4.22'
+        self.service.current_build = 'workflow.2'
+        self.service.plan_build = 'workflow.3'
+        found = {'update_available': True, 'latest_version': '0.4.22',
+                 'latest_build': 'workflow.3', 'update_kind': 'build', 'url': ''}
+        with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                patch('yingxu.updates.check_update', return_value=found):
+            automatic = AutomaticUpdates(self.service)
+            self.addCleanup(automatic.close)
+            automatic.start(0)
+            state = self.finished(automatic)
+        self.assertEqual(state['state'], 'ready', state)
+        self.assertEqual(state['latest_build'], 'workflow.3')
+        self.assertEqual(state['current_build'], 'workflow.2')
+        self.assertEqual(state['update_kind'], 'build')
+        self.assertEqual(self.service.manager.download_calls, ['a' * 32])
+        reopened = AutomaticUpdates(self.service)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.status()['state'], 'ready')
+        self.service.current_build = 'workflow.3'
+        self.assertEqual(reopened.status()['state'], 'current')
+
+    def test_same_version_cached_plan_must_match_the_exact_target_build(self):
+        found = {'update_available': True, 'latest_version': '0.4.22',
+                 'latest_build': 'workflow.4', 'update_kind': 'build', 'url': ''}
+        for initial_state, refreshed_build in (('planned', 'workflow.4'), ('ready', 'workflow.4'),
+                                                ('ready', 'workflow.3')):
+            with self.subTest(initial_state=initial_state, refreshed_build=refreshed_build):
+                case_root = self.root / (initial_state + refreshed_build)
+                case_root.mkdir()
+                service = StubUpdateService(case_root, 1024)
+                service.current_version = service.plan_version = '0.4.22'
+                service.current_build = 'workflow.2'
+                service.plan_build = refreshed_build
+                service.plan_id = 'c' * 32
+                service.manager.value.update(state=initial_state, plan_id='b' * 32,
+                                             latest_version='0.4.22', latest_build='workflow.3')
+                with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                        patch('yingxu.updates.check_update', return_value=found):
+                    automatic = AutomaticUpdates(service)
+                    self.addCleanup(automatic.close)
+                    automatic.start(0)
+                    state = self.finished(automatic)
+                self.assertEqual(service.plan_calls, 1)
+                if refreshed_build == 'workflow.4':
+                    self.assertEqual(state['state'], 'ready', state)
+                    self.assertEqual(service.manager.download_calls, ['c' * 32])
+                else:
+                    self.assertEqual(state['state'], 'manual_required', state)
+                    self.assertEqual(service.manager.download_calls, [])
+
+    def test_uncertain_or_older_build_cannot_trigger_auto_download(self):
+        self.service.current_version = '0.4.22'
+        self.service.current_build = 'workflow.3'
+        for build, kind, available in (('other.4', 'manual', False), ('', 'manual', False),
+                                       ('workflow.2', 'build', True)):
+            with self.subTest(build=build):
+                found = {'update_available': available, 'latest_version': '0.4.22',
+                         'latest_build': build, 'update_kind': kind, 'url': ''}
+                with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                        patch('yingxu.updates.check_update', return_value=found):
+                    automatic = AutomaticUpdates(self.service)
+                    self.addCleanup(automatic.close)
+                    automatic.check_now()
+                    state = self.finished(automatic)
+                self.assertEqual(state['state'], 'manual_required', state)
+        self.assertEqual(self.service.plan_calls, 0)
+        self.assertEqual(self.service.manager.download_calls, [])
+
+    def test_cross_version_build_replacement_refreshes_a_ready_plan(self):
+        self.service.current_version = '0.4.21'
+        self.service.current_build = 'workflow.1'
+        self.service.plan_build = 'workflow.3'
+        self.service.manager.value.update(state='ready', plan_id='b' * 32,
+                                         latest_version='0.4.22', latest_build='workflow.2')
+        for advertised_build in ('workflow.3', ''):
+            with self.subTest(advertised_build=advertised_build):
+                self.service.manager.value.update(state='ready', plan_id='b' * 32,
+                                                 latest_build='workflow.2')
+                found = {'update_available': True, 'latest_version': '0.4.22',
+                         'latest_build': advertised_build, 'update_kind': 'version', 'url': ''}
+                with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                        patch('yingxu.updates.check_update', return_value=found):
+                    automatic = AutomaticUpdates(self.service)
+                    self.addCleanup(automatic.close)
+                    automatic.check_now()
+                    state = self.finished(automatic)
+                self.assertEqual(state['state'], 'ready', state)
+                self.assertEqual(state['latest_build'], 'workflow.3')
+                self.assertEqual(state['plan_id'], 'a' * 32)
+        self.assertEqual(self.service.plan_calls, 2)
+        self.assertEqual(self.service.manager.download_calls, ['a' * 32, 'a' * 32])
+
+    def test_unidentified_ready_cache_is_hidden_and_replanned_even_when_plan_is_in_flight(self):
+        automatic = AutomaticUpdates(self.service)
+        self.addCleanup(automatic.close)
+        automatic._set(state='ready', latest_version='0.4.22', update_available=True, plan_id='b' * 32)
+        self.service.manager.value.update(state='ready', latest_version='0.4.22', plan_id='b' * 32)
+        self.assertEqual(automatic.status()['state'], 'available')
+        self.assertTrue(automatic._needs_resume())
+        automatic.close()
+        self.service.manager.value['state'] = 'planning'
+        self.service.plan_build = 'workflow.3'
+        found = {'update_available': True, 'latest_version': '0.4.22', 'update_kind': 'version', 'url': ''}
+        with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                patch('yingxu.updates.check_update', return_value=found):
+            automatic = AutomaticUpdates(self.service)
+            self.addCleanup(automatic.close)
+            # The previous in-flight plan finishes without a known build.
+            with patch.object(automatic, '_wait_manager', side_effect=[
+                    {'state':'ready', 'latest_version':'0.4.22', 'plan_id':'b' * 32},
+                    {'state':'planned', 'latest_version':'0.4.22', 'latest_build':'workflow.3',
+                     'plan_id':'a' * 32, 'total_download_bytes':0},
+                    {'state':'ready', 'latest_version':'0.4.22', 'latest_build':'workflow.3',
+                     'plan_id':'a' * 32, 'total_download_bytes':0}]):
+                automatic.check_now()
+                state = self.finished(automatic)
+        self.assertEqual(state['state'], 'ready', state)
+        self.assertEqual(state['latest_build'], 'workflow.3')
+        self.assertEqual(self.service.plan_calls, 1)
+        self.assertEqual(self.service.manager.download_calls, ['a' * 32])
+
+    def test_ready_cache_unknown_identity_is_manual_and_live_build_mismatch_is_not_ready(self):
+        self.service.current_version = '0.4.22'
+        self.service.current_build = 'workflow.2'
+        automatic = AutomaticUpdates(self.service)
+        self.addCleanup(automatic.close)
+        automatic._set(state='ready', latest_version='0.4.22', latest_build='workflow.3',
+                       update_kind='build', update_available=True, plan_id='a' * 32)
+        self.service.manager.value.update(state='ready', plan_id='a' * 32,
+                                         latest_version='0.4.22', latest_build='workflow.4')
+        self.assertEqual(automatic.status()['state'], 'available')
+        self.service.current_build = 'other.2'
+        state = automatic.status()
+        self.assertEqual(state['state'], 'manual_required')
+        self.assertEqual(state['plan_id'], '')
+        self.assertEqual(state['update_kind'], 'manual')
+
+    def test_fresh_plan_without_build_requires_manual_review_without_repeated_download(self):
+        self.service.plan_build = ''
+        found = {'update_available': True, 'latest_version': '0.4.22', 'update_kind': 'version', 'url': ''}
+        with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                patch('yingxu.updates.check_update', return_value=found):
+            automatic = AutomaticUpdates(self.service)
+            self.addCleanup(automatic.close)
+            automatic.start(0)
+            state = self.finished(automatic)
+        self.assertEqual(state['state'], 'manual_required', state)
+        self.assertEqual(state['update_kind'], 'manual')
+        self.assertFalse(automatic._needs_resume())
+        self.assertEqual(self.service.plan_calls, 1)
+        self.assertEqual(self.service.manager.download_calls, [])
+
+    def test_target_build_changed_after_download_cannot_report_ready(self):
+        self.service.current_version = self.service.plan_version = '0.4.22'
+        self.service.current_build = 'workflow.2'
+        self.service.plan_build = 'workflow.3'
+        original_download = self.service.download
+
+        def changed_download(plan_id):
+            original_download(plan_id)
+            self.service.manager.value['latest_build'] = 'workflow.4'
+
+        found = {'update_available': True, 'latest_version': '0.4.22',
+                 'latest_build': 'workflow.3', 'update_kind': 'build', 'url': ''}
+        with patch('yingxu.automatic_updates.sys.platform', 'win32'), \
+                patch('yingxu.updates.check_update', return_value=found), \
+                patch.object(self.service, 'download', side_effect=changed_download):
+            automatic = AutomaticUpdates(self.service)
+            self.addCleanup(automatic.close)
+            automatic.start(0)
+            state = self.finished(automatic)
+        self.assertNotEqual(state['state'], 'ready', state)
+        self.assertEqual(state['plan_id'], '')
 
     def test_non_windows_reports_full_package_manual_install(self):
         done = threading.Event()

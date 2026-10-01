@@ -41,6 +41,40 @@ class SkillSourceTests(unittest.TestCase):
         self.assertEqual(sources['dsh']['count'],1)
         self.assertTrue(sources['dsh']['readonly'])
 
+    def test_codex_user_skill_root_discovers_installed_team_mode_path(self):
+        path=self.skill('.codex/skills/team-mode','合成 team-mode')
+        library=SkillLibrary(self.store)
+        result=library.list(source='codex',source_id='codex')
+        self.assertEqual(result['total'],1)
+        self.assertEqual(result['skills'][0]['path'],str(path))
+        self.assertFalse(result['skills'][0]['editable'])
+        self.assertEqual(next(s for s in result['sources'] if s['id']=='codex')['count'],1)
+
+    def test_codex_plugin_cache_scans_only_marketplace_plugin_version_skills(self):
+        installed=self.skill('.codex/plugins/cache/marketplace/plugin/1.2.3/skills/oil-codex-title','合成插件技能')
+        self.skill('.codex/plugins/marketplaces/marketplace/plugin/1.2.3/skills/outside-cache')
+        self.skill('.codex/plugins/cache/marketplace/plugin/1.2.3/arbitrary/extra/SKILL.md')
+        library=SkillLibrary(self.store)
+        result=library.list(source='codex',source_id='codex_plugins')
+        self.assertEqual(result['total'],1)
+        self.assertEqual(result['skills'][0]['path'],str(installed))
+        self.assertEqual(result['skills'][0]['source_group'],'codex')
+        self.assertFalse(result['skills'][0]['editable'])
+        source=next(s for s in result['sources'] if s['id']=='codex_plugins')
+        self.assertEqual(source['count'],1)
+        self.assertIn('不代表启用',source['label'])
+
+    def test_codex_plugin_cache_entry_limit_keeps_previous_index(self):
+        self.skill('.codex/plugins/cache/marketplace/plugin/1.2.3/skills/oil-codex-title')
+        library=SkillLibrary(self.store)
+        previous=library.list(source='codex',source_id='codex_plugins')['skills'][0]
+        with patch('yingxu.skill_sources.MAX_PLUGIN_ENTRIES',0):
+            result=library.refresh()
+        self.assertTrue(result['truncated'])
+        self.assertEqual(result['skills'][0]['id'],previous['id'])
+        plugin_source=next(s for s in result['sources'] if s['id']=='codex_plugins')
+        self.assertEqual(plugin_source['status'],'truncated')
+
     def test_zcode_observed_layout_is_scanned_without_marketplace_duplicates(self):
         self.skill('.zcode/cli/plugins/cache/official/plugin/1.0/skills/demo')
         self.skill('.zcode/cli/plugins/marketplaces/official/plugin/skills/demo')

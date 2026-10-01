@@ -6,6 +6,7 @@ import threading
 import time
 
 from .incremental_update import checked_path, write_file
+from .release_identity import compare_builds
 
 DAILY_INTERVAL = 24 * 60 * 60
 BACKOFF_BASE = 60 * 60
@@ -23,6 +24,8 @@ _DEFAULT_STATE = {
     'next_attempt': 0,
     'consecutive_failures': 0,
     'latest_version': '',
+    'latest_build': '',
+    'update_kind': '',
     'release_url': '',
     'update_available': None,
     'plan_id': '',
@@ -65,6 +68,8 @@ class AutomaticUpdates:
                     type(value.get('next_attempt')) is not int or value['next_attempt'] < 0 or
                     type(value.get('consecutive_failures')) is not int or not 0 <= value['consecutive_failures'] <= 16 or
                     not isinstance(value.get('latest_version'), str) or len(value['latest_version']) > 64 or
+                    not isinstance(value.get('latest_build', ''), str) or len(value.get('latest_build', '')) > 64 or
+                    value.get('update_kind', '') not in ('', 'version', 'build', 'current', 'manual') or
                     not isinstance(value.get('release_url'), str) or len(value['release_url']) > 512 or
                     value.get('update_available') not in (None, True, False) or
                     not isinstance(value.get('plan_id'), str) or
@@ -117,10 +122,19 @@ class AutomaticUpdates:
         if persistence_error:
             value.update(state='error', message=persistence_error)
         elif value.get('state') == 'ready':
-            current = getattr(self.update_service, 'current_version', '')
-            if not self._version_is_newer(value.get('latest_version', ''), current):
-                value.update(state='current', update_available=False, plan_id='', download_bytes=0,
-                             message='当前已是最新正式版。')
+            if not self._target_is_newer(value.get('latest_version', ''), value.get('latest_build', '')):
+                current_build = getattr(self.update_service, 'current_build', '')
+                target_build = value.get('latest_build', '')
+                same_version = self._version_key(value.get('latest_version')) == self._version_key(
+                    getattr(self.update_service, 'current_version', ''))
+                if (same_version and (current_build or target_build) and
+                        compare_builds(current_build, target_build) == 'manual'):
+                    value.update(state='manual_required', update_available=False, update_kind='manual',
+                                 plan_id='', download_bytes=0,
+                                 message='此前下载的构建与当前构建无法安全比较，请重新检查更新。')
+                else:
+                    value.update(state='current', update_available=False, plan_id='', download_bytes=0,
+                                 message='当前已是最新正式版。')
             else:
                 try:
                     manager_status = self.update_service._manager().status()
@@ -128,13 +142,15 @@ class AutomaticUpdates:
                     manager_status = {}
                 if (manager_status.get('state') != 'ready' or
                         manager_status.get('plan_id') != value.get('plan_id') or
-                        manager_status.get('latest_version') != value.get('latest_version')):
+                        not value.get('latest_build') or
+                        not self._matches_target(manager_status, value)):
                     value.update(state='available', plan_id='', download_bytes=0,
                                  message='发现新版本；正在重新核对此前下载的更新文件。')
         return {**value,
                 'automatic_check_enabled': check_enabled,
                 'automatic_download_enabled': download_enabled,
                 'platform': sys.platform,
+                'current_build': getattr(self.update_service, 'current_build', ''),
                 'running': running,
                 'scheduled': scheduled,
                 'download_limit_bytes': MAX_AUTOMATIC_DOWNLOAD,
@@ -152,6 +168,23 @@ class AutomaticUpdates:
         candidate_key = cls._version_key(candidate)
         current_key = cls._version_key(current)
         return candidate_key is not None and current_key is not None and candidate_key > current_key
+
+    def _target_is_newer(self, version, build=''):
+        current = getattr(self.update_service, 'current_version', '')
+        if self._version_is_newer(version, current):
+            return True
+        key = self._version_key(version)
+        return (key is not None and key == self._version_key(current) and
+                compare_builds(getattr(self.update_service, 'current_build', ''), build) == 'build')
+
+    @staticmethod
+    def _matches_target(status, target):
+        return (status.get('latest_version') == target.get('latest_version') and
+                status.get('latest_build', '') == target.get('latest_build', ''))
+
+    @staticmethod
+    def _verified_target(target, status):
+        return {**target, 'latest_build': status.get('latest_build') or target.get('latest_build', '')}
 
     def _preferences(self):
         return self.update_service.app.settings.get()
@@ -173,13 +206,14 @@ class AutomaticUpdates:
     def _needs_resume(self):
         with self._lock:
             state = dict(self._state)
-        if state.get('state') != 'ready' or not self._version_is_newer(
-                state.get('latest_version', ''), getattr(self.update_service, 'current_version', '')):
+        if state.get('state') != 'ready' or not self._target_is_newer(
+                state.get('latest_version', ''), state.get('latest_build', '')):
             return False
         manager_status = self.update_service._manager().status()
         return (manager_status.get('state') != 'ready' or
                 manager_status.get('plan_id') != state.get('plan_id') or
-                manager_status.get('latest_version') != state.get('latest_version'))
+                not state.get('latest_build') or
+                not self._matches_target(manager_status, state))
 
     def start(self, delay=DEFAULT_DELAY, *, force=False):
         """Start a single background job; callers invoke this after UI readiness."""
@@ -213,7 +247,7 @@ class AutomaticUpdates:
             attempted = self._state['last_attempt'] or int(self._clock())
         message = str(error).strip()[:800] or '自动检查更新失败，请稍后重试。'
         self._set(state='error', consecutive_failures=failures,
-                  next_attempt=attempted + delay, message=message)
+                  next_attempt=attempted + delay, plan_id='', download_bytes=0, message=message)
 
     def _run(self, delay):
         if delay and self._stop.wait(delay):
@@ -276,17 +310,27 @@ class AutomaticUpdates:
             if self._stopping():
                 return
             latest = str(result.get('latest_version', ''))[:64]
+            latest_build = str(result.get('latest_build', ''))[:64]
             update_available = bool(result.get('update_available'))
             release_url = str(result.get('url', ''))[:512]
             common = dict(last_attempt=attempted, next_attempt=0, consecutive_failures=0,
-                          latest_version=latest, release_url=release_url,
+                          latest_version=latest, latest_build=latest_build,
+                          update_kind=result.get('update_kind', ''), release_url=release_url,
                           update_available=update_available)
+            if result.get('update_kind') == 'manual':
+                self._set(**common, state='manual_required',
+                          message=result.get('message') or '当前构建与发布构建无法安全比较，请在设置中核对。')
+                return
             if not update_available:
                 self._set(**common, state='current', message='当前已是最新正式版。')
                 return
             if sys.platform != 'win32':
                 self._set(**common, state='available',
                           message='发现新版本；此平台需下载完整包并手动安装。')
+                return
+            if not self._target_is_newer(latest, latest_build):
+                self._set(**common, state='manual_required',
+                          message='更新目标的版本或构建无法安全确认，已阻止自动下载；请重新检查更新。')
                 return
             prefs = self._preferences()
             if not prefs['automatic_update_download']:
@@ -316,18 +360,19 @@ class AutomaticUpdates:
         before = manager.status()
         if self._stopping():
             return
-        target_version = common.get('latest_version')
         refreshed = False
         if (before.get('state') == 'ready' and
-                before.get('latest_version') == target_version and
-                self._version_is_newer(target_version, getattr(service, 'current_version', ''))):
-            self._set(**common, state='ready', plan_id=before.get('plan_id', ''),
+                common.get('latest_build') and
+                self._matches_target(before, common) and
+                self._target_is_newer(common.get('latest_version'), common.get('latest_build', ''))):
+            self._set(**self._verified_target(common, before), state='ready', plan_id=before.get('plan_id', ''),
                       download_bytes=before.get('total_download_bytes', 0),
                       message='增量更新文件已准备好；可在设置中查看并选择安装。')
             return
         if before.get('state') in ('planning', 'downloading'):
             status = self._wait_manager(1810)
-        elif before.get('state') == 'planned' and before.get('latest_version') == target_version:
+        elif (before.get('state') == 'planned' and common.get('latest_build') and
+                self._matches_target(before, common)):
             status = before
         else:
             service.plan()
@@ -337,23 +382,36 @@ class AutomaticUpdates:
         if self._stop.is_set():
             return
 
+        if (refreshed and not common.get('latest_build') and
+                status.get('latest_version') == common.get('latest_version')):
+            common = self._verified_target(common, status)
+
         # A manual or background plan can finish after the official metadata
         # check. Match its target release before trusting its size or plan id.
         if (status.get('state') in ('planned', 'ready') and
-                status.get('latest_version') != target_version and not refreshed):
+                (not common.get('latest_build') or not self._matches_target(status, common)) and
+                not refreshed):
             service.plan()
             refreshed = True
             self._set(**common, state='planning', plan_id='', download_bytes=0,
-                      message='已有增量计划目标版本已变化，正在按最新正式版重新核对。')
+                      message='已有增量计划目标版本或构建已变化，正在重新核对。')
             status = self._wait_manager(660)
             if self._stop.is_set():
                 return
+            if (not common.get('latest_build') and
+                    status.get('latest_version') == common.get('latest_version')):
+                common = self._verified_target(common, status)
+        if (status.get('state') in ('planned', 'ready') and not common.get('latest_build') and
+                status.get('latest_version') == common.get('latest_version')):
+            self._set(**{**common, 'update_kind': 'manual'}, state='manual_required', plan_id='',
+                      message='发布清单缺少可识别的构建修订，已停止自动下载；请在设置中手动核对。')
+            return
         if status.get('state') == 'ready':
-            if status.get('latest_version') != target_version:
+            if not self._matches_target(status, common):
                 self._set(**common, state='manual_required', plan_id='',
-                          message='增量计划仍指向其他版本，已阻止自动下载；请重新检查更新。')
+                          message='增量计划仍指向其他版本或构建，已阻止自动下载；请重新检查更新。')
                 return
-            self._set(**common, state='ready', plan_id=status.get('plan_id', ''),
+            self._set(**self._verified_target(common, status), state='ready', plan_id=status.get('plan_id', ''),
                       download_bytes=status.get('total_download_bytes', 0),
                       message='增量更新文件已准备好；可在设置中查看并选择安装。')
             return
@@ -361,9 +419,9 @@ class AutomaticUpdates:
             self._set(**common, state='manual_required', plan_id='',
                       message='发现新版本，但无法生成安全的增量计划；请从设置查看更新详情。')
             return
-        if status.get('latest_version') != target_version:
+        if not self._matches_target(status, common):
             self._set(**common, state='manual_required', plan_id='',
-                      message='增量计划仍指向其他版本，已阻止自动下载；请重新检查更新。')
+                      message='增量计划仍指向其他版本或构建，已阻止自动下载；请重新检查更新。')
             return
         plan_id = status.get('plan_id', '')
         download_bytes = status.get('total_download_bytes')
@@ -397,8 +455,9 @@ class AutomaticUpdates:
         status = self._wait_manager(1810)
         if self._stop.is_set():
             return
-        if status.get('state') == 'ready':
-            self._set(**common, state='ready', plan_id=plan_id,
+        if (status.get('state') == 'ready' and self._matches_target(status, common) and
+                status.get('plan_id') == plan_id):
+            self._set(**self._verified_target(common, status), state='ready', plan_id=plan_id,
                       download_bytes=status.get('total_download_bytes', download_bytes),
                       message='增量文件已下载并校验；安装仍需你保存文稿并确认退出。')
         else:

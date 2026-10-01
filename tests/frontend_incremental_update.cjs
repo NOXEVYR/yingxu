@@ -73,6 +73,18 @@ test('release metadata cannot inject markup or direct users to arbitrary URLs',(
   const s=setup(),html=s.updateReleaseHtml({release_url:'https://evil.invalid/<script>',latest_version:'\"><img src=x onerror=1>',tag:'javascript:alert(1)'});
   assert.match(html,/https:\/\/github.com\/NOXEVYR\/yingxu\/releases/);assert.doesNotMatch(html,/evil|script|<img|javascript/);
 });
+test('same version repair builds show both identities while uncertainty offers no install',async()=>{
+  const s=setup();s.setApi(async()=>({...plan,current_version:'0.4.22',latest_version:'0.4.22',current_build:'workflow.2',latest_build:'workflow.3',update_kind:'build'}));
+  const ui=s.bind();await ui.ready;assert.match(s.result.innerHTML,/workflow\.2/);assert.match(s.result.innerHTML,/workflow\.3/);assert.match(s.result.innerHTML,/同一版本的新修补构建/);assert.match(s.result.innerHTML,/确认下载更新/);
+  s.setApi(async()=>({...plan,state:'manual_required',current_build:'workflow.2',latest_build:'<img onerror=1>',update_kind:'manual'}));
+  await ui.action('refresh-update');assert.match(s.result.innerHTML,/手动核对/);assert.match(s.result.innerHTML,/&lt;img onerror=1&gt;/);assert.doesNotMatch(s.result.innerHTML,/data-action="(?:download|install)-update"/);await ui.action('install-update');assert.equal(s.sent.length,0);
+});
+test('older host manual checker describes same version build repair and uncertain identity',async()=>{
+  for (const kind of ['build','manual']) {
+    const s=setup({native:false});s.setApi(async()=>({...plan,current_version:'0.4.22',latest_version:'0.4.22',current_build:'workflow.2',latest_build:'workflow.3',update_kind:kind,update_available:kind==='build'}));
+    await s.updateSettingsAction('check-update',{dataset:{},disabled:false});assert.match(s.result.innerHTML,kind==='build'?/修补构建/:/手动核对/);assert.match(s.result.innerHTML,/workflow\.2/);assert.match(s.result.innerHTML,/workflow\.3/);assert.doesNotMatch(s.result.innerHTML,/暂无新版本/);
+  }
+});
 test('missing or invalid download sizes never display a misleading zero-byte confirmation',async()=>{
   for(const total of [undefined,-1,'73400320',Infinity]){
     const s=setup();s.setApi(async()=>({...plan,total_download_bytes:total}));const ui=s.bind();await ui.ready;

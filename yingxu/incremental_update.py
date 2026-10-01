@@ -1,6 +1,5 @@
 """On-demand, manifest-bound Windows updates using changed ZIP members only."""
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -14,6 +13,7 @@ import threading
 from .range_zip import (Network, RangeZip, UpdateError, REPOSITORY, MAX_ARCHIVE, MAX_MANIFEST,
                         MAX_EXPANDED, validate_manifest, version_key, safe_relative, _check_tree)
 from .store import UserError
+from .release_identity import compare_builds, public_build, fetch_metadata, fetch_manifest
 
 API = f'https://api.github.com/repos/{REPOSITORY}/releases'
 MAX_METADATA = 8 * 1024**2
@@ -133,7 +133,7 @@ class UpdateManager:
         self._stop = threading.Event()
         self._worker = None
         self._context = None
-        self._status = dict(state='idle', plan_id='', current_version=current_version, latest_version='',
+        self._status = dict(state='idle', plan_id='', current_version=current_version, latest_version='', current_build='', latest_build='', update_kind='', identity_verified=False,
                             download_bytes=0, total_download_bytes=0, changed_files=0, reused_files=0,
                             removed_files=0, message='尚未检查增量更新。', release_url='', can_install=sys.platform == 'win32')
 
@@ -159,7 +159,8 @@ class UpdateManager:
                 return self.status()
             self._context = None
             self._status.update(state='planning', plan_id='', download_bytes=0, total_download_bytes=0,
-                                changed_files=0, reused_files=0, removed_files=0, message='正在核对发布清单与本地程序文件。')
+                                changed_files=0, reused_files=0, removed_files=0, current_build='', latest_build='', update_kind='', identity_verified=False,
+                                message='正在核对发布清单与本地程序文件。')
             self._worker = threading.Thread(target=self._plan, name='yingxu-incremental-plan', daemon=True)
             self._worker.start()
             return self.status()
@@ -209,38 +210,41 @@ class UpdateManager:
                 raise UpdateError('没有找到具备完整性摘要的 Windows 正式发布，请查看 GitHub 发布页。')
             key, version, page, release = max(visible, key=lambda item: item[0])
             self._update(latest_version=version, release_url=page)
-            if key <= version_key(self.current_version):
-                self._update(state='current', message='当前已经是最新正式版。')
+            baseline_key = version_key(self.current_version)
+            if key < baseline_key:
+                self._update(state='current', update_kind='current', message='当前版本高于公开正式版；未核对构建身份。')
                 return
+            old_path = checked_path(self.install_root, 'RELEASE_MANIFEST.json')
+            old_raw = read_file(old_path, MAX_MANIFEST) if old_path.exists() else None
+            old_manifest, old = validate_manifest(old_raw, self.current_version) if old_raw is not None else ({}, {})
+            current_build = old_manifest.get('build_revision', '')
+            self._update(current_build=public_build(current_build))
             candidate = select_release([release])
             if candidate is None:
+                if key == baseline_key:
+                    self._update(state='manual_required', update_kind='manual', message='版本号相同，但发布缺少可验证的构建清单，请到发布页人工核对。')
+                    return
                 raise UpdateError('最新发布缺少可验证的资产摘要，请使用发布页的完整包。')
             external = candidate['external_manifest']
-            raw_external = network.get(external['url'], external['size'])
-            if len(raw_external) != external['size'] or hashlib.sha256(raw_external).hexdigest() != external['sha256']:
-                raise UpdateError('发布清单与 GitHub 资产摘要不一致。')
-            metadata = json.loads(raw_external)
             asset = candidate['asset']
-            if (not isinstance(metadata, dict) or metadata.get('file') != asset['name'] or metadata.get('version') != candidate['version'] or
-                    metadata.get('bytes') != asset['size'] or metadata.get('sha256') != asset['sha256'] or metadata.get('root') != 'YingXu/' or
-                    not isinstance(metadata.get('release_manifest_sha256'), str) or
-                    not re.fullmatch('[a-f0-9]{64}', metadata['release_manifest_sha256'])):
-                raise UpdateError('此发布未提供可验证的增量清单，请使用发布页的完整包。')
-            archive = RangeZip(asset['url'], asset['size'], network)
-            member = archive.members.get('YingXu/RELEASE_MANIFEST.json')
-            if member is None or member.size > MAX_MANIFEST:
-                raise UpdateError('发布包缺少有界文件清单。')
-            output = io.BytesIO()
-            archive.extract(member, output, metadata['release_manifest_sha256'])
-            manifest_raw = output.getvalue()
-            manifest, new = validate_manifest(manifest_raw, candidate['version'])
-            if metadata.get('source_commit', '') != manifest.get('source_commit', ''):
-                raise UpdateError('外部与内部发布清单来源不一致。')
-            expected = {'YingXu/' + name for name in new} | {'YingXu/RELEASE_MANIFEST.json'}
-            if set(archive.members) != expected or any(archive.members['YingXu/' + name].size != row['bytes'] for name, row in new.items()):
-                raise UpdateError('发布包目录与文件清单不一致。')
-            old_raw = read_file(checked_path(self.install_root, 'RELEASE_MANIFEST.json'), MAX_MANIFEST)
-            _, old = validate_manifest(old_raw, self.current_version)
+            metadata = fetch_metadata(candidate, network)
+            latest_build = metadata.get('build_revision', '')
+            self._update(latest_build=public_build(latest_build))
+            update_kind = 'version'
+            if key == baseline_key:
+                update_kind = compare_builds(current_build, latest_build)
+                if update_kind == 'current':
+                    fetch_manifest(candidate, metadata, network)
+                if update_kind != 'build':
+                    self._update(state='manual_required' if update_kind == 'manual' else 'current', update_kind=update_kind,
+                                 identity_verified=update_kind == 'current',
+                                 message='当前已经是最新正式构建。' if update_kind == 'current' else
+                                         '版本号相同，但构建修订缺失、无效或属于不同系列，请到发布页人工核对。')
+                    return
+            archive, manifest_raw, manifest, new = fetch_manifest(candidate, metadata, network)
+            if old_raw is None:
+                raise UpdateError('本地更新清单缺失，请使用完整包；不能自动生成增量计划。')
+            self._update(update_kind=update_kind, identity_verified=True)
             _check_tree(set(old) | set(new))
             changes, reused, removed = [], [], []
             for name, row in new.items():
@@ -276,7 +280,8 @@ class UpdateManager:
             changes.append(dict(path='RELEASE_MANIFEST.json', expected_old_sha256=old_sha,
                                 sha256=manifest_sha, bytes=len(manifest_raw)))
             payload = dict(schema=1, install_root=str(self.install_root.resolve()), current_version=self.current_version,
-                           version=candidate['version'], asset=asset, external_manifest=external,
+                           version=candidate['version'], current_build=public_build(current_build),
+                           latest_build=public_build(latest_build), update_kind=update_kind, asset=asset, external_manifest=external,
                            manifest_sha256=manifest_sha, old_manifest_sha256=old_sha,
                            changes=changes, reused=reused, removed=removed)
             plan_id = hashlib.sha256(_json_bytes(payload)).hexdigest()[:32]
@@ -328,7 +333,28 @@ class UpdateManager:
                 same = False
             if not same:
                 raise UserError('更新计划已发生变化，请重新检查。', 409)
+            try:
+                self._check_plan_identity(self._context)
+            except (OSError, ValueError) as error:
+                raise UserError('更新构建或本地清单已变化，请重新检查。', 409) from error
             return path
+
+    def _check_plan_identity(self, context):
+        payload = context['plan']
+        identity = {key: value for key, value in payload.items() if key not in ('id', 'state')}
+        if hashlib.sha256(_json_bytes(identity)).hexdigest()[:32] != payload['id']:
+            raise UpdateError('更新计划的构建目标已变化，请重新检查。')
+        raw = read_file(checked_path(self.install_root, 'RELEASE_MANIFEST.json'), MAX_MANIFEST)
+        baseline, _ = validate_manifest(raw, self.current_version)
+        target, _ = validate_manifest(context['manifest'], payload['version'])
+        if (hashlib.sha256(raw).hexdigest() != payload['old_manifest_sha256'] or
+                hashlib.sha256(context['manifest']).hexdigest() != payload['manifest_sha256'] or
+                public_build(baseline.get('build_revision', '')) != payload['current_build'] or
+                public_build(target.get('build_revision', '')) != payload['latest_build']):
+            raise UpdateError('更新构建或本地清单已变化，请重新检查。')
+        if payload['update_kind'] == 'build' and (payload['version'] != self.current_version or
+                compare_builds(payload['current_build'], payload['latest_build']) != 'build'):
+            raise UpdateError('同版本更新的构建修订无效。')
 
     def _progress(self, amount):
         with self._lock:
@@ -339,6 +365,7 @@ class UpdateManager:
         payload, folder, archive = context['plan'], context['folder'], context['archive']
         temporary = None
         try:
+            self._check_plan_identity(context)
             # Revalidation before network activity catches edits made after preview.
             network = self._network()
             for row in payload['changes'] + payload['removed']:

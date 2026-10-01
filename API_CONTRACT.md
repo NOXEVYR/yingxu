@@ -263,3 +263,19 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 - 新 Windows 宿主注入 `window.yingxuCaptureHotkeyRecorder = true`。可信本地页面发送 `{action:'capture-hotkey-recording',active:boolean}` 暂停/恢复本应用的截图热键；未知字段或非布尔状态拒绝。取消录入、失焦、页面导航后恢复已保存组合，不监听系统普通按键。
 - `{action:'capture-hotkey-status'}` 请求重新读取已保存设置并报告系统注册结果。`settings-changed` 继续沿用原语义，应用后同样报告结果。
 - 宿主发送 `{action:'capture-hotkey-status',shortcut,enabled,registered,recording,error}`。前端只接受与已保存组合、启用状态一致的注册结果作为“已生效”；录入候选不自动保存，旧宿主/超时只显示未确认，冲突显示未生效。
+
+## 项目只读 MCP（0.4.23 候选）
+
+| 控制接口 | 请求与返回 |
+| --- | --- |
+| `GET /api/mcp/status` | 同源且需要 `X-YingXu-Token`。返回 `{enabled,project_id,project_name,endpoint,read_only:true}`，无凭据 |
+| `POST /api/mcp/configure` | `{enabled:true,project_id}` 开启单个活动项目；`{enabled:false}` 关闭。返回同状态 |
+| `POST /api/mcp/connection` | 空对象；仅启用时返回 `{project_id,read_only:true,config:{mcpServers:{yingxu:{url,headers:{Authorization}}}}}`。仅供显式复制，不显示或记录凭据 |
+
+每次启动默认关闭；同项目显式重开复用私有本地凭据，换项目轮换，关闭阻止新调用。控制接口保留通用写入与退出保护。`/mcp` 使用独立 Bearer 只读凭据、同一 127.0.0.1 端口及 Host/Origin 保护，不接受 UI 会话 token，不放宽其他 `/api` 权限。无 OAuth 自动发现、CORS 跨站放行或其他设备接入。
+
+`POST /mcp` 接受单个 JSON-RPC 2.0 请求。支持 `initialize`（2025-03-26/2025-06-18/2025-11-25）、旧版 `notifications/initialized`/`ping`、新版 `server/discover`（2026-07-28）、`tools/list`/`tools/call`、`resources/list`/`resources/read`。新版逐请求验证 params._meta 内 protocolVersion/clientCapabilities 与 MCP-Protocol-Version/Mcp-Method/Mcp-Name；完成结果带 resultType、serverInfo，列表及资源缓存 ttlMs:0/cacheScope:private。GET/HEAD/DELETE 仅返回405，不建 session/SSE/订阅。认证失败401，关闭或来源不可信403，过大请求413，格式或参数错误400，未知方法404。
+
+五个只读工具：`get_project_summary {}`；`list_resources {limit?,offset?,q?,category?}`；`read_resource {item_id,offset?,limit?}`；`list_bound_skills {limit?,offset?}`；`read_bound_skill {skill_id,offset?,limit?}`。不接受自由 project_id 或磁盘路径。列表每页最多48项，next_offset 指向下一批已登记条目；文本 offset/limit 按字符，最多16000字符，文件<=1MiB。工具结果含文本 JSON 与 structuredContent；条目不可读返回 isError:true，非法参数返回 JSON-RPC 错误。其他格式返回 content_available:false 的资源信息。资源 URI 为 `yingxu://project/ID/item/ID` 与 `.../skill/ID`，resources/list 使用 items:N/skills:N 分页游标。
+
+按请求读取最新已保存内容；未保存草稿、外部未登记新增内容不提供。不改变正文、索引、绑定版本或交接基线。固定收藏仅读取/校验所绑定 SKILL.md 和其清单，不为列表全包扫描。过滤私密配置、日志、数据库、链接及其他项目；凭据形态文本做遮蔽，但不能将自动遮蔽视为文稿保密审查。请求<=128KiB/响应<=256KiB，最多接受2个在途 MCP 请求。

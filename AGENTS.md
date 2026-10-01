@@ -1,5 +1,7 @@
 # 映序公开版开发约定
 
+- Windows 更新比较以数字版本为先，同版本只按已校验清单内同系列的数字构建修订递增；缺失、非法或跨系列需人工核对。外部清单须绑定官方资产名称、版本、尺寸、摘要和内部清单摘要，内部构建须一致。缓存、计划、下载就绪状态及通知绑定精确目标构建，不能把同版旧计划用于新构建；正式代码变更仍递增版本号。新增回归 `test_release_identity.py`、`test_updates.py`、`test_automatic_updates.py` 与两个更新前端测试。
+
 - 按 2026-09-29 用户授权，Windows 增量更新在工作台就绪后延迟自动检查，跨重启每日节流；设置可关闭自动检查/小补丁下载。仅不超过 50 MiB 的差异可后台下载，更大须明确确认；安装仍走保存、放弃、取消的退出握手。固定官方仓库 `NOXEVYR/yingxu`，禁止阻塞启动、静默整包回退或终止用户进程。`tools/package_release.py` 的外部清单必须包含精确内部清单摘要 `release_manifest_sha256`。程序和数据目录必须分离；项目、草稿、数据库、配置、未登记文件不能纳入更新。按文件复用、摘要校验、进程退出握手、持久事务回退和恢复不得跳过。定向运行 `test_incremental*.py`、`test_update_service.py`、`frontend_incremental_update.cjs`，原生 `desktop/build.py --test` 包含安装退出桥接；独立运行时测试设置 `YINGXU_INSTALLER_TEST_RUNTIME` 指向已验证官方 runtime。详见 `docs/incremental-updates.md`。
 
 - 中文本地视频创作项目工作台；独立仓库根目录。公开版不包含任何个人素材、数据库、缓存、日志或帐号配置。
@@ -45,6 +47,7 @@
 - README 下载链接必须按实际已发布资产更新，不因源码合并提前切换版本，保留 0.4.4 和更早更新记录。
 - 原生应用图标须与 frontend/index.html 的取景框/播放标志一致，不能仅给旧图案换色。Windows ICO 使用 32 位 DIB 帧兼容 .NET Framework，并通过生命周期检查核对 WM_GETICON、窗口和托盘实际图标。0.4.6 图标修复由清单 icon_revision=viewfinder-v1 区分；明确授权同版本覆盖时，保留原标签，发布说明记录附件的新来源提交及摘要。保留旧远程附件直到新附件上传回检成功，再按资产 ID 改名切换；切换失败恢复旧名称及说明，成功后的旧附件清理失败仅报告残留。已有本地备份应复用，不为备份重复下载旧安装包。
 - 来源登记仅管理扫描配置；外部 SKILL 始终只读，关闭/移除位置保留源文件与项目绑定。映序本地不可关闭，内置位置不可移除；自定义最多 16 个具体本地目录，拒绝网络共享、链接、磁盘根和整个用户目录。同物理文件多来源去重，身份复用必须重新检查当前路径，禁止凭历史 inode 猜测。
+- 用户 SKILL 文件夹、标签和备注由 `SkillOrganization` 单独保存，以索引 skill_id 为键，收藏 ID 复用 source_skill_id；不移动外部源文件、改写正文或更换绑定版本。文件夹最多 500 个/3 层，标签最多 32×40 字，备注 4000 字。批量写入须原子，缺省保留字段，标签默认追加且先去重后检查数量；备注只改单技能。文件夹删除必须先移出成员及子文件夹，隐藏/移除保留整理数据。界面卡片、框选及默认全部技能保持；来源分组、用途、个人文件夹与标签不得混用。覆盖 `test_skill_organization*.py`、`frontend_skill_organization.cjs`、`frontend_workflow_library.cjs`。Codex 插件发现限定既定缓存层级，缓存不等于启用。
 - SKILL 扫描仅初始化、显式刷新或登记变更触发，查询只读索引。保持单文件 1 MiB、2000 技能、20000 条目、3 层深度和协作式 3 秒预算；无常驻扫描、无新增依赖或模型。只在某位置扫描完整时替换该位置旧成员，读取失败与预算中断保留旧成员并向界面报告；列表组装需持有来源锁。缓存按 mtime/size 复用，不宣称硬性延迟上限。
 - WorkBuddy 只使用受校验安装清单中的技能目录，ZCode 只识别约定缓存层级，不将缓存存在推断为插件当前启用。不得为自动发现读取真实账号、凭据或任意历史日志。默认目录以 `yingxu/skill_sources.py` 为准，自定义补充未知布局。
 - 来源回归：`python -B -m unittest discover -s tests -p test_skill_sources.py -v`、`python -B -m unittest discover -s tests -p test_skill_sources_http.py -v`、`node tests/frontend_skill_sources.cjs`；关联检查覆盖原技能、回收、搜索、交接和定位文件。测试使用临时合成目录，浏览器验证不得充当 macOS 原生验收。
@@ -63,3 +66,5 @@
 - 新定向检查：tests/frontend_native_drop_import.cjs、frontend_upload_connection.cjs、frontend_cross_project_move.cjs、frontend_folder_focus.cjs、test_cross_project.py、test_cross_project_http.py。原生 build.py --test 包含文件夹前台合成测试；有锁定 WebView 运行时时还验证真实文件对象桥接，不能将其等同于对方电脑上的 Explorer OLE 手势验收。
 
 - Windows 显式打开文件使用 Hub.ResolveOpenedFilePath，以文件句柄解析本机兼容目录联接，再校验真实路径；启动参数、IPC、快速阅览和转工作台统一使用实际路径。素材原生拖出仍用严格 ValidateNativeFilePath，不得将显式打开规则扩散到受管素材权限。desktop/QuickReaderTests.cs 包含真实临时联接测试；仅非递归移除联接本身，禁止测试操作用户原文件。
+
+- MCP 为同进程、同端口 `/mcp`，启动默认关闭、只读且限定用户明确授权的一个项目。使用独立 Bearer 凭据，不接受工作台写会话 token；控制 API 仍要求原有同源与 X-YingXu-Token。不开启文件 watcher、SSE、订阅、轮询或任意路径/执行/修改工具。只读查询不能调用会刷新索引的 SkillLibrary.get、可能生成导出的 ContextExporter.get 或推进交接基线。项目固定 SKILL 版本只验所读文件和固定清单，不为列表全包校验。正文 ≤1 MiB、16000 字符分页、列表48项、请求128 KiB/响应256 KiB、在途调用2；输出不含凭据、应用私密文件、源路径或其他项目资源。mcp-access.json 仅私有应用数据，不打包/提交；启动不读凭据，显式同项目启用可复用，关闭阻止新请求，换项目轮换。检查 `test_mcp_readonly.py` 与 `frontend_mcp_connection.cjs`，真实 AI 客户端连接验收另行记录。

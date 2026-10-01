@@ -22,7 +22,7 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
       const state={projectId:'p1',skills:[{id:'s1',name:'<external>',description:'text',bound:false}],q:'',offset:0,limit:48,selectedIds:new Set(),tabs:[]};
       const collection={id:'col1',skill_id:'s1',name:'<favorite>',description:'method',category:'visual',tags:['shot'],version:'abc123',bound:true,versions:[]};
       const calls=[],dialogs=[],toasts=[],pending=[],root=document.querySelector('#root');let copies=0,total=0,delayLoads=false;
-      const api=async(path,options)=>{calls.push({path,options});if(path.startsWith('/api/skill-collections?'))return delayLoads?new Promise(resolve=>pending.push(resolve)):{collections:[collection]};if(path==='/api/handoffs')return {snapshot_id:'snap1',mode:'full',prompt:'<instruction> current task'};if(path==='/api/handoffs/acknowledge')return {ok:true};throw Error(path);};
+      const api=async(path,options)=>{calls.push({path,options});if(path.startsWith('/api/skill-collections?'))return delayLoads?new Promise(resolve=>pending.push(resolve)):{collections:[collection]};if(path==='/api/skill-organization')return {folders:[],metadata:[]};if(path==='/api/handoffs')return {snapshot_id:'snap1',mode:'full',prompt:'<instruction> current task'};if(path==='/api/handoffs/acknowledge')return {ok:true};throw Error(path);};
       const env={state,api,escapeHtml:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),icon:()=>'',showDialog:d=>dialogs.push(d),toast:m=>toasts.push(m),report:e=>{throw e;},copyText:async()=>{copies++;},formatSize:n=>n+' bytes',sourcesHtml:()=>'',setSource:async()=>{},pagination:n=>{total=n;},openSkill:async()=>{},reloadSkills:async()=>{}};
       const ui=window.YingXuWorkflow.create(env);env.render=()=>ui.render(root); // object callbacks are read when used
       await ui.load();ui.render(root);
@@ -46,10 +46,10 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
       card.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true}));check('Space toggles selection accessibly',!card.classList.contains('checked'));
       const viewport=document.querySelector('#viewport');viewport.setPointerCapture=()=>{};viewport.hasPointerCapture=()=>false;
       const marquee=window.YingXuMarquee.install({viewport,getItems:()=>root.querySelectorAll('[data-workflow-card]'),getId:node=>node.dataset.workflowCard,getSelection:ui.getSelection,onChange:ui.setSelection,getContext:ui.selectionContext});
-      const r=card.getBoundingClientRect(),send=(type,x,y,extra={})=>viewport.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:1,pointerType:'mouse',button:0,clientX:x,clientY:y,...extra}));
-      send('pointerdown',r.right+4,r.bottom+4);send('pointermove',r.left,r.top);send('pointerup',r.left,r.top);
+      card.scrollIntoView({block:'nearest'});const r=card.getBoundingClientRect(),send=(type,x,y,extra={})=>viewport.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:1,pointerType:'mouse',button:0,clientX:x,clientY:y,...extra}));
+      send('pointerdown',r.left-4,r.top+4);send('pointermove',r.left+20,r.top+20);send('pointerup',r.left+20,r.top+20);
       check('blank drag selects actual rendered card using skill identity',ui.getSelection().has('col1')&&card.classList.contains('checked')&&root.querySelector('[data-workflow-card]')===card);
-      send('pointerdown',r.right+4,r.bottom+4,{ctrlKey:true});send('pointermove',r.left,r.top);send('pointerup',r.left,r.top);
+      send('pointerdown',r.left-4,r.top+4,{ctrlKey:true});send('pointermove',r.left+20,r.top+20);send('pointerup',r.left+20,r.top+20);
       check('Ctrl marquee toggles skill without resource IDs',ui.getSelection().size===0);
       marquee.destroy();
       check('untrusted names escaped',!root.querySelector('favorite')&&root.textContent.includes('<favorite>'));

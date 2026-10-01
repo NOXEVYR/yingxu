@@ -8,7 +8,7 @@ import re
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.22'
+VERSION = '0.4.23'
 FIXED = (
     'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore', '.gitattributes',
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
@@ -80,7 +80,7 @@ def main():
     paths += list(runtime_files(args.runtime_dir))
     manifest = {
         'application': 'YingXu', 'version': VERSION, 'root': 'YingXu/',
-        'build_revision': 'workflow.2',
+        'build_revision': 'workflow.4',
         'icon_revision': 'viewfinder-v1',
         'icon_sha256': hashlib.sha256((ROOT / 'desktop/brand.ico').read_bytes()).hexdigest(),
         'source_commit': os.environ.get('GITHUB_SHA', ''),

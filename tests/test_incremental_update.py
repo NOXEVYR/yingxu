@@ -10,6 +10,90 @@ from test_incremental_support import Fixture
 
 
 class IncrementalUpdateTests(unittest.TestCase):
+    def test_same_version_new_build_real_range_and_installer_contract(self):
+        with Fixture(new_version='0.4.18', old_build='workflow.2', new_build='workflow.3') as fixture:
+            manager = fixture.manager()
+            status = fixture.plan(manager)
+            self.assertEqual(status['state'], 'planned', status)
+            self.assertEqual((status['current_build'], status['latest_build'], status['update_kind']),
+                             ('workflow.2', 'workflow.3', 'build'))
+            status = fixture.download(manager)
+            self.assertEqual(status['state'], 'ready', status)
+            from yingxu.incremental_install import validate_plan
+            plan = validate_plan(fixture.data, fixture.install, status['plan_id'])['plan']
+            self.assertEqual(plan['latest_build'], 'workflow.3')
+            self.assertEqual(plan['current_version'], plan['version'])
+            self.assert_no_runtime_requests(fixture)
+
+    def test_same_old_cross_series_missing_and_malformed_builds(self):
+        for old, new, state in [('workflow.2', 'workflow.2', 'current'),
+                                ('workflow.3', 'workflow.2', 'current'),
+                                ('workflow.2', 'patch.3', 'manual_required'),
+                                (None, 'workflow.3', 'manual_required'),
+                                ('workflow.2', None, 'manual_required'),
+                                (None, None, 'manual_required'),
+                                ('workflow.2', 'workflow.03', 'manual_required'),
+                                ('workflow.2', {}, 'manual_required'),
+                                ({}, {}, 'manual_required'),
+                                ('bad', 'workflow.3', 'manual_required')]:
+            with self.subTest(old=old, new=new), Fixture(new_version='0.4.18', old_build=old, new_build=new) as fixture:
+                status = fixture.plan(fixture.manager())
+                self.assertEqual(status['state'], state, status)
+                self.assertEqual(status['plan_id'], '')
+                self.assert_no_runtime_requests(fixture)
+
+    def test_external_internal_build_mismatch_blocks_plan(self):
+        for external in ['workflow.3', 'workflow.2']:
+            with Fixture(new_version='0.4.18', old_build='workflow.2', new_build='workflow.4') as fixture:
+                fixture.metadata['build_revision'] = external
+                fixture.refresh_metadata()
+                status = fixture.plan(fixture.manager())
+                self.assertEqual(status['state'], 'error', status)
+                self.assertIn('构建修订不一致', status['message'])
+                self.assert_no_runtime_requests(fixture)
+
+    def test_stale_same_version_target_and_baseline_are_rejected(self):
+        with Fixture(new_version='0.4.18', old_build='workflow.2', new_build='workflow.3') as fixture:
+            manager = fixture.manager()
+            fixture.plan(manager)
+            before = len(fixture.requests)
+            manager._context['plan']['latest_build'] = 'workflow.4'
+            self.assertEqual(fixture.download(manager)['state'], 'error')
+            self.assertEqual(len(fixture.requests), before)
+            fixture.plan(manager)
+            status = fixture.download(manager)
+            self.assertEqual(status['state'], 'ready')
+            path = fixture.install / 'RELEASE_MANIFEST.json'
+            local = json.loads(path.read_bytes())
+            local['build_revision'] = 'workflow.1'
+            path.write_text(json.dumps(local), encoding='utf-8')
+            with self.assertRaises(UserError):
+                manager.ready_plan(status['plan_id'])
+
+    def test_missing_local_manifest_same_version_requires_manual_check(self):
+        with Fixture(new_version='0.4.18', new_build='workflow.3') as fixture:
+            (fixture.install / 'RELEASE_MANIFEST.json').unlink()
+            status = fixture.plan(fixture.manager())
+            self.assertEqual(status['state'], 'manual_required', status)
+            self.assertFalse(any(kind == 'zip' for kind, _, _ in fixture.requests))
+
+    def test_same_version_external_asset_contract_and_ignored_remote_url(self):
+        with Fixture(new_version='0.4.18', old_build='workflow.2', new_build='workflow.3') as fixture:
+            original = dict(fixture.metadata)
+            for field, value in [('file', '../other.zip'), ('version', '0.4.19'), ('bytes', True),
+                                 ('sha256', '0' * 64), ('root', '../'), ('release_manifest_sha256', 'x')]:
+                fixture.metadata = dict(original, **{field: value})
+                fixture.refresh_metadata()
+                status = fixture.plan(fixture.manager())
+                self.assertEqual(status['state'], 'error', (field, status))
+            self.assertFalse(any(kind == 'zip' for kind, _, _ in fixture.requests))
+            fixture.metadata = dict(original, remoteURL='https://evil.invalid/manifest', url='https://evil.invalid/zip')
+            fixture.refresh_metadata()
+            manager = fixture.manager()
+            self.assertEqual(fixture.plan(manager)['state'], 'planned')
+            self.assertEqual(fixture.download(manager)['state'], 'ready')
+            self.assert_no_runtime_requests(fixture)
+
     def assert_no_runtime_requests(self, fixture):
         left, right = fixture.data_range('runtime/python313.zip')
         for kind, start, end in fixture.requests:
@@ -170,11 +254,24 @@ class IncrementalUpdateTests(unittest.TestCase):
                 self.assertNotEqual(status['message'], '')
             self.assertTrue(all(end - start + 1 == 22 for kind, start, end in fixture.requests if kind == 'zip'))
 
-    def test_no_update_only_reads_release_metadata(self):
+    def test_unknown_same_version_requires_manual_check_without_payload(self):
         with Fixture(new_version='0.4.18') as fixture:
             status = fixture.plan(fixture.manager())
-            self.assertEqual(status['state'], 'current')
-            self.assertEqual([row[0] for row in fixture.requests], ['api'])
+            self.assertEqual(status['state'], 'manual_required')
+            self.assertEqual(status['update_kind'], 'manual')
+            self.assertEqual(status['plan_id'], '')
+            self.assertEqual([row[0] for row in fixture.requests], ['api', 'manifest'])
+            self.assertFalse(status['identity_verified'])
+
+    def test_new_version_without_build_still_creates_fresh_verified_plan(self):
+        with Fixture() as fixture:
+            manager = fixture.manager()
+            status = fixture.plan(manager)
+            self.assertEqual(status['state'], 'planned')
+            self.assertEqual(status['update_kind'], 'version')
+            self.assertEqual(status['latest_build'], '')
+            self.assertEqual(fixture.download(manager)['state'], 'ready')
+            self.assert_no_runtime_requests(fixture)
 
     def test_plan_id_is_required_and_public_status_never_exposes_local_paths(self):
         with Fixture() as fixture:

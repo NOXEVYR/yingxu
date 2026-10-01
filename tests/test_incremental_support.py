@@ -19,14 +19,16 @@ def sha(value):
     return hashlib.sha256(value).hexdigest()
 
 
-def manifest(files, version):
-    return {'application': 'YingXu', 'version': version, 'root': 'YingXu/', 'architecture': 'Windows x64',
+def manifest(files, version, build=None):
+    return {**({'build_revision': build} if build is not None else {}), 'application': 'YingXu', 'version': version, 'root': 'YingXu/', 'architecture': 'Windows x64',
             'source_commit': 'a' * 40,
             'files': [dict(path=name, bytes=len(content), sha256=sha(content)) for name, content in files.items()]}
 
 
 class Fixture:
-    def __init__(self, new_version='0.4.19', extra_members=None, modify_info=None):
+    def __init__(self, new_version='0.4.19', extra_members=None, modify_info=None,
+                 old_version='0.4.18', old_build=None, new_build=None):
+        self.old_version = old_version
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
         self.install = self.root / 'install'
@@ -41,9 +43,9 @@ class Fixture:
             file = self.install / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_bytes(content)
-        (self.install / 'RELEASE_MANIFEST.json').write_text(json.dumps(manifest(self.old, '0.4.18')), encoding='utf-8')
+        (self.install / 'RELEASE_MANIFEST.json').write_text(json.dumps(manifest(self.old, old_version, old_build)), encoding='utf-8')
         self.version = new_version
-        self.manifest_raw = json.dumps(manifest(self.new, new_version)).encode()
+        self.manifest_raw = json.dumps(manifest(self.new, new_version, new_build)).encode()
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:
             for name, content in [*self.new.items(), ('RELEASE_MANIFEST.json', self.manifest_raw), *(extra_members or [])]:
@@ -61,6 +63,8 @@ class Fixture:
         self.base_url = f'https://github.com/{REPOSITORY}/releases/download/{self.tag}/'
         self.metadata = dict(file=self.zip_name, version=new_version, bytes=len(self.zip), sha256=sha(self.zip),
                              root='YingXu/', source_commit='a' * 40, release_manifest_sha256=sha(self.manifest_raw))
+        if new_build is not None:
+            self.metadata['build_revision'] = new_build
         self.refresh_metadata()
         self.requests = []
         self.range_mode = 'normal'
@@ -134,7 +138,7 @@ class Fixture:
         return self
 
     def manager(self):
-        manager = UpdateManager(self.data, self.install, '0.4.18')
+        manager = UpdateManager(self.data, self.install, self.old_version)
         self.managers.append(manager)
         return manager
 
