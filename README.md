@@ -1,6 +1,14 @@
 # 映序 · AI 资产与项目管理
 
-同时包含云端拖拽修复：同项目遇到同名文件时，可明确选择跳过同名项、移动其余文件，或自动加编号保留两份；具体分类和文件夹按真实文件展示，跨目录逻辑素材组仅在“全部资源”显示。移动接口不再把外部引用只改显示归属当作真实移动，外部文件需先复制导入。
+以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音与制作进度，管理可选 SKILL 和 AI 协作交接。名称仍为映序（YingXu）。
+
+**当前程序下载：Windows 0.4.22；macOS 0.4.20-mac.1 历史试用版。最新源码预览为 0.4.27 / calls.3 · Stage J，源码已公开，尚无对应新原生程序包。**
+
+[查看固定源码快照](https://github.com/NOXEVYR/yingxu/tree/b900bfa403de8b7aeff54ba9b98b93f8c2446616) · [本阶段说明及四张实际合成演示截图](docs/source-preview-stage-j-20261002.md) · [网站同步用公开状态](docs/public-status-20261002.json) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
+
+源码预览统一整理原工作台与聚焦工作台的 SKILL 搜索和 AI 协作页面。下图来自隔离合成项目的实际浏览器渲染，**不是 0.4.22 下载包界面，也不是新版原生验收或真实生成成果**。GitHub Source code / Download ZIP 是开发源码，不能作为程序更新包。
+
+![Stage J 两种工作台合成演示，源码 0.4.27/calls.3](https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/workspace-comparison.png)
 
 **0.4.23 开发候选：SKILL 卡片与右键明确提供“分类 / 标签 / 备注”，AI 协作增加默认关闭、项目限定的只读 MCP；修复 Windows 同版本新构建识别与旧更新计划错配。** 设置显示双方构建，自动提示按构建去重。保留自建文件夹、框选、插件扫描、收藏与项目版本绑定、按会话增量交接；无新增运行依赖。此处说明源码候选，不代表下载区已经更新。[更新使用与边界](docs/incremental-updates.md) · [SKILL 与 MCP 管理](docs/skill-workflow.md)
 

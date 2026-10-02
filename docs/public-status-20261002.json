@@ -1,0 +1,105 @@
+{
+  "schema": "yingxu-public-status-v1",
+  "as_of": "2026-10-02",
+  "name": "映序",
+  "name_en": "YingXu",
+  "description": "以创作项目为中心的本地文稿与素材管理工作台",
+  "source": {
+    "version": "0.4.27",
+    "build": "calls.3",
+    "stage": "J",
+    "branch": "preview/workspace-stage-j-20261002",
+    "commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616",
+    "url": "https://github.com/NOXEVYR/yingxu/tree/b900bfa403de8b7aeff54ba9b98b93f8c2446616",
+    "archive_url": "https://github.com/NOXEVYR/yingxu/archive/b900bfa403de8b7aeff54ba9b98b93f8c2446616.zip",
+    "kind": "source-preview-not-native-program"
+  },
+  "windows": {
+    "version": "0.4.22",
+    "build": "workflow.3",
+    "release_url": "https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22",
+    "asset_name": "YingXu-v0.4.22-Windows-x64.zip",
+    "asset_id": 600232095,
+    "bytes": 448336960,
+    "sha256": "f572b591fe8a7ea227d0db49cc2510132ceea836ca23b2ce4dadf1f044ff8f7c",
+    "download_url": "https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.22/YingXu-v0.4.22-Windows-x64.zip",
+    "verification": "current GitHub asset metadata; existing release kept; package not downloaded again"
+  },
+  "macos": {
+    "version": "0.4.20-mac.1",
+    "preview": true,
+    "release_url": "https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1",
+    "asset_name": "YingXu-v0.4.20-mac.1-macOS-arm64.zip",
+    "asset_id": 591281413,
+    "bytes": 76437102,
+    "sha256": "2f4417e1b2a1cf6d38f3e1d888eb315e3eff3c963a414873b4860348c1e5a40b",
+    "download_url": "https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.20-mac.1/YingXu-v0.4.20-mac.1-macOS-arm64.zip",
+    "verification": "current GitHub asset metadata; historical release kept; package not downloaded again"
+  },
+  "native_stage_j": {
+    "package": null,
+    "acceptance": false,
+    "blockers": [
+      "No native package corresponding to final Stage J source",
+      "Final native host and complete package acceptance missing",
+      "macos/verify_release.py still checks old 0.4.25 version"
+    ],
+    "stable_label_added": false
+  },
+  "screenshots": [
+    {
+      "path": "docs/assets/stage-j-20261002/skills-classic.png",
+      "bytes": 117989,
+      "sha256": "928da699f1f1bb2a2a7aae130d2de364f2d72bf0ff19a3b10278e5220d156aa8",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance",
+      "url": "https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/skills-classic.png",
+      "source_commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/skills-focus.png",
+      "bytes": 97194,
+      "sha256": "fb99f2f06e24480bebd10639b6f288a6fdac0eb90fca5da9417a2f0b35066f2f",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance",
+      "url": "https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/skills-focus.png",
+      "source_commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/collaboration-classic.png",
+      "bytes": 118115,
+      "sha256": "32647f1d7f5cf02674892eb7902577c6432b088f1b2789c9c16fd16263cb0d3e",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance",
+      "url": "https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/collaboration-classic.png",
+      "source_commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/collaboration-focus.png",
+      "bytes": 110927,
+      "sha256": "d757fbb0f9a974b34a90d4e9c653132f2e8dd3a5c79a2a852ab483fe31164245",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance",
+      "url": "https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/collaboration-focus.png",
+      "source_commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/workspace-comparison.png",
+      "bytes": 724346,
+      "sha256": "74df9fbbca57632878ade714570d49cd3f9ac2ef8305251ea5d92f4728a630dd",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance",
+      "url": "https://raw.githubusercontent.com/NOXEVYR/yingxu/b900bfa403de8b7aeff54ba9b98b93f8c2446616/docs/assets/stage-j-20261002/workspace-comparison.png",
+      "source_commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616"
+    }
+  ],
+  "synthetic_scope": "one synthetic project, 60 synthetic skills, two tasks and one fixed run; no user library; MCP disabled and no real generation in this layout check",
+  "local_install_changed": false,
+  "release_assets_changed": false,
+  "workflows_dispatched": false
+}
