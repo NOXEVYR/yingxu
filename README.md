@@ -2,11 +2,11 @@
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-**Windows 0.4.27 / calls.3 完整包已发布。** 原工作台与聚焦工作台共同整理 SKILL 搜索和 AI 协作页面，新原生启动器和最终 ZIP 已分别完成隔离验收。macOS 保留 0.4.20-mac.1 历史试用版；本次未新增稳定版标记。
+**Windows 0.4.28 / updater.1 完整包已发布。** 修复自动更新下载衔接、失败退避和中断恢复，改善更新网络等待，补全后台状态与旧补丁缓存预览整理。原生启动器、实际页面和最终 ZIP 已分别完成隔离验收。macOS 保留 0.4.20-mac.1 历史试用版；本次未新增稳定版标记。
 
-[下载 Windows 0.4.27 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.27/YingXu-v0.4.27-Windows-x64.zip) · [附件校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.27) · [精确构建源码](https://github.com/NOXEVYR/yingxu/tree/d226f639e52113c019ac23615edd1eb63f58fcda)。GitHub Source code / Download ZIP 为源码，不能作为程序更新包。
+[下载 Windows 0.4.28 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.28/YingXu-v0.4.28-Windows-x64.zip) · [附件校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.28) · [精确构建源码](https://github.com/NOXEVYR/yingxu/tree/6f2b447f4585bd7b83ef683eb17c59fc962040da)。GitHub Source code / Download ZIP 为源码，不能作为程序更新包。
 
-[0.4.27 改动与交付范围](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
+[0.4.28 更新修补](docs/releases/0.4.28.md) · [0.4.27 工作台改进](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
 
 ![Stage J 两种工作台实际合成渲染；不是 0.4.22 下载包界面](docs/assets/stage-j-20261002/workspace-comparison.png)
 
