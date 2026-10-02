@@ -1,7 +1,11 @@
 import io
 import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import socket
 import subprocess
 import sys
+import threading
+import time
 import unittest
 from unittest.mock import patch, Mock
 from urllib.error import HTTPError
@@ -32,7 +36,7 @@ class UpdatesTests(unittest.TestCase):
                 opener = Mock()
                 opener.open.return_value = response(json.dumps(fixture.releases).encode())
                 with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
-                        patch.object(updates, '__build__', 'workflow.1'), patch.object(updates, 'build_opener', return_value=opener):
+                        patch.object(updates, '__build__', 'workflow.1'), patch.object(updates, 'update_opener', return_value=opener):
                     result = updates.check_update()
                 self.assertTrue(result['update_available'])
                 self.assertEqual(result['update_kind'], 'version')
@@ -45,7 +49,7 @@ class UpdatesTests(unittest.TestCase):
             opener = Mock()
             opener.open.return_value = response(json.dumps(fixture.releases).encode())
             with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
-                    patch.object(updates, 'build_opener', return_value=opener):
+                    patch.object(updates, 'update_opener', return_value=opener):
                 result = updates.check_update()
             self.assertTrue(result['update_available'])
             self.assertEqual(result['update_kind'], 'version')
@@ -67,7 +71,7 @@ class UpdatesTests(unittest.TestCase):
                 opener = Mock()
                 opener.open.return_value = response(json.dumps(fixture.releases).encode())
                 with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.21'), \
-                        patch.object(updates, 'build_opener', return_value=opener):
+                        patch.object(updates, 'update_opener', return_value=opener):
                     if oversized:
                         # The existing asset selector already rejects external
                         # manifests above its stricter 128 KiB limit.
@@ -101,7 +105,7 @@ class UpdatesTests(unittest.TestCase):
             opener = Mock()
             opener.open.return_value = response(json.dumps(fixture.releases).encode())
             with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.22'), \
-                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'build_opener', return_value=opener):
+                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'update_opener', return_value=opener):
                 result = updates.check_update()
                 self.assertTrue(result['update_available'])
                 self.assertEqual(result['update_kind'], 'build')
@@ -116,7 +120,7 @@ class UpdatesTests(unittest.TestCase):
         opener = Mock()
         opener.open.return_value = response(json.dumps([release('0.4.11')]).encode())
         with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__build__', 'workflow.2'), \
-                patch.object(updates, 'build_opener', return_value=opener):
+                patch.object(updates, 'update_opener', return_value=opener):
             result = updates.check_update()
         self.assertFalse(result['update_available'])
         self.assertEqual(result['update_kind'], 'manual')
@@ -130,7 +134,7 @@ class UpdatesTests(unittest.TestCase):
             opener = Mock()
             opener.open.return_value = response(json.dumps(fixture.releases).encode())
             with patch.object(updates.sys, 'platform', 'win32'), patch.object(updates, '__version__', '0.4.22'), \
-                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'build_opener', return_value=opener):
+                    patch.object(updates, '__build__', 'workflow.2'), patch.object(updates, 'update_opener', return_value=opener):
                 with self.assertRaises(UserError):
                     updates.check_update()
             self.assertIsNone(updates._cache)
@@ -158,8 +162,14 @@ class UpdatesTests(unittest.TestCase):
 
     def test_fixed_public_request_timeout_cache_and_no_redirect(self):
         opener=Mock();opener.open.return_value=response(json.dumps([release('0.4.12')]).encode())
-        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'build_opener',return_value=opener):
+        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'update_opener',return_value=opener) as factory:
             result=updates.check_update();self.assertEqual(updates.check_update(),result)
+        factory.assert_called_once()
+        active, deadline, redirect = factory.call_args.args
+        self.assertIsNone(active())
+        self.assertGreater(deadline, updates.time.monotonic())
+        self.assertLessEqual(deadline, updates.time.monotonic() + 24)
+        self.assertIsInstance(redirect, updates.NoRedirect)
         opener.open.assert_called_once()
         req=opener.open.call_args.args[0]
         self.assertEqual(req.full_url,updates.RELEASES)
@@ -170,22 +180,87 @@ class UpdatesTests(unittest.TestCase):
     def test_network_errors_oversize_and_invalid_json_are_failures(self):
         for payload in [b'not json',b'x'*(updates.MAX_RESPONSE+1),b'{}']:
             opener=Mock();opener.open.return_value=response(payload)
-            with patch.object(updates.sys,'platform','win32'),patch.object(updates,'build_opener',return_value=opener):
+            with patch.object(updates.sys,'platform','win32'),patch.object(updates,'update_opener',return_value=opener):
                 with self.assertRaises(UserError):updates.check_update()
             self.assertIsNone(updates._cache)
         for error in [TimeoutError(),HTTPError(updates.RELEASES,403,'limited',{},None)]:
             opener=Mock();opener.open.side_effect=error
-            with patch.object(updates.sys,'platform','win32'),patch.object(updates,'build_opener',return_value=opener):
+            with patch.object(updates.sys,'platform','win32'),patch.object(updates,'update_opener',return_value=opener):
                 with self.assertRaises(UserError):updates.check_update()
+
+    def test_real_drip_body_deadline_closes_response_and_releases_lock(self):
+        paths = []
+        peer_closed = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                paths.append(self.path)
+                dripping = len(paths) == 1
+                payload = b'[]     ' if dripping or len(paths) == 2 else json.dumps([release('0.4.12')]).encode()
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(payload)))
+                if len(paths) == 2:
+                    self.send_header('Link', '<https://evil.invalid>; rel="next"')
+                self.end_headers()
+                if not dripping:
+                    self.wfile.write(payload)
+                    return
+                try:
+                    for index, byte in enumerate(payload):
+                        if index:
+                            time.sleep(.08)
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                except ConnectionError:
+                    peer_closed.set()
+                # Observe the real client connection closing, without wrapping
+                # or mocking the response returned by the production opener.
+                self.connection.settimeout(1)
+                try:
+                    if self.connection.recv(1) == b'':
+                        peer_closed.set()
+                except ConnectionError:
+                    peer_closed.set()
+                except socket.timeout:
+                    pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
+        thread.start()
+        try:
+            url = f'http://127.0.0.1:{server.server_port}/releases?per_page=100'
+            with patch.object(updates, 'RELEASES', url), patch.object(updates, 'RELEASE_LIST_SECONDS', .2):
+                started = time.monotonic()
+                with self.assertRaises(UserError) as failure:
+                    updates.check_update()
+                elapsed = time.monotonic() - started
+                self.assertIsInstance(failure.exception.__cause__, TimeoutError)
+                self.assertLess(elapsed, .4)
+                self.assertIsNone(updates._cache)
+                self.assertTrue(updates._lock.acquire(blocking=False))
+                updates._lock.release()
+                self.assertTrue(peer_closed.wait(2), 'The timed-out HTTP response must close its socket')
+                result = updates.check_update()
+                self.assertTrue(result['update_available'])
+                self.assertEqual(updates.check_update(), result)
+                self.assertEqual(paths, ['/releases?per_page=100', '/releases?per_page=100',
+                                         '/releases?per_page=100&page=2'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(3)
 
     def test_bounded_pagination_does_not_follow_supplied_url(self):
         opener=Mock();opener.open.side_effect=[response(b'[]','<https://evil.invalid>; rel="next"'),response(json.dumps([release('0.4.12')]).encode())]
-        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'build_opener',return_value=opener):
+        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'update_opener',return_value=opener):
             self.assertTrue(updates.check_update()['update_available'])
         self.assertEqual(opener.open.call_args.args[0].full_url,updates.RELEASES+'&page=2')
         updates._cache=None
         opener.open.side_effect=[response(b'[]','<x>; rel="next"') for _ in range(3)]
-        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'build_opener',return_value=opener),self.assertRaises(UserError):
+        with patch.object(updates.sys,'platform','win32'),patch.object(updates,'update_opener',return_value=opener),self.assertRaises(UserError):
             updates.check_update()
 
     def test_singleflight_and_browser_target_validation(self):

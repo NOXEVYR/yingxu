@@ -149,7 +149,10 @@ class UpdateManager:
             self._status.update(fields)
 
     def _busy(self):
-        return self._worker is not None and self._worker.is_alive()
+        # Publishing a terminal state is the operation handoff boundary. The
+        # old thread may still be returning when the next action is requested.
+        return (self._status['state'] in ('planning', 'downloading') and
+                self._worker is not None and self._worker.is_alive())
 
     def plan(self):
         with self._lock:
@@ -364,6 +367,7 @@ class UpdateManager:
         context = self._context
         payload, folder, archive = context['plan'], context['folder'], context['archive']
         temporary = None
+        failure = None
         try:
             self._check_plan_identity(context)
             # Revalidation before network activity catches edits made after preview.
@@ -441,13 +445,17 @@ class UpdateManager:
                 write_file(folder, 'plan.json', _json_bytes(payload))
             except (OSError, ValueError):
                 pass
-            self._fail(error)
+            failure = error
         finally:
             if temporary is not None:
                 try:
                     checked_path(temporary.parent, temporary.name).unlink(missing_ok=True)
                 except (OSError, ValueError):
                     pass
+        # Retries may start as soon as error is visible. Finish owned partial
+        # cleanup before publishing that terminal state.
+        if failure is not None:
+            self._fail(failure)
 
     def _fail(self, error):
         self._update(state='error', message=str(error) if isinstance(error, UpdateError) else

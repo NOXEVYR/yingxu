@@ -12,13 +12,15 @@ from yingxu.automatic_updates import (BACKOFF_BASE, MAX_AUTOMATIC_DOWNLOAD,
 from yingxu.settings import DEFAULTS, Settings
 from yingxu.store import UserError
 from yingxu.update_service import UpdateService
+from test_incremental_support import Fixture
 
 
 def wait_idle(service, timeout=2):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         state = service.status()
-        if not state['running']:
+        completed = getattr(service, '_test_check_completed', None)
+        if completed is not None and completed.is_set() and not state['running']:
             return state
         time.sleep(.01)
     raise AssertionError('automatic update worker did not finish')
@@ -83,6 +85,24 @@ class AutomaticUpdatesTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
         self.service = StubUpdateService(self.root)
+        original_check = AutomaticUpdates._check_once
+
+        def observed_check(automatic, force):
+            completed = getattr(automatic, '_test_check_completed', None)
+            if completed is None:
+                completed = automatic._test_check_completed = threading.Event()
+            completed.clear()
+            try:
+                return original_check(automatic, force)
+            finally:
+                completed.set()
+
+        # An idle scheduler can be waiting to start its first check. Observe an
+        # actual completed check rather than mistaking that initial idle for
+        # finished work and closing the worker before it executes.
+        observer = patch.object(AutomaticUpdates, '_check_once', observed_check)
+        observer.start()
+        self.addCleanup(observer.stop)
 
     def finished(self, automatic, timeout=2):
         result = wait_idle(automatic, timeout)
@@ -143,6 +163,206 @@ class AutomaticUpdatesTests(unittest.TestCase):
             self.assertFalse(reopened.status()['running'])
             self.assertEqual(check.call_count, 1)
             reopened.close()
+
+    def assert_first_failure_retries_after_one_hour(self, restart):
+        now = [4_000_000]
+        failed, retried = threading.Event(), threading.Event()
+        calls = []
+        install = self.root / 'install'
+        install.mkdir()
+        service = UpdateService(self.service.app, install, '0.4.21')
+        self.addCleanup(service.close)
+
+        def check():
+            calls.append(now[0])
+            if len(calls) == 1:
+                failed.set()
+                raise OSError('synthetic offline')
+            retried.set()
+            return {'update_available': False, 'latest_version': '0.4.21', 'url': ''}
+
+        with patch('yingxu.updates.check_update', side_effect=check):
+            automatic = AutomaticUpdates(service, clock=lambda: now[0])
+            self.addCleanup(automatic.close)
+            automatic.start(0)
+            self.assertTrue(failed.wait(1))
+            state = wait_state(automatic, 'error')
+            self.assertEqual(state['next_attempt'], now[0] + BACKOFF_BASE)
+            if restart:
+                automatic.close()
+                automatic = AutomaticUpdates(service, clock=lambda: now[0])
+                self.addCleanup(automatic.close)
+                automatic.start(0)
+            now[0] += BACKOFF_BASE - 1
+            automatic.start(0)
+            self.assertFalse(retried.wait(.1))
+            self.assertEqual(len(calls), 1)
+            now[0] += 1
+            automatic.start(0)
+            self.assertTrue(retried.wait(1))
+            state = wait_state(automatic, 'current')
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(state['consecutive_failures'], 0)
+            self.assertEqual(automatic._due_time(), now[0] + DAILY_INTERVAL)
+            automatic.close()
+
+    def test_failed_check_retries_at_first_backoff_while_open(self):
+        self.assert_first_failure_retries_after_one_hour(restart=False)
+
+    def test_failed_check_retries_at_first_backoff_after_restart(self):
+        self.assert_first_failure_retries_after_one_hour(restart=True)
+
+    def test_unreadable_preferences_wait_for_backoff_and_recover(self):
+        now = [5_000_000]
+        settings = self.service.app.settings
+        settings.path.write_text('{invalid json', encoding='utf-8')
+        install = self.root / 'install'
+        install.mkdir()
+        service = UpdateService(self.service.app, install, '0.4.21')
+        self.addCleanup(service.close)
+        automatic = AutomaticUpdates(service, clock=lambda: now[0])
+        self.addCleanup(automatic.close)
+        saved = threading.Event()
+        original_save = automatic._save_locked
+
+        def save():
+            original_save()
+            saved.set()
+
+        with patch.object(automatic, '_save_locked', side_effect=save) as writes, \
+                patch.object(settings, 'get', wraps=settings.get) as reads, \
+                patch('yingxu.updates.check_update', return_value={
+                    'update_available': False, 'latest_version': '0.4.21', 'url': ''}) as check:
+            automatic.start(0)
+            self.assertTrue(saved.wait(1))
+            state = wait_state(automatic, 'error')
+            self.assertEqual(state['consecutive_failures'], 1)
+            self.assertEqual(state['next_attempt'], now[0] + BACKOFF_BASE)
+            self.assertEqual(settings.path.read_text(encoding='utf-8'), '{invalid json')
+            writes_before, reads_before = writes.call_count, reads.call_count
+            # A wake before the due time must not read broken preferences or
+            # persist another failure; the actual worker remains alive.
+            saved.clear()
+            automatic._wake_event.set()
+            self.assertFalse(saved.wait(.1))
+            self.assertEqual(writes.call_count, writes_before)
+            self.assertEqual(reads.call_count, reads_before)
+            check.assert_not_called()
+            self.assertTrue(automatic._worker.is_alive())
+            settings.path.write_text('{}', encoding='utf-8')
+            now[0] += BACKOFF_BASE
+            automatic.start(0)
+            self.assertEqual(wait_state(automatic, 'current')['consecutive_failures'], 0)
+            check.assert_called_once()
+            automatic.close()
+
+    def test_automatic_download_starts_before_completed_planning_thread_returns(self):
+        with Fixture(old_build='workflow.2', new_build='workflow.3') as fixture:
+            fixture.data.mkdir()
+            app = SimpleNamespace(store=SimpleNamespace(data_root=fixture.data),
+                                  settings=Settings(fixture.data))
+            service = UpdateService(app, fixture.install, fixture.old_version)
+            service.manager = manager = fixture.manager()
+            automatic = AutomaticUpdates(service)
+            completed, release = threading.Event(), threading.Event()
+            planning_worker = []
+            original_plan = manager._plan
+
+            def completed_plan():
+                original_plan()
+                planning_worker.append(threading.current_thread())
+                completed.set()
+                release.wait(3)
+
+            found = {'update_available': True, 'latest_version': fixture.version,
+                     'latest_build': 'workflow.3', 'update_kind': 'version', 'url': ''}
+            try:
+                with patch.object(manager, '_plan', side_effect=completed_plan), \
+                        patch('yingxu.updates.check_update', return_value=found):
+                    automatic.start(0)
+                    self.assertTrue(completed.wait(2), automatic.status())
+                    state = wait_state(automatic, 'ready')
+                    self.assertEqual(state['plan_id'], manager.status()['plan_id'])
+                    self.assertTrue(planning_worker[0].is_alive())
+                    self.assertEqual(manager.status()['state'], 'ready')
+            finally:
+                release.set()
+                for worker in planning_worker:
+                    worker.join(2)
+                automatic.close()
+                service.close()
+
+    def test_restart_resumes_interrupted_check_plan_and_download_without_daily_delay(self):
+        for phase in ('checking', 'planning', 'downloading'):
+            with self.subTest(phase=phase), Fixture(old_build='workflow.2', new_build='workflow.3') as fixture:
+                fixture.data.mkdir()
+                app = SimpleNamespace(store=SimpleNamespace(data_root=fixture.data),
+                                      settings=Settings(fixture.data))
+                service = UpdateService(app, fixture.install, fixture.old_version)
+                service.manager = manager = fixture.manager()
+                now = 6_000_000
+                automatic = AutomaticUpdates(service, clock=lambda: now)
+                entered, release = threading.Event(), threading.Event()
+                found = {'update_available': True, 'latest_version': fixture.version,
+                         'latest_build': 'workflow.3', 'update_kind': 'version', 'url': ''}
+                original_operation = getattr(manager, '_plan' if phase == 'planning' else '_download')
+
+                def held_operation():
+                    entered.set()
+                    release.wait(3)
+                    original_operation()
+
+                checks = []
+
+                def check():
+                    checks.append(now)
+                    if phase == 'checking' and len(checks) == 1:
+                        entered.set()
+                        release.wait(3)
+                    return found
+
+                if phase == 'checking':
+                    # Also cover a forced retry interrupted before it clears
+                    # an earlier failure's still-future backoff deadline.
+                    automatic._set(state='error', last_attempt=now-300,
+                                   consecutive_failures=1, next_attempt=now+BACKOFF_BASE)
+                operation = '_plan' if phase == 'planning' else '_download'
+                try:
+                    with patch.object(manager, operation, side_effect=held_operation), \
+                            patch('yingxu.updates.check_update', side_effect=check):
+                        automatic.check_now(force=True)
+                        self.assertTrue(entered.wait(2), automatic.status())
+                        self.assertEqual(automatic.status()['state'], phase)
+                        automatic.close()
+                        manager.close()
+                        old_worker = manager._worker
+                        release.set()
+                        automatic._worker.join(2)
+                        if old_worker is not None:
+                            old_worker.join(2)
+                        self.assertFalse(automatic._worker.is_alive())
+                        saved = automatic._state
+                        self.assertEqual(saved['state'], phase)
+                        self.assertEqual(saved['last_attempt'], now)
+
+                        reopened_service = UpdateService(app, fixture.install, fixture.old_version)
+                        reopened_service.manager = fixture.manager()
+                        reopened = AutomaticUpdates(reopened_service, clock=lambda: now)
+                        try:
+                            self.assertFalse(reopened._can_run(False))
+                            self.assertTrue(reopened._needs_resume())
+                            reopened.start(0)
+                            state = wait_state(reopened, 'ready', timeout=3)
+                            self.assertEqual(state['consecutive_failures'], 0)
+                            self.assertEqual(len(checks), 2)
+                            self.assertEqual(reopened_service.manager.status()['state'], 'ready')
+                        finally:
+                            reopened.close()
+                            reopened_service.close()
+                finally:
+                    release.set()
+                    automatic.close()
+                    service.close()
 
     def test_daily_check_repeats_while_the_application_stays_open(self):
         class MutableClock:

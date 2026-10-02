@@ -56,7 +56,8 @@ test('busy settings and hotkey recording block install without closing; bridge e
 test('network and Range failures stop polling and offer trusted complete-package fallback',async()=>{
   const s=setup();s.setApi(async()=>({...plan,state:'downloading'}));const ui=s.bind();await ui.ready;s.setApi(async()=>{throw Error('服务器不支持 Range <img onerror=1>');});await s.tick();
   assert.equal(s.timers.size,0);assert.match(s.result.innerHTML,/不支持 Range &lt;img/);assert.match(s.result.innerHTML,/NOXEVYR\/yingxu\/releases\/tag\/yingxu-v0.4.19/);assert.match(s.result.innerHTML,/重新读取更新状态/);assert.doesNotMatch(s.result.innerHTML,/<img onerror/);
-  s.setApi(async()=>({...plan,state:'error',message:'Range unavailable'}));await ui.action('refresh-update');assert.equal(s.timers.size,0);assert.doesNotMatch(s.result.innerHTML,/data-action="download-update"/);
+  s.setApi(async()=>({...plan,state:'error',message:'Range unavailable'}));await ui.action('refresh-update');assert.equal(s.timers.size,0);assert.match(s.result.innerHTML,/重试下载变化文件/);
+  s.setApi(async()=>({...plan,state:'ready',can_install:true}));await ui.action('download-update');assert.equal(s.calls.at(-1).url,'/api/updates/download');assert.equal(s.calls.at(-1).options.body.plan_id,plan.plan_id);assert.match(s.result.innerHTML,/保存文稿并退出安装/);
 });
 test('current, malformed state and invalid plan never offer download or install',async()=>{
   for(const info of [{...plan,state:'current'},{...plan,state:'ready',plan_id:'bad',can_install:true},{...plan,state:'planned',plan_id:'bad'},{...plan,state:'unknown'}]){
@@ -95,7 +96,7 @@ test('real HTTP status requests carry session authentication even with implicit 
   const http=require('node:http'),received=[];
   const server=http.createServer((request,response)=>{
     received.push({url:request.url,token:request.headers['x-yingxu-token']});
-    const protectedStatus=/^\/api\/updates\/(?:status|install\/status)/.test(request.url);
+    const protectedStatus=/^\/api\/updates\/(?:status|cache|automatic\/status|install\/status)/.test(request.url);
     response.writeHead(protectedStatus && request.headers['x-yingxu-token']!=='synthetic-session-token'?403:200,{'Content-Type':'application/json'});
     response.end(JSON.stringify({state:'idle'}));
   });
@@ -107,8 +108,11 @@ test('real HTTP status requests carry session authentication even with implicit 
     await context.app.api('/api/updates/status');
     await context.app.api('/api/updates/status',{method:'GET'});
     await context.app.api('/api/updates/install/status?ticket='+ 'a'.repeat(32));
+    await context.app.api('/api/updates/cache');
+    await context.app.api('/api/updates/cache',{method:'GET'});
+    await context.app.api('/api/updates/automatic/status');
     await context.app.api('/api/settings');
-    assert.equal(received.length,4);assert.ok(received.slice(0,3).every(row=>row.token==='synthetic-session-token'));assert.equal(received[3].token,undefined);
+    assert.equal(received.length,7);assert.ok(received.slice(0,6).every(row=>row.token==='synthetic-session-token'));assert.equal(received[6].token,undefined);
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 test('settings distinguish a local build without changing the release version or injecting markup',async()=>{
@@ -126,4 +130,30 @@ test('previous installation result distinguishes rollback and failure, escapes m
     s.setApi(async()=>plan);await ui.action('check-update');assert.ok(s.result.innerHTML.includes(`上次安装：${label}`));
     s.setApi(async()=>({state:'current',last_install:null}));await ui.action('refresh-update');assert.doesNotMatch(s.result.innerHTML,/上次安装：/);
   }
+});
+test('settings show automatic failures and continue following a delayed background check',async()=>{
+  const s=setup();s.setApi(async()=>({state:'idle',automatic:{state:'idle',scheduled:true,automatic_check_enabled:true,last_attempt:0}}));
+  const ui=s.bind();await ui.ready;assert.equal(s.timers.size,1);assert.match(s.result.innerHTML,/等待后台检查/);
+  s.setApi(async()=>({...plan,state:'planned',automatic:{state:'downloading',running:true,last_attempt:2000000}}));await s.tick();assert.equal(s.timers.size,1);
+  s.setApi(async()=>({...plan,state:'ready',can_install:true,automatic:{state:'ready',running:false,last_attempt:2000000}}));await s.tick();assert.equal(s.timers.size,0);assert.match(s.result.innerHTML,/保存文稿并退出安装/);
+  s.setApi(async()=>({state:'idle',automatic:{state:'error',message:'offline <img onerror=1>',last_attempt:2000000,next_attempt:2003600}}));await ui.action('refresh-update');
+  assert.match(s.result.innerHTML,/后台更新未完成/);assert.match(s.result.innerHTML,/下次自动重试/);assert.match(s.result.innerHTML,/offline &lt;img/);assert.doesNotMatch(s.result.innerHTML,/<img/);
+});
+test('cache preview needs a second explicit confirmation and carries only its bound id',async()=>{
+  const s=setup(),preview={preview_id:'b'.repeat(32),cleanable_plans:2,cleanable_bytes:8192,retained_plans:1,message:'backups retained'};
+  const ui=s.bind();await ui.ready;assert.equal(s.calls.length,1);await ui.action('clean-update-cache');assert.equal(s.calls.length,1);
+  s.setApi(async()=>preview);await ui.action('preview-update-cache');assert.equal(s.calls.at(-1).url,'/api/updates/cache');assert.match(s.result.innerHTML,/确认整理 2 份/);assert.equal(s.calls.filter(row=>row.url.endsWith('/clean')).length,0);
+  s.setApi(async()=>({cleaned_plans:2,message:'旧下载缓存已整理'}));await ui.action('clean-update-cache');assert.equal(s.calls.at(-1).url,'/api/updates/cache/clean');assert.equal(s.calls.at(-1).options.body.preview_id,preview.preview_id);assert.doesNotMatch(s.result.innerHTML,/确认整理 2 份/);
+});
+test('invalid cache previews and failed confirmations never retain a deletion action',async()=>{
+  const s=setup();const ui=s.bind();await ui.ready;s.setApi(async()=>({preview_id:'invalid',cleanable_plans:1,cleanable_bytes:1,retained_plans:0}));
+  await ui.action('preview-update-cache');assert.match(s.result.innerHTML,/信息不完整/);assert.doesNotMatch(s.result.innerHTML,/data-action="clean-update-cache"/);
+  s.setApi(async()=>({preview_id:'b'.repeat(32),cleanable_plans:1,cleanable_bytes:1,retained_plans:0}));await ui.action('preview-update-cache');
+  s.setApi(async()=>{throw Error('缓存已变化');});await ui.action('clean-update-cache');assert.match(s.result.innerHTML,/缓存已变化/);assert.doesNotMatch(s.result.innerHTML,/data-action="clean-update-cache"/);
+});
+test('cache preview does not disconnect settings from an in-flight automatic update',async()=>{
+  const s=setup();s.setApi(async()=>({state:'idle',automatic:{state:'checking',running:true}}));
+  const ui=s.bind();await ui.ready;assert.equal(s.timers.size,1);
+  s.setApi(async()=>({preview_id:'b'.repeat(32),cleanable_plans:0,cleanable_bytes:0,retained_plans:0}));await ui.action('preview-update-cache');assert.equal(s.timers.size,1);
+  s.setApi(async()=>({...plan,state:'ready',can_install:true,automatic:{state:'ready',running:false}}));await s.tick();assert.match(s.result.innerHTML,/保存文稿并退出安装/);assert.equal(s.timers.size,0);
 });

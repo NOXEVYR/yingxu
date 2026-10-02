@@ -304,6 +304,60 @@ class IncrementalUpdateTests(unittest.TestCase):
                 self.assertEqual(fixture.wait(manager)['state'], 'error')
             self.assertEqual(fixture.requests, [])
 
+    def test_manual_download_starts_after_plan_publication_before_thread_exit(self):
+        with Fixture() as fixture:
+            manager = fixture.manager()
+            completed, release = threading.Event(), threading.Event()
+            original_plan = manager._plan
+
+            def completed_plan():
+                original_plan()
+                completed.set()
+                release.wait(3)
+
+            with patch.object(manager, '_plan', side_effect=completed_plan):
+                manager.plan()
+                planning_worker = manager._worker
+                try:
+                    self.assertTrue(completed.wait(2))
+                    self.assertEqual(manager.status()['state'], 'planned')
+                    self.assertTrue(planning_worker.is_alive())
+                    manager.download(manager.status()['plan_id'])
+                    self.assertIsNot(manager._worker, planning_worker)
+                    self.assertEqual(fixture.wait(manager)['state'], 'ready')
+                finally:
+                    release.set()
+                    planning_worker.join(2)
+
+    def test_failed_download_cleans_partial_before_error_and_immediate_retry(self):
+        with Fixture() as fixture:
+            manager = fixture.manager()
+            fixture.plan(manager)
+            fixture.failure_range = fixture.data_range('frontend/index.html')[0]
+            failed, release = threading.Event(), threading.Event()
+            original_fail = manager._fail
+
+            def publish_error(error):
+                original_fail(error)
+                failed.set()
+                release.wait(3)
+
+            with patch.object(manager, '_fail', side_effect=publish_error):
+                manager.download(manager.status()['plan_id'])
+                failed_worker = manager._worker
+                try:
+                    self.assertTrue(failed.wait(2))
+                    self.assertEqual(manager.status()['state'], 'error')
+                    self.assertTrue(failed_worker.is_alive())
+                    self.assertFalse(list(manager._context['folder'].rglob('*.part')))
+                    fixture.failure_range = None
+                    manager.download(manager.status()['plan_id'])
+                    self.assertIsNot(manager._worker, failed_worker)
+                    self.assertEqual(fixture.wait(manager)['state'], 'ready')
+                finally:
+                    release.set()
+                    failed_worker.join(2)
+
     def test_persisted_plan_change_is_not_accepted_for_install(self):
         with Fixture() as fixture:
             manager = fixture.manager()

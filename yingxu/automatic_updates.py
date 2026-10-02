@@ -197,15 +197,24 @@ class AutomaticUpdates:
             return False
         if force:
             return True
-        now = int(self._clock())
+        return int(self._clock()) >= self._due_time()
+
+    def _due_time(self):
+        """Failures retry on their backoff; successful checks use daily cadence."""
         with self._lock:
+            if self._state['consecutive_failures']:
+                return self._state['next_attempt']
             last_attempt = self._state['last_attempt']
-            next_attempt = self._state['next_attempt']
-        return now >= next_attempt and (last_attempt == 0 or now - last_attempt >= DAILY_INTERVAL)
+        return last_attempt + DAILY_INTERVAL if last_attempt else 0
 
     def _needs_resume(self):
         with self._lock:
             state = dict(self._state)
+        # Shutdown can interrupt a check or download before a terminal state
+        # is saved. Recheck its identity instead of treating its start time as
+        # a successful daily check and leaving stale progress visible all day.
+        if state.get('state') in ('checking', 'planning', 'downloading'):
+            return True
         if state.get('state') != 'ready' or not self._target_is_newer(
                 state.get('latest_version', ''), state.get('latest_build', '')):
             return False
@@ -244,10 +253,10 @@ class AutomaticUpdates:
         with self._lock:
             failures = min(16, self._state['consecutive_failures'] + 1)
             delay = min(BACKOFF_BASE * (2 ** min(failures - 1, 8)), BACKOFF_MAX)
-            attempted = self._state['last_attempt'] or int(self._clock())
+            failed_at = int(self._clock())
         message = str(error).strip()[:800] or '自动检查更新失败，请稍后重试。'
         self._set(state='error', consecutive_failures=failures,
-                  next_attempt=attempted + delay, plan_id='', download_bytes=0, message=message)
+                  next_attempt=failed_at + delay, plan_id='', download_bytes=0, message=message)
 
     def _run(self, delay):
         if delay and self._stop.wait(delay):
@@ -257,6 +266,14 @@ class AutomaticUpdates:
             if force:
                 self._force_event.clear()
             try:
+                # Preferences themselves can be unreadable. Apply persisted
+                # backoff before reading them again, including after restart.
+                with self._lock:
+                    failed = bool(self._state['consecutive_failures'])
+                    interrupted = self._state['state'] in ('checking', 'planning', 'downloading')
+                if failed and not interrupted and not self._can_run(force):
+                    self._wait_until_due()
+                    continue
                 prefs = self._preferences()
                 if not force and not prefs['automatic_update_check']:
                     self._set(state='disabled', message='自动更新检查已关闭。')
@@ -277,6 +294,7 @@ class AutomaticUpdates:
                         self._active = False
             except Exception as error:
                 self._failure(error)
+                self._wait_until_due()
 
     def _wait_for_wake(self, seconds):
         self._wake_event.wait(seconds)
@@ -284,10 +302,7 @@ class AutomaticUpdates:
 
     def _wait_until_due(self):
         now = int(self._clock())
-        with self._lock:
-            last_attempt = self._state['last_attempt']
-            next_attempt = self._state['next_attempt']
-        due = max(next_attempt, last_attempt + DAILY_INTERVAL if last_attempt else now)
+        due = self._due_time()
         self._wait_for_wake(max(1, min(60, due - now)))
 
     def _check_once(self, force):

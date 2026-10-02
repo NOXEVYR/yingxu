@@ -1,9 +1,9 @@
 'use strict';
 window.YingXuAutomaticUpdates = (() => {
   function start({api,openSettings,document=window.document,setTimer=setTimeout,clearTimer=clearTimeout}) {
-    let timer=null,closed=false,busy=false,notice=null,last='',hidden='';
+    let timer=null,closed=false,busy=false,started=false,notice=null,last='',hidden='';
     const stop=()=>{closed=true;if(timer!==null)clearTimer(timer);notice?.remove();};
-    const schedule=ms=>{if(!closed)timer=setTimer(()=>{timer=null;poll();},ms);};
+    const schedule=ms=>{if(timer!==null)clearTimer(timer);if(!closed)timer=setTimer(()=>{timer=null;poll();},ms);};
     const render=info=>{
       const update=info.update || info.plan || info;
       const phase=update.state || info.state;
@@ -23,10 +23,10 @@ window.YingXuAutomaticUpdates = (() => {
     };
     async function poll(){
       if(closed || busy)return;busy=true;
-      try{const info=await api('/api/updates/automatic/status');if(closed)return;render(info);const phase=(info.update || info.plan || info).state;schedule(['planning','downloading','checking'].includes(phase)||info.busy?5000:300000);}
+      try{if(!started){await api('/api/updates/automatic/start',{method:'POST',body:{}});started=true;}if(closed)return;const info=await api('/api/updates/automatic/status');if(closed)return;render(info);const phase=(info.update || info.plan || info).state;schedule(['planning','downloading','checking'].includes(phase)||info.busy?5000:300000);}
       catch{schedule(300000);}finally{busy=false;}
     }
-    const ready=api('/api/updates/automatic/start',{method:'POST',body:{}}).then(()=>{if(!closed)schedule(12000);}).catch(()=>{if(!closed)schedule(300000);});
+    const ready=api('/api/updates/automatic/start',{method:'POST',body:{}}).then(()=>{started=true;if(!closed)schedule(12000);}).catch(()=>{if(!closed)schedule(300000);});
     return {stop,poll,ready};
   }
   return {start};

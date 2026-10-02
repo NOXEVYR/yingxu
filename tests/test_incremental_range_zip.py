@@ -88,6 +88,41 @@ class RangeZipSecurityTests(unittest.TestCase):
             with self.assertRaises(UpdateError):
                 archive.extract(archive.members['YingXu/server.py'], io.BytesIO())
 
+    def test_prepare_combines_header_and_name_without_reading_payload(self):
+        raw = make_zip([('YingXu/server.py', b'payload')])
+        archive = self.reader(raw)
+        member = archive.members['YingXu/server.py']
+        archive.network.calls.clear()
+        archive.prepare(member)
+        self.assertEqual(archive.network.calls, [(member.offset, member.offset + 29 + len(member.raw_name))])
+        self.assertEqual(member.data_offset, member.offset + 30 + len(member.raw_name))
+        archive.prepare(member)
+        self.assertEqual(len(archive.network.calls), 1)
+
+    def test_prepare_reads_extra_separately_and_rejects_bad_lengths_and_overlap(self):
+        def extra(info):
+            info.extra = struct.pack('<HH', 0xbeef, 3) + b'abc'
+        raw = make_zip([('YingXu/server.py', b'payload')], info_hook=extra)
+        archive = self.reader(raw)
+        member = archive.members['YingXu/server.py']
+        archive.network.calls.clear()
+        archive.prepare(member)
+        start = member.offset + 30 + len(member.raw_name)
+        self.assertEqual(archive.network.calls, [(member.offset, start-1), (start, start+6)])
+        for offset, value in ((26, len(member.raw_name)-1), (28, 65535)):
+            broken = bytearray(raw)
+            struct.pack_into('<H', broken, offset, value)
+            reader = self.reader(bytes(broken))
+            reader.network.calls.clear()
+            with self.assertRaises(UpdateError):
+                reader.prepare(reader.members[member.name])
+            self.assertEqual(len(reader.network.calls), 1)
+        broken = bytearray(raw)
+        struct.pack_into('<H', broken, start, 1)  # ZIP64 override in local extra only.
+        reader = self.reader(bytes(broken))
+        with self.assertRaises(UpdateError):
+            reader.prepare(reader.members[member.name])
+
     def test_crc_sha_and_truncated_compression_reject_bad_payload(self):
         original = make_zip([('YingXu/server.py', b'repeat ' * 500)], zipfile.ZIP_DEFLATED)
         archive = self.reader(original)

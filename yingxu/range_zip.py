@@ -1,5 +1,6 @@
 """Small, strict ZIP reader that never silently downloads the complete archive."""
 from dataclasses import dataclass
+from collections import OrderedDict
 import hashlib
 import json
 import re
@@ -8,6 +9,7 @@ import struct
 import time
 import urllib.parse
 import urllib.request
+from urllib.error import HTTPError
 import zlib
 
 REPOSITORY = 'NOXEVYR/yingxu'
@@ -19,6 +21,10 @@ MAX_MEMBER = 768 * 1024**2
 MAX_MANIFEST = 8 * 1024**2
 MAX_DIRECTORY = 8 * 1024**2
 CHUNK = 1024 * 1024
+MAX_REDIRECT_CACHE = 32
+MAX_REDIRECT_URL = 8192
+REDIRECT_CACHE_SECONDS = 300
+ASSET_HOSTS = {'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}
 ROOT_FILES = {'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore',
               '.gitattributes', 'MIGRATION.md', 'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs',
               'Stop-YingXu.ps1', 'YingXu.exe', 'THIRD_PARTY_NOTICES.md', 'RELEASE_MANIFEST.json'}
@@ -134,6 +140,9 @@ class Network:
         self.received = 0
         self.requests = 0
         self.etags = {}
+        # Signed asset URLs are private, bounded, short-lived memory only.
+        # Public asset URLs remain the identity used for ranges and ETags.
+        self._redirects = OrderedDict()
 
     def active(self):
         if self.cancelled():
@@ -142,13 +151,55 @@ class Network:
             raise UpdateError('更新操作超时，请重新尝试。')
 
     def _open(self, request):
-        return urllib.request.build_opener(_Redirect()).open(request, timeout=15)
+        from .update_network import update_opener
+        self.active()
+        return update_opener(self.active, self.deadline, _Redirect()).open(
+            request, timeout=min(15, max(.001, self.deadline-time.monotonic())))
+
+    def _request(self, url, headers):
+        self.active()
+        self.requests += 1
+        if self.requests > 50000:
+            raise UpdateError('更新请求超过限制。')
+        return self._open(urllib.request.Request(url, headers=headers))
+
+    def _open_asset(self, url, headers):
+        cached = self._redirects.pop(url, None)
+        target = url
+        if cached and time.monotonic() < cached[1]:
+            target = safe_url(cached[0])
+            self._redirects[url] = cached
+        try:
+            response = self._request(target, headers)
+        except HTTPError as error:
+            if target == url or error.code not in (401, 403):
+                raise
+            error.close()
+        else:
+            if target == url or response.status not in (401, 403):
+                return response
+            response.close()
+        # An expired cached signature gets exactly one fresh request through
+        # its original public URL. Never retry an arbitrary signed address.
+        self._redirects.pop(url, None)
+        return self._request(url, headers)
+
+    def _remember_asset(self, url, final):
+        origin = urllib.parse.urlsplit(url)
+        if (origin.hostname != 'github.com' or origin.query or
+                not origin.path.startswith('/' + REPOSITORY + '/releases/download/') or
+                len(url) > MAX_REDIRECT_URL or len(final) > MAX_REDIRECT_URL or
+                urllib.parse.urlsplit(final).hostname not in ASSET_HOSTS):
+            return
+        self._redirects.pop(url, None)
+        self._redirects[url] = (final, time.monotonic() + REDIRECT_CACHE_SECONDS)
+        while len(self._redirects) > MAX_REDIRECT_CACHE:
+            self._redirects.popitem(last=False)
 
     def get(self, url, limit, start=None, end=None, total=None):
         self.active()
         safe_url(url)
-        self.requests += 1
-        if self.requests > 50000 or limit < 0 or limit > MAX_MANIFEST:
+        if limit < 0 or limit > MAX_MANIFEST:
             raise UpdateError('更新请求超过限制。')
         headers = {'User-Agent': 'YingXu-Incremental-Updater', 'Accept-Encoding': 'identity'}
         ranged = start is not None
@@ -158,8 +209,8 @@ class Network:
             headers['Range'] = f'bytes={start}-{end}'
             if url in self.etags:
                 headers['If-Match'] = self.etags[url]
-        with self._open(urllib.request.Request(url, headers=headers)) as response:
-            safe_url(response.geturl())
+        with self._open_asset(url, headers) as response:
+            final = safe_url(response.geturl())
             if response.status != (206 if ranged else 200):
                 raise UpdateError('服务器未支持可靠的分块下载，请使用发布页的完整包。')
             if response.headers.get('Content-Encoding', 'identity').lower() != 'identity':
@@ -191,6 +242,7 @@ class Network:
                     raise UpdateError('更新传输超过大小限制。')
             if ranged and len(output) != limit:
                 raise UpdateError('更新分块传输不完整，请重试。')
+            self._remember_asset(url, final)
             return bytes(output)
 
 
@@ -286,17 +338,19 @@ class RangeZip:
     def prepare(self, member):
         if member.data_offset >= 0:
             return
-        raw = self._range(member.offset, 30)
-        sig, need, flags, method, _, _, crc, compressed, size, nlen, xlen = struct.unpack('<4s5H3I2H', raw)
+        # The central directory already supplied the exact name length. Read
+        # that name with the fixed local header, without touching its payload.
+        raw = self._range(member.offset, 30 + len(member.raw_name))
+        sig, need, flags, method, _, _, crc, compressed, size, nlen, xlen = struct.unpack_from('<4s5H3I2H', raw)
         if (sig != b'PK\x03\x04' or need >= 45 or flags != member.flags or method != member.method or
                 nlen != len(member.raw_name) or member.offset + 30 + nlen + xlen + member.compressed > member.boundary or
                 (not flags & 8 and (crc, compressed, size) != (member.crc, member.compressed, member.size)) or
                 (flags & 8 and (crc not in (0, member.crc) or compressed not in (0, member.compressed) or size not in (0, member.size)))):
             raise UpdateError('发布包本地文件头与目录不一致。')
-        names = self._range(member.offset + 30, nlen + xlen)
-        if names[:nlen] != member.raw_name:
+        if raw[30:] != member.raw_name:
             raise UpdateError('发布包本地文件名不一致。')
-        self._extra(names[nlen:])
+        if xlen:
+            self._extra(self._range(member.offset + 30 + nlen, xlen))
         member.data_offset = member.offset + 30 + nlen + xlen
 
     def extract(self, member, output, expected_sha256=None, progress=None):

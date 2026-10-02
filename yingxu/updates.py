@@ -7,16 +7,18 @@ import sys
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, HTTPRedirectHandler
 
 from yingxu import __version__, __mac_preview__, __build__
 from .release_identity import compare_builds, public_build, fetch_metadata, fetch_manifest
 from .range_zip import UpdateError
+from .update_network import update_opener
 from yingxu.store import UserError
 
 RELEASES = 'https://api.github.com/repos/NOXEVYR/yingxu/releases?per_page=100'
 PAGE = 'https://github.com/NOXEVYR/yingxu/releases/tag/'
 MAX_RESPONSE = 2 * 1024 * 1024
+RELEASE_LIST_SECONDS = 24
 _lock = threading.Lock()
 _cache = None
 
@@ -86,16 +88,36 @@ def check_update():
         try:
             releases = []
             remaining = MAX_RESPONSE
-            opener = build_opener(NoRedirect())
+            deadline = time.monotonic() + RELEASE_LIST_SECONDS
+
+            def active():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('发布列表读取超时。')
+
+            # DNS and HTTP headers still use urllib's synchronous path. The
+            # shared budget is also enforced between bounded body reads.
+            opener = update_opener(active, deadline, NoRedirect())
             for page in range(1, 4):
                 url = RELEASES if page == 1 else RELEASES + f'&page={page}'
                 request = Request(url, headers={'Accept':'application/vnd.github+json', 'User-Agent':'YingXu-Manual-Update-Check'})
-                with opener.open(request, timeout=8) as response:
-                    raw = response.read(remaining + 1)
+                active()
+                with opener.open(request, timeout=min(8, deadline - time.monotonic())) as response:
+                    active()
+                    raw = bytearray()
+                    while True:
+                        active()
+                        sock = getattr(getattr(getattr(response, 'fp', None), 'raw', None), '_sock', None)
+                        if sock is not None:
+                            sock.settimeout(min(8, deadline - time.monotonic()))
+                        chunk = response.read1(min(65536, remaining + 1))
+                        active()
+                        remaining -= len(chunk)
+                        if remaining < 0:
+                            raise ValueError('Response too large')
+                        if not chunk:
+                            break
+                        raw.extend(chunk)
                     link = response.headers.get('Link', '')
-                remaining -= len(raw)
-                if remaining < 0:
-                    raise ValueError('Response too large')
                 entries = json.loads(raw)
                 if not isinstance(entries, list):
                     raise ValueError('Invalid release list')

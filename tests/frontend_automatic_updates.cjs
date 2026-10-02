@@ -48,3 +48,11 @@ test('updates over the background limit still offer manual download details',asy
     s.nodes[0].children[1].onclick();assert.equal(s.settings,1);assert.ok(s.calls.every(c=>!/(?:download|install)/.test(c.path)));s.ui.stop();
   }
 });
+test('a failed start request is retried before polling status and starts only one scheduler',async()=>{
+  let starts=0;
+  const s=setup(path=>{if(path.endsWith('start') && ++starts===1)throw Error('transient start failure');return {state:'current'};});
+  await s.ui.ready;assert.equal(starts,1);assert.equal(s.timers.size,1);
+  await s.tick();assert.equal(starts,2);assert.equal(s.calls.at(-1).path,'/api/updates/automatic/status');
+  await s.ui.poll();assert.equal(starts,2);assert.equal(s.timers.size,1);
+  s.ui.stop();assert.equal(s.timers.size,0);
+});

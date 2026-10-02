@@ -23,6 +23,7 @@ class UpdateService:
         self.committed = False
         self.manager = None
         self.automatic = None
+        self.cache = None
         self._closed = False
         self._closed_event = threading.Event()
 
@@ -145,6 +146,21 @@ class UpdateService:
                 if self._closed:
                     raise UserError('应用正在退出。', 409)
             return self._manager().download(plan_id)
+
+    def update_cache(self, preview_id=None):
+        from .update_cache import UpdateCache
+        with self.action_lock, self.lock:
+            if self._closed or self.pending or self.committed:
+                raise UserError('正在退出或安装更新，请稍后整理。', 409)
+            manager = self._manager()
+            with manager._lock:
+                status = manager.status()
+                if status['state'] in ('planning', 'downloading'):
+                    raise UserError('更新检查或下载正在进行，请完成后再整理。', 409)
+                if self.cache is None:
+                    self.cache = UpdateCache(self.app.store.data_root, self.install_root, self.current_version)
+                protected = {status.get('plan_id', '')}
+                return self.cache.preview(protected) if preview_id is None else self.cache.clean(preview_id, protected)
 
     def prepare(self, plan_id, native_pid):
         from .incremental_install import prepare_install

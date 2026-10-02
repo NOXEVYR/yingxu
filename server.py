@@ -728,6 +728,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.check_origin(True)
                     if query:raise UserError('更新状态不接受额外参数。')
                     return self.json(self.app.update_service.status())
+                if path=='/api/updates/cache':
+                    self.check_origin(True)
+                    if query:raise UserError('缓存整理不接受额外参数。')
+                    return self.json(self.app.update_service.update_cache())
                 if path=='/api/updates/install/status':
                     self.check_origin(True)
                     if set(query)-{'ticket'}:raise UserError('更新安装参数无效。')
@@ -827,6 +831,9 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/updates/download':
                     if set(data)!={'plan_id'} or query:raise UserError('下载更新参数无效。')
                     return self.json(service.download(data['plan_id']))
+                if path=='/api/updates/cache/clean':
+                    if set(data)!={'preview_id'} or query:raise UserError('缓存整理参数无效。')
+                    return self.json(service.update_cache(data['preview_id']))
                 if path=='/api/updates/install/prepare':
                     if set(data)!={'plan_id','native_pid'} or query:raise UserError('准备安装参数无效。')
                     return self.json(service.prepare(data['plan_id'],data['native_pid']))
