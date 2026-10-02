@@ -34,6 +34,7 @@ internal sealed class StageJHostChecks
     private readonly TaskCompletionSource<bool> runtimeReady = new TaskCompletionSource<bool>();
     private readonly List<string> navigationEvents = new List<string>();
     private bool webViewControlCreated, webViewInitialized, navigationStarted, navigationCompleted;
+    private bool windowLoadObserved, windowShownObserved;
     private bool? navigationSucceeded;
     private string navigationUri, navigationError;
     private object failureDiagnostics;
@@ -85,11 +86,18 @@ internal sealed class StageJHostChecks
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs args)
+        {
+            if (failure == null) failure = args.Exception;
+        };
         Type studio = app.GetType("YingXu.Desktop.StudioWindow", true);
         ConstructorInfo ctor = studio.GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
             new Type[] { typeof(bool), typeof(Func<bool>), typeof(bool) }, null);
         if (ctor == null) throw new MissingMethodException("StudioWindow production constructor not found.");
         window = (Form)ctor.Invoke(new object[] { true, new Func<bool>(() => false), true });
+        window.Load += delegate { windowLoadObserved = true; };
+        window.Shown += delegate { windowShownObserved = true; };
         window.MinimumSize = new Size(780,620); window.ClientSize = new Size(1440,900);
         FieldInfo tray = studio.GetField("closeToTray", BindingFlags.Instance | BindingFlags.NonPublic);
         tray.SetValue(window, false);
@@ -291,6 +299,8 @@ internal sealed class StageJHostChecks
         if(failureDiagnostics!=null)return;
         var details=new Dictionary<string,object>();
         details["webview_control_created"]=webViewControlCreated;
+        details["window_load_observed"]=windowLoadObserved;
+        details["window_shown_observed"]=windowShownObserved;
         details["webview_initialized"]=webViewInitialized;
         details["devtools_runtime_enabled"]=runtimeReady.Task.Status==TaskStatus.RanToCompletion;
         details["navigation_started"]=navigationStarted;
