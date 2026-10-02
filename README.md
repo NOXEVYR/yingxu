@@ -2,10 +2,10 @@
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-> **独立源码预览 · 0.4.27 / calls.3 · Stage J（2026-10-02）**
-> 这是开发源码及合成演示界面，没有对应的新版 EXE/安装包。实际可下载程序仍是 Windows 0.4.22，macOS 0.4.20-mac.1。源码版本不代表程序已升级。
+> **Windows 0.4.27 / calls.3 交付源码（2026-10-02）**
+> 本分支用于构建包含 Stage J 布局的 Windows 完整包。源码 ZIP 不包含原生启动器和运行库；程序请使用经过验收的 Release 附件。实际可下载版本以 Release 公开附件为准，macOS 仍保留 0.4.20-mac.1 历史试用版。
 
-[本阶段改动、截图与验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 0.4.22 已发布程序](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
+[0.4.27 改动与交付范围](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
 
 ![Stage J 两种工作台实际合成渲染；不是 0.4.22 下载包界面](docs/assets/stage-j-20261002/workspace-comparison.png)
 

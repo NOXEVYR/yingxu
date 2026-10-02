@@ -21,6 +21,7 @@ FIXED = (
     'desktop/Integration.cs', 'desktop/FolderForegroundTests.cs', 'desktop/Set-OpenWith.ps1', 'desktop/LifecycleTests.cs',
     'desktop/SingleInstanceTests.cs', 'desktop/QuickReader.cs', 'desktop/QuickReaderTests.cs',
     'desktop/Capture.cs', 'desktop/CaptureTests.cs', 'desktop/IncrementalInstallTests.cs',
+    'desktop/IsolatedStartup.cs', 'desktop/IsolatedStartupTests.cs', 'desktop/README-isolated-startup.md',
     'tools/canvas-editor/Excalidraw-LICENSE.txt', 'tools/canvas-editor/FONT-LICENSES.txt',
     'tools/canvas-editor/package.json', 'tools/canvas-editor/pnpm-lock.yaml', 'tools/canvas-editor/build.mjs', 'tools/canvas-editor/host.css', 'tools/canvas-editor/entry.jsx',
     'tools/canvas-editor/font-url-plugin.mjs', 'tools/canvas-editor/local-assets.js', 'tools/canvas-editor/scene-tracker.js', 'tools/canvas-editor/animation-gate.js',
