@@ -2,4 +2,4 @@
 __version__ = '0.4.28'
 __build__ = 'updater.1'
 
-__mac_preview__ = '0.4.27-mac.1'
+__mac_preview__ = '0.4.28-mac.1'
