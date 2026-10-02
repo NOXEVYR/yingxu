@@ -28,6 +28,11 @@ ROOT_FILES = {'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.m
 CODE_SUFFIXES = {'.py', '.pyw', '.js', '.cjs', '.mjs', '.css', '.html', '.md', '.cs',
                  '.ps1', '.json', '.txt', '.svg', '.ico', '.icns', '.manifest', '.yaml',
                  '.woff', '.woff2', '.ttf', '.jsx'}
+DOCUMENTATION_IMAGES = {
+    'docs/assets/stage-j-20261002/' + name + '.png'
+    for name in ('workspace-comparison', 'skills-classic', 'skills-focus',
+                 'collaboration-classic', 'collaboration-focus')
+}
 
 
 def digest(path):
@@ -52,6 +57,8 @@ def safe_relative(name):
 def program_path(name):
     path = safe_relative(name)
     if name in ROOT_FILES:
+        return True
+    if name in DOCUMENTATION_IMAGES:
         return True
     if path.parts[0] in {'yingxu', 'frontend', 'desktop', 'tests', 'docs'}:
         return len(path.parts)>1 and path.suffix in CODE_SUFFIXES

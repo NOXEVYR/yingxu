@@ -20,6 +20,7 @@ FIXED = (
     'desktop/RuntimeCheck.cs', 'desktop/Core.cs', 'desktop/Program.cs', 'desktop/Tests.cs', 'desktop/build.py',
     'desktop/Integration.cs', 'desktop/FolderForegroundTests.cs', 'desktop/Set-OpenWith.ps1', 'desktop/LifecycleTests.cs',
     'desktop/SingleInstanceTests.cs', 'desktop/QuickReader.cs', 'desktop/QuickReaderTests.cs',
+    'desktop/IsolatedStartup.cs', 'desktop/IsolatedStartupTests.cs',
     'desktop/Capture.cs', 'desktop/CaptureTests.cs', 'desktop/IncrementalInstallTests.cs',
     'tools/canvas-editor/Excalidraw-LICENSE.txt', 'tools/canvas-editor/FONT-LICENSES.txt',
     'tools/canvas-editor/package.json', 'tools/canvas-editor/pnpm-lock.yaml', 'tools/canvas-editor/build.mjs', 'tools/canvas-editor/host.css', 'tools/canvas-editor/entry.jsx',
@@ -32,6 +33,10 @@ FIXED = (
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'tools/build_identity.py', 'THIRD_PARTY_NOTICES.md',
     'docs/stability-audit-2026-09-27.md', 'docs/skill-workflow.md', 'docs/ai-collaboration.md',
     'docs/project-folder-import.md', 'docs/incremental-updates.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
+    'docs/source-preview-stage-j-20261002.md', 'docs/source-preview-stage-j-20261002.json',
+    'docs/assets/stage-j-20261002/workspace-comparison.png',
+    'docs/assets/stage-j-20261002/skills-classic.png', 'docs/assets/stage-j-20261002/skills-focus.png',
+    'docs/assets/stage-j-20261002/collaboration-classic.png', 'docs/assets/stage-j-20261002/collaboration-focus.png',
 )
 PATTERNS = ('yingxu/*.py', 'frontend/*.html', 'frontend/*.css', 'frontend/*.js',
             'tests/test_*.py', 'tests/frontend_*.cjs', 'frontend/canvas/**/*.js', 'frontend/canvas/**/*.css', 'frontend/canvas/**/*.html', 'frontend/canvas/**/*.woff2', 'frontend/canvas/**/*.woff', 'frontend/canvas/**/*.ttf', 'frontend/canvas/**/*.json', 'frontend/canvas/**/*.txt', 'frontend/canvas/**/*.yaml', 'frontend/canvas/**/*.LEGAL.txt')

@@ -2,8 +2,8 @@
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-> **独立源码预览 · 0.4.27 / calls.3 · Stage J（2026-10-02）**
-> 这是开发源码及合成演示界面，没有对应的新版 EXE/安装包。实际可下载程序仍是 Windows 0.4.22，macOS 0.4.20-mac.1。源码版本不代表程序已升级。
+> **Windows 候选构建 · 0.4.27 / calls.3 · Stage J（2026-10-02）**
+> 本提交在独立源码预览基础上准备 Windows 完整候选包；原生构建、真实宿主与整包回读通过后才发布。下方稳定下载保持 Windows 0.4.22，macOS 保持 0.4.20-mac.1。新版候选是否已公开，以 GitHub Release 的实际附件和验证记录为准。
 
 [本阶段改动、截图与验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 0.4.22 已发布程序](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
 

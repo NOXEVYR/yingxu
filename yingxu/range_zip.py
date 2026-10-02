@@ -24,6 +24,11 @@ ROOT_FILES = {'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.m
               'Stop-YingXu.ps1', 'YingXu.exe', 'THIRD_PARTY_NOTICES.md', 'RELEASE_MANIFEST.json'}
 CODE_SUFFIXES = {'.py', '.pyw', '.js', '.cjs', '.mjs', '.css', '.html', '.md', '.cs', '.ps1', '.json',
                  '.txt', '.svg', '.ico', '.icns', '.manifest', '.yaml', '.woff', '.woff2', '.ttf', '.jsx'}
+DOCUMENTATION_IMAGES = {
+    'docs/assets/stage-j-20261002/' + name + '.png'
+    for name in ('workspace-comparison', 'skills-classic', 'skills-focus',
+                 'collaboration-classic', 'collaboration-focus')
+}
 
 
 class UpdateError(ValueError):
@@ -61,6 +66,8 @@ def safe_relative(name):
 def program_path(name):
     parts = safe_relative(name)
     if name in ROOT_FILES:
+        return True
+    if name in DOCUMENTATION_IMAGES:
         return True
     suffix = '.' + parts[-1].rsplit('.', 1)[-1] if '.' in parts[-1] else ''
     if parts[0] in ('yingxu', 'frontend', 'desktop', 'tests', 'docs', 'tools') and len(parts) > 1:

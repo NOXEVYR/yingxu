@@ -10,6 +10,21 @@ SPEC.loader.exec_module(PACKAGER)
 
 
 class ReleaseAllowlistTests(unittest.TestCase):
+    def test_public_package_members_are_accepted_by_both_update_allowlists(self):
+        from yingxu import incremental_install, range_zip
+        names = set(PACKAGER.FIXED)
+        for pattern in PACKAGER.PATTERNS:
+            names.update(p.relative_to(PACKAGER.ROOT).as_posix() for p in PACKAGER.ROOT.glob(pattern))
+        for name in sorted(names):
+            with self.subTest(path=name):
+                self.assertTrue(range_zip.program_path(name))
+                self.assertTrue(incremental_install.program_path(name))
+        for name in ('docs/private.png', 'docs/assets/stage-j-20261002/private.png',
+                     'docs/assets/stage-j-20261002/skills-focus.png.exe', 'data/skills-focus.png'):
+            with self.subTest(rejected=name):
+                self.assertFalse(range_zip.program_path(name))
+                self.assertFalse(incremental_install.program_path(name))
+
     def test_unknown_data_and_logs_are_not_collected(self):
         with tempfile.TemporaryDirectory(prefix='yingxu-package-test-') as temporary:
             root = Path(temporary).resolve()

@@ -104,3 +104,47 @@ jobs:
         run: |
           python -B .github/release-support/cached_release.py publish
           if ($LASTEXITCODE) { throw 'Publication failed; retain draft and uploaded assets for inspection' }
+
+  stage_j_candidate_verification:
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' &&
+      github.ref == 'refs/heads/codex/yingxu-0.4.27-verification' &&
+      inputs.approve_download_and_publish == false && inputs.source_commit == github.sha
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare public pinned inputs
+        run: |
+          python -B .github/release-support/prepare_native_verification.py
+          if ($LASTEXITCODE) { throw 'Pinned preparation failed' }
+      - name: Verify complete Stage J candidate
+        run: |
+          python -B .github/release-support/verify_stage_j_candidate.py
+          if ($LASTEXITCODE) { throw 'Stage J validation failed; no release published' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yingxu-0.4.27-stage-j-verification
+          path: |
+            YingXu.exe
+            desktop/build.json
+            native-preparation.json
+            .release-work/stage-j-verification/
+            releases/YingXu-v0.4.27-*
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
