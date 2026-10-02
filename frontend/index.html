@@ -36,6 +36,12 @@
   <script src="/markdown-preview.js" defer></script>
   <script src="/hotkey-recorder.js" defer></script>
   <link rel="stylesheet" href="/workflow-library.css">
+  <link rel="stylesheet" href="/ai-collaboration.css">
+  <link rel="stylesheet" href="/workbench-layout.css">
+  <script src="/ai-hub-receipts.js" defer></script>
+  <script src="/ai-hub-calls.js" defer></script>
+  <script src="/ai-tool-calls.js" defer></script>
+  <script src="/ai-collaboration.js" defer></script>
   <script src="/workflow-library.js" defer></script>
   <script src="/mcp-connection.js" defer></script>
   <script src="/automatic-updates.js" defer></script>
@@ -61,7 +67,7 @@
       <div class="sidebar-section-title"><span id="sidebarProjectTitle">全部项目</span><button id="addProject" class="icon-button" title="创建项目" aria-label="创建项目"></button></div>
       <div id="projectList" class="project-list"><div class="subtle-loading">正在打开工作台…</div></div>
       <div class="nav-divider"></div>
-      <div class="sidebar-section-title resource-nav-label"><span>创作资源</span><span id="sidebarTotal" class="tiny-count">0</span></div>
+      <div class="sidebar-section-title resource-nav-label"><span id="sidebarResourceTitle">创作资源</span><span id="sidebarTotal" class="tiny-count">0</span></div>
       <nav id="categoryNav" class="category-nav" aria-label="资源分类"></nav>
       <div class="sidebar-bottom">
         <button id="openLocalButton" class="help-button" data-action="choose-external-files" title="直接打开文件；支持的文稿可编辑保存，不自动加入项目。管理素材请使用导入"><span id="openLocalIcon"></span><span>打开本地文件</span></button>
@@ -80,7 +86,7 @@
           <button id="newItemButton" class="button button-primary"><span id="newItemIcon"></span><span>新建</span></button>
           <button id="returnWorkspaceButton" type="button" class="icon-button" data-action="return-workspace" title="返回上一个工作台" aria-label="返回上一个工作台" hidden>←</button>
           <details id="workspaceTools" class="workspace-tools">
-            <summary id="workspaceToolsSummary" aria-label="工作空间：SKILL 库、AI 协作、回收站" title="工作空间：SKILL 库、AI 协作、回收站"><span id="workspaceToolsIcon" aria-hidden="true"></span><span id="workspaceToolsLabel">工作空间</span><span id="workspaceToolsChevron" aria-hidden="true"></span></summary>
+            <summary id="workspaceToolsSummary" aria-label="映序模式与工作空间" title="映序模式、SKILL 库、AI 协作、回收站"><span id="workspaceToolsIcon" aria-hidden="true"></span><span id="workspaceToolsLabel">工作空间</span><span id="workspaceToolsChevron" aria-hidden="true"></span></summary>
             <nav id="workspaceToolsNav" class="workspace-tools-popover" aria-label="工作空间"></nav>
           </details>
           <div class="topbar-utilities" role="group" aria-label="设置与帮助">

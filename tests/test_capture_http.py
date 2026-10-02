@@ -131,10 +131,14 @@ class CaptureHttpTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt' and CSC.is_file(), 'Windows .NET compiler required for desktop upload fixture')
     def test_native_capture_fixture_uploads_binary_png_to_same_temporary_server(self):
+        from tools.build_identity import read_identity, generated_native_source
         executable = self.root / 'capture-tests.exe'
+        identity_source = self.root / 'BuildIdentity.cs'
+        identity_source.write_bytes(generated_native_source(read_identity(ROOT)))
         command = [str(CSC), '/nologo', '/target:exe', '/platform:x64', f'/out:{executable}',
                    '/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll',
                    '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll']
+        command.append(str(identity_source))
         command.extend(str(ROOT / 'desktop' / name) for name in ('Core.cs', 'Integration.cs', 'Capture.cs', 'CaptureTests.cs'))
         build = subprocess.run(command, capture_output=True, timeout=30)
         self.assertEqual(build.returncode, 0, build.stdout + build.stderr)

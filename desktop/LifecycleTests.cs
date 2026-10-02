@@ -106,11 +106,11 @@ namespace YingXu.Desktop
                 File.Copy(Path.Combine(source,"yingxu",name),Path.Combine(fixture,"yingxu",name));
             File.WriteAllText(Path.Combine(fixture,"server.py"),
                 "import json,sys,threading,time\nfrom pathlib import Path\nfrom http.server import BaseHTTPRequestHandler,ThreadingHTTPServer\n"+
-                "from yingxu.paths import instance_id,default_data_root\n"+
+                "from yingxu.paths import instance_id,default_data_root\nfrom yingxu import __version__,__build__\n"+
                 "class Handler(BaseHTTPRequestHandler):\n"+
                 " def do_GET(self):\n"+
                 "  health=self.path=='/api/health'\n"+
-                "  body=(json.dumps(dict(app='yingxu',ok=True,version='0.4.23',instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
+                "  body=(json.dumps(dict(app='yingxu',ok=True,version=__version__,build_revision=__build__,program_id=instance_id(Path(__file__).resolve().parent),instance_id=instance_id(default_data_root()))) if health else '<!doctype html><meta charset=utf-8><p id=fixture>YingXu startup fixture</p>').encode()\n"+
                 "  self.send_response(200);self.send_header('Content-Type','application/json' if health else 'text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n"+
                 " def log_message(self,*args): pass\n"+
                 // Like production, serve health probes while WebView holds an idle preconnection.

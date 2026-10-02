@@ -1,0 +1,96 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
+
+test('actual loadSkills preserves search through stale responses and API failure recovery',async()=>{
+  const vm=require('node:vm'),nodes=new Map(),pending=[],renders=[],errors=[];
+  const queryNode={value:'',focus(){}};
+  const bodyNode={innerHTML:'original-cards'};
+  const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',innerHTML:'stable-search-and-cards',className:'skill-polished-library',classList:{toggle(){}},querySelector:selector=>selector==='[data-workflow-body]'?bodyNode:selector.includes('workflow-query')||selector.includes('workflow-search')||selector.includes('skill-library-search')?queryNode:null});return nodes.get(key);};
+  const document={querySelector:node,activeElement:queryNode};queryNode.parentNode=node('#resourceItems');
+  const context=vm.createContext({window:{},document,localStorage:{getItem(){return null;},setItem(){}},setTimeout,clearTimeout,URLSearchParams,pending,renders,errors});
+  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
+  vm.runInContext(source+`;configureSection=()=>{};renderInspector=()=>{};renderSkills=()=>renders.push(state.skills.map(x=>x.name).join(','));acceptSkillSources=()=>{};workflowController=()=>({load:async()=>{}});emptyHtml=()=>'<div class="query-error">synthetic failure</div>';report=error=>errors.push(error);api=url=>new Promise((resolve,reject)=>pending.push({url,resolve,reject}));globalThis.fixture={state,loadSkills};`,context);
+  const {state,loadSkills}=context.fixture;state.section='skills';state.bootstrap={capabilities:{skill_organization:false}};state.projectId=null;state.tabs=[];
+  state.q='older';const older=loadSkills({preserveSearch:true});
+  assert.equal(node('#resourceItems').innerHTML,'stable-search-and-cards','query reload must not replace the search with skeletons');
+  state.q='latest';const latest=loadSkills({preserveSearch:true});
+  assert.match(pending[1].url,/q=latest/);pending[1].resolve({skills:[{id:'latest',name:'最新查询'}]});await latest;
+  pending[0].resolve({skills:[{id:'older',name:'过期响应'}]});await older;
+  assert.equal(state.skills[0].id,'latest');assert.deepEqual(renders,['最新查询']);
+  assert.equal(node('#resourceItems').innerHTML,'stable-search-and-cards');
+  queryNode.value='latest';const rootBefore=queryNode.parentNode,error=Error('synthetic query failure');
+  const failed=loadSkills({preserveSearch:true});pending[2].reject(error);await failed;
+  assert.equal(node('#resourceItems'),rootBefore);assert.equal(rootBefore.innerHTML,'stable-search-and-cards');
+  assert.equal(rootBefore.querySelector('[data-workflow-query]'),queryNode);assert.equal(queryNode.parentNode,rootBefore);assert.equal(document.activeElement,queryNode);assert.equal(queryNode.value,'latest');
+  assert.equal(bodyNode.innerHTML,'<div class="query-error">synthetic failure</div>','only the result body shows the failure');
+  assert.match(node('#resultSummary').textContent,/搜索未完成/);assert.equal(errors.length,1);assert.equal(errors[0],error);
+});
+
+test('actual shared query preserves spaces and invalidates old responses before the debounce fires',async()=>{
+  const vm=require('node:vm'),nodes=new Map(),pending=[],renders=[],timers=new Map();let timerId=0;
+  const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',dataset:{},innerHTML:'stable-query',classList:{toggle(){}}});return nodes.get(key);};
+  const context=vm.createContext({window:{},document:{querySelector:node},localStorage:{getItem(){return null;},setItem(){}},URLSearchParams,pending,renders,setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id)});
+  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
+  vm.runInContext(source+`;configureSection=renderInspector=()=>{};renderSkills=()=>renders.push(state.q);acceptSkillSources=()=>{};workflowController=()=>({load:async()=>{},syncQuery:()=>{}});api=url=>new Promise(resolve=>pending.push({url,resolve}));const originalLoadSkills=loadSkills;loadSkills=options=>{globalThis.lastLoad=originalLoadSkills(options);return globalThis.lastLoad;};globalThis.fixture={state,loadSkills,setSkillQuery};`,context);
+  const {state,loadSkills,setSkillQuery}=context.fixture;state.section='skills';state.bootstrap={capabilities:{skill_organization:false}};state.projectId=null;state.skills=[{id:'current',name:'当前目录'}];state.tabs=[{dirty:true,draft:'保留草稿'}];
+  state.q='older';const older=loadSkills({preserveSearch:true});state.offset=48;setSkillQuery('最新 查询 ');
+  assert.equal(state.q,'最新 查询 ');assert.equal(node('#searchInput').value,'最新 查询 ');assert.equal(state.offset,0);assert.equal(timers.size,1);
+  pending[0].resolve({skills:[{id:'stale',name:'旧响应'}]});await older;
+  assert.equal(state.skills[0].id,'current');assert.deepEqual(renders,[],'old response arriving during debounce must not render');
+  setSkillQuery('最后 查询 ');assert.equal(timers.size,1);const apply=[...timers.values()][0];timers.clear();apply();
+  assert.match(pending[1].url,/q=%E6%9C%80%E5%90%8E\+%E6%9F%A5%E8%AF%A2\+/);pending[1].resolve({skills:[{id:'latest',name:'最新结果'}]});await context.lastLoad;
+  assert.equal(state.skills[0].id,'latest');assert.deepEqual(renders,['最后 查询 ']);
+  state.bootstrap.capabilities.skill_organization=true;setSkillQuery('本地 标签 ',{immediate:true});
+  assert.equal(pending.length,2,'metadata search reuses loaded catalog without a request');assert.equal(node('#searchInput').value,'本地 标签 ');assert.equal(state.tabs[0].draft,'保留草稿');assert.equal(state.tabs[0].dirty,true);
+});
+
+test('shared SKILL search preserves IME, focus, pagination and both layouts in Chromium',async t=>{
+  const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(value=>value&&fs.existsSync(value));
+  if(!browser){t.skip('Existing Chromium required; no downloads');return;}
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-skill-search-'));
+  t.after(()=>{const resolved=path.resolve(temporary);assert.ok(resolved.startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(resolved).startsWith('yingxu-skill-search-'));fs.rmSync(resolved,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  for(const file of ['workflow-library.js','workflow-library.css','styles.css','appearance.css'])fs.copyFileSync(path.join(__dirname,'../frontend',file),path.join(temporary,file));
+  const runner=`(async()=>{
+    const checks=[],check=(name,value)=>{checks.push({name,ok:!!value});if(!value)throw Error(name);},tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+    const root=document.querySelector('#root'),top=document.querySelector('#topSearch'),calls=[],queryCalls=[],errors=[];
+    const state={projectId:'synthetic',section:'skills',q:'',offset:0,limit:2,tabs:[{key:'draft',dirty:true,draft:'未保存正文'}],skills:[{id:'s1',name:'中文剧本',description:'镜头声音',source:'codex',path:'synthetic/SKILL.md'},{id:'s2',name:'绘画',description:'构图'},{id:'s3',name:'音频',description:'声音'},{id:'s4',name:'交付',description:'目录'}],bootstrap:{capabilities:{skill_organization:true}}};
+    let focus=false,ui,queryTimer,queryRenders=0,cancelCalls=0;
+    const api=async url=>{calls.push(url);if(url.startsWith('/api/skill-collections?'))return {collections:[]};if(url==='/api/skill-organization')return {folders:[{id:'writing',name:'写作',path:'写作'}],metadata:[{skill_id:'s1',folder_id:'writing',tags:['对白'],notes:'审阅备注'}]};throw Error(url);};
+    const setQuery=(value,{immediate=false}={})=>{queryCalls.push(value);clearTimeout(queryTimer);state.q=String(value);state.offset=0;top.value=value;ui.syncQuery();if(immediate)ui.render(root);else queryTimer=setTimeout(()=>{queryRenders++;ui.render(root);},10);};
+    const env={state,api,escapeHtml:value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),icon:()=>'<svg viewBox="0 0 24 24"></svg>',showDialog:()=>{},toast:()=>{},report:error=>errors.push(String(error)),copyText:async()=>{},sourcesHtml:()=>'<select id="skillSourceDirectory"><option value="">全部来源</option></select>',setSource:async()=>{},pagination:total=>state.total=total,openSkill:async()=>{},render:()=>ui.render(root),setQuery,cancelQuery:()=>{cancelCalls++;clearTimeout(queryTimer);},focusLayout:()=>focus};
+    ui=window.YingXuWorkflow.create(env);await ui.load();ui.render(root);
+    const input=root.querySelector('[data-workflow-query]'),clear=root.querySelector('[data-workflow-query-clear]'),draft=state.tabs[0];
+    check('initial mount removes loader skeletons old cards and error placeholders',root.children.length===2&&!root.querySelector('.skeleton,.legacy-placeholder,[data-workflow-card="obsolete"]')&&!!root.querySelector('[data-workflow-body]'));
+    check('classic offers labeled inline search and compact scope folder tag controls',!!root.querySelector('label[for="skillLibrarySearch"]')&&!!root.querySelector('.skill-library-inline-navigation')&&!!root.querySelector('#skillFolder')&&!!root.querySelector('#skillTag'));
+    check('query row is above cards and fits viewport',input.getBoundingClientRect().top<root.querySelector('[data-workflow-card]').getBoundingClientRect().top&&root.scrollWidth<=root.clientWidth+1);
+    state.offset=2;ui.render(root);input.focus();input.value='中';input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true}));
+    check('Chinese composing text never submits an incomplete query',state.q===''&&queryCalls.length===0&&state.offset===2);
+    const stalePlaceholder=document.createElement('div');stalePlaceholder.className='legacy-placeholder';stalePlaceholder.textContent='旧错误占位';root.insertBefore(stalePlaceholder,root.querySelector('[data-workflow-body]'));
+    ui.render(root);check('card and page refresh removes stale placeholders while keeping composing input connected and focused',input===root.querySelector('[data-workflow-query]')&&document.activeElement===input&&input.value==='中'&&!stalePlaceholder.isConnected&&root.children.length===2);
+    input.value='中文';input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:false}));await new Promise(resolve=>setTimeout(resolve,20));
+    check('composition commit shares top query and resets pagination',state.q==='中文'&&top.value==='中文'&&state.offset===0&&state.total===1&&document.activeElement===input);
+    input.value='中文 ';input.dispatchEvent(new InputEvent('input',{bubbles:true}));const beforeComposition=queryRenders,beforeCancel=cancelCalls;
+    input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));input.value='中文 sheng';input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true}));await new Promise(resolve=>setTimeout(resolve,20));
+    check('composition start cancels previous pending search and leaves draft text intact',queryRenders===beforeComposition&&cancelCalls===beforeCancel+1&&state.q==='中文 '&&input.value==='中文 sheng'&&document.activeElement===input);
+    input.value='中文 声音 ';input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:false}));await new Promise(resolve=>setTimeout(resolve,20));
+    check('multiword search preserves trailing spaces in both inputs while matching all words',state.q==='中文 声音 '&&top.value==='中文 声音 '&&input.value==='中文 声音 '&&state.total===1&&root.querySelector('[data-workflow-card]').dataset.workflowCard==='s1');
+    input.value='对白';input.dispatchEvent(new InputEvent('input',{bubbles:true}));input.value='审阅备注';input.dispatchEvent(new InputEvent('input',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,20));
+    check('rapid local queries use latest metadata search without reload or scans',state.q==='审阅备注'&&state.total===1&&calls.length===2&&document.activeElement===input);
+    input.setSelectionRange(1,3);ui.render(root);check('render preserves query caret selection and native node',input.selectionStart===1&&input.selectionEnd===3&&input===root.querySelector('[data-workflow-query]'));
+    focus=true;ui.render(root);check('focus shares the same query input and removes inline resource navigation',!root.querySelector('.skill-library-inline-navigation')&&input===root.querySelector('[data-workflow-query]')&&input.value==='审阅备注'&&state.total===1);
+    setQuery('对白',{immediate:true});check('top search syncs into list search and searches personal tags',input.value==='对白'&&state.total===1);
+    ui.navigate({folder:'writing',tag:'对白'});check('existing folder tag navigation combines with query',state.total===1&&state.q==='对白');
+    clear.click();check('clear resets only query and returns input focus',state.q===''&&top.value===''&&clear.hidden&&document.activeElement===input&&ui.navigation().current.folder==='writing'&&ui.navigation().current.tag==='对白');
+    ui.navigate({folder:'*',tag:''});state.offset=2;ui.render(root);input.value='不存在';input.dispatchEvent(new InputEvent('input',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,20));
+    check('no match offers recovery and zero visible count',state.offset===0&&state.total===0&&root.textContent.includes('没有匹配的技能')&&!!root.querySelector('[data-workflow="browse-all"]'));
+    clear.click();focus=false;ui.render(root);check('both modes restore full catalog and leave draft unchanged',state.total===4&&state.tabs[0]===draft&&draft.dirty&&draft.draft==='未保存正文'&&calls.length===2&&errors.length===0);
+    document.querySelector('#result').textContent=JSON.stringify({checks});
+  })().catch(error=>document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack}));`;
+  new (require('node:vm').Script)(runner);fs.writeFileSync(path.join(temporary,'runner.js'),runner);
+  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><style>body{display:block;padding:16px}#root{width:960px;max-width:100%}</style><input id="topSearch" aria-label="顶部搜索"><div id="root"><div class="skeleton"></div><div class="skeleton"></div><div class="legacy-placeholder">旧错误占位</div><article class="skill-card" data-workflow-card="obsolete">旧结果</article></div><pre id="result"></pre><script src="workflow-library.js"></script><script src="runner.js"></script>');
+  const {stdout,stderr}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--window-size=1100,900','--virtual-time-budget=3000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
+  const match=stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/);assert.ok(match&&match[1].trim(),stdout.slice(-2000)+stderr.slice(-500));
+  const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
+  assert.equal(result.error,undefined,JSON.stringify(result));assert.ok(result.checks.length>=12);for(const row of result.checks)assert.equal(row.ok,true,row.name);t.diagnostic(result.checks.map(row=>row.name).join('; '));
+});

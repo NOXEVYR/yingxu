@@ -15,8 +15,11 @@ class PackageManifestBindingTests(unittest.TestCase):
             root = Path(temp)
             (root/'desktop').mkdir()
             (root/'desktop/brand.ico').write_bytes(b'fixture icon')
+            (root/'yingxu').mkdir()
+            (root/'yingxu/__init__.py').write_text("__version__='1.2.3'\n__build__='fixture.1'\n", encoding='utf-8')
             source = root/'fixture.py'; source.write_text('# fixture', encoding='utf-8')
             with patch.object(package_release, 'ROOT', root), \
+                    patch.object(package_release, 'require_native_identity'), \
                     patch.object(package_release, 'files_to_package', return_value=[source]), \
                     patch.object(package_release, 'runtime_files', return_value=[]), \
                     patch('sys.argv', ['package_release', '--output-dir', str(root/'release')]):

@@ -1,31 +1,209 @@
-/* Three light palettes, system fonts only; no timers or external resources. */
+/* Six light palettes. System fonts only; no downloads or ongoing motion. */
+/* Explicit rgba marquee fills support existing WebViews. */
+:root,
+:root[data-appearance="swiss"] {
+  --bg:#ffffff;
+  --panel:#f4f4f3;
+  --panel-2:#fafafa;
+  --panel-3:#ececea;
+  --panel-hover:#ececea;
+  --text:#171717;
+  --muted:#535353;
+  --subtle:#535353;
+  --line:#d8d8d5;
+  --line-soft:#e8e8e5;
+  --line-strong:#a4aaa4;
+  --accent:#242424;
+  --marquee-fill:rgba(36,36,36,.08);
+  --accent-bright:#242424;
+  --accent-dim:#e8e8e5;
+  --accent-soft:#e8e8e5;
+  --accent-text:#ffffff;
+  --selection:#e8e8e5;
+  --active-line:#fafafa;
+  --shadow:0 10px 34px rgba(23, 23, 23, .12);
+  --dialog-overlay:rgba(23, 23, 23, .32);
+  --dialog-shadow:#17171733;
+  --focus:#242424;
+  --disabled:#666666;
+  --disabled-bg:#eaeaea;
+  --danger:#a32932;
+  --danger-soft:#fbeaed;
+  --success:#286045;
+  --success-soft:#e7f2eb;
+  --amber:#795515;
+  --blue:#255b7d;
+}
+:root[data-appearance="graphite"] {
+  --bg:#ffffff;
+  --panel:#eff2f5;
+  --panel-2:#f6f8fb;
+  --panel-3:#e3e9f0;
+  --panel-hover:#e3e9f0;
+  --text:#202832;
+  --muted:#526171;
+  --subtle:#526171;
+  --line:#cdd5de;
+  --line-soft:#e5ebf2;
+  --line-strong:#98a9ba;
+  --accent:#3b4c61;
+  --marquee-fill:rgba(59,76,97,.08);
+  --accent-bright:#3b4c61;
+  --accent-dim:#e5ebf2;
+  --accent-soft:#e5ebf2;
+  --accent-text:#ffffff;
+  --selection:#e5ebf2;
+  --active-line:#f6f8fb;
+  --shadow:0 10px 34px rgba(24, 34, 47, .12);
+  --dialog-overlay:rgba(24, 34, 47, .32);
+  --dialog-shadow:#20283233;
+  --focus:#3b4c61;
+  --disabled:#596779;
+  --disabled-bg:#e5eaf0;
+  --danger:#a02a39;
+  --danger-soft:#fbecef;
+  --success:#2b6049;
+  --success-soft:#e8f3ed;
+  --amber:#795515;
+  --blue:#255b7d;
+}
+:root[data-appearance="paper"] {
+  --bg:#fffdf7;
+  --panel:#f5f0e6;
+  --panel-2:#f8f4eb;
+  --panel-3:#ece3d4;
+  --panel-hover:#ece3d4;
+  --text:#302920;
+  --muted:#65594b;
+  --subtle:#65594b;
+  --line:#d7ccbb;
+  --line-soft:#ece0cb;
+  --line-strong:#b09d80;
+  --accent:#6b5031;
+  --marquee-fill:rgba(107,80,49,.08);
+  --accent-bright:#6b5031;
+  --accent-dim:#ece0cb;
+  --accent-soft:#ece0cb;
+  --accent-text:#ffffff;
+  --selection:#ece0cb;
+  --active-line:#f8f4eb;
+  --shadow:0 10px 34px rgba(48, 41, 32, .12);
+  --dialog-overlay:rgba(48, 41, 32, .32);
+  --dialog-shadow:#30292033;
+  --focus:#6b5031;
+  --disabled:#6d6050;
+  --disabled-bg:#e9e1d4;
+  --danger:#a0302c;
+  --danger-soft:#f9e8e2;
+  --success:#42613b;
+  --success-soft:#e8efdf;
+  --amber:#795515;
+  --blue:#255b7d;
+}
+:root[data-appearance="pine"] {
+  --bg:#fbfffc;
+  --panel:#eff4f0;
+  --panel-2:#f3f8f4;
+  --panel-3:#e0ebe2;
+  --panel-hover:#e0ebe2;
+  --text:#23362b;
+  --muted:#4b6253;
+  --subtle:#4b6253;
+  --line:#c8d9cd;
+  --line-soft:#dfeee3;
+  --line-strong:#8ba995;
+  --accent:#326045;
+  --marquee-fill:rgba(50,96,69,.08);
+  --accent-bright:#326045;
+  --accent-dim:#dfeee3;
+  --accent-soft:#dfeee3;
+  --accent-text:#ffffff;
+  --selection:#dfeee3;
+  --active-line:#f3f8f4;
+  --shadow:0 10px 34px rgba(25, 46, 34, .12);
+  --dialog-overlay:rgba(25, 46, 34, .32);
+  --dialog-shadow:#23362b33;
+  --focus:#326045;
+  --disabled:#59695d;
+  --disabled-bg:#e2ebe4;
+  --danger:#a32d39;
+  --danger-soft:#fae9ed;
+  --success:#326045;
+  --success-soft:#dfeee3;
+  --amber:#795515;
+  --blue:#255b7d;
+}
+:root[data-appearance="ocean"] {
+  --bg:#fcfeff;
+  --panel:#eff4f8;
+  --panel-2:#f3f8fc;
+  --panel-3:#dceaf3;
+  --panel-hover:#dceaf3;
+  --text:#21354a;
+  --muted:#4b6378;
+  --subtle:#4b6378;
+  --line:#c7d7e3;
+  --line-soft:#e0eef7;
+  --line-strong:#88a7bc;
+  --accent:#255b7d;
+  --marquee-fill:rgba(37,91,125,.08);
+  --accent-bright:#255b7d;
+  --accent-dim:#e0eef7;
+  --accent-soft:#e0eef7;
+  --accent-text:#ffffff;
+  --selection:#e0eef7;
+  --active-line:#f3f8fc;
+  --shadow:0 10px 34px rgba(21, 40, 59, .12);
+  --dialog-overlay:rgba(21, 40, 59, .32);
+  --dialog-shadow:#21354a33;
+  --focus:#255b7d;
+  --disabled:#526370;
+  --disabled-bg:#e0eaf1;
+  --danger:#a32a3b;
+  --danger-soft:#fbe9ee;
+  --success:#2b614d;
+  --success-soft:#e3f0e9;
+  --amber:#795515;
+  --blue:#255b7d;
+}
+:root[data-appearance="plum"] {
+  --bg:#fffdff;
+  --panel:#f4f1f6;
+  --panel-2:#f8f5fa;
+  --panel-3:#e9e1ed;
+  --panel-hover:#e9e1ed;
+  --text:#352c3b;
+  --muted:#685a70;
+  --subtle:#685a70;
+  --line:#d9cddd;
+  --line-soft:#ece2f1;
+  --line-strong:#ad96ba;
+  --accent:#6b4f7e;
+  --marquee-fill:rgba(107,79,126,.08);
+  --accent-bright:#6b4f7e;
+  --accent-dim:#ece2f1;
+  --accent-soft:#ece2f1;
+  --accent-text:#ffffff;
+  --selection:#ece2f1;
+  --active-line:#f8f5fa;
+  --shadow:0 10px 34px rgba(45, 33, 53, .12);
+  --dialog-overlay:rgba(45, 33, 53, .32);
+  --dialog-shadow:#352c3b33;
+  --focus:#6b4f7e;
+  --disabled:#685a70;
+  --disabled-bg:#e9e2ed;
+  --danger:#a02b3a;
+  --danger-soft:#fae9ee;
+  --success:#35604b;
+  --success-soft:#e6f1ea;
+  --amber:#795515;
+  --blue:#255b7d;
+}
 :root {
-  --bg:#ffffff;--panel:#f1f2f3;--panel-2:#f5f6f7;--panel-3:#e7e9eb;
-  --panel-hover:#e7e9eb;--text:#17191c;--muted:#555b63;--subtle:#626970;
-  --line:#d3d7db;--line-soft:#e8eaec;--line-strong:#a4abb2;
-  --accent:#202327;--accent-bright:#202327;--accent-dim:#f1f2f3;
-  --selection:#d2d6dc80;--active-line:#f3f4f570;--shadow:0 12px 40px #17191c1a;
-  --dialog-overlay:#17191c5c;--dialog-shadow:#17191c33;
   --ui-font:"Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
   --reading-font:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
   --ink:var(--text);--surface:var(--bg);--sidebar:208px;
   font-family:var(--ui-font);color-scheme:light;
-}
-:root[data-appearance="pine"] {
-  --bg:#fdfefd;--panel:#edf1ed;--panel-2:#f3f6f3;--panel-3:#dfebe2;
-  --panel-hover:#dfebe2;--text:#1b2923;--muted:#50645a;--subtle:#586d61;
-  --line:#cad5ce;--line-soft:#e2e9e3;--line-strong:#8ba795;
-  --accent:#286044;--accent-bright:#235039;--accent-dim:#edf1ed;
-  --selection:#b7d4c080;--active-line:#edf4ef70;
-  --dialog-overlay:#1b29235c;--dialog-shadow:#1b292333;
-}
-:root[data-appearance="paper"] {
-  --bg:#fbf7ee;--panel:#eee8dd;--panel-2:#f5f0e6;--panel-3:#eee0cd;
-  --panel-hover:#eee0cd;--text:#302a25;--muted:#695e53;--subtle:#71665b;
-  --line:#d4cbbb;--line-soft:#e7dfd2;--line-strong:#ad9c86;
-  --accent:#835333;--accent-bright:#704328;--accent-dim:#eee8dd;
-  --selection:#d5bea080;--active-line:#eee5d570;
-  --dialog-overlay:#302a255c;--dialog-shadow:#302a2533;
 }
 ::selection{background:var(--selection)}
 ::-webkit-scrollbar-thumb{background:var(--line-strong)}
@@ -49,7 +227,7 @@
 .nav-item svg{color:currentColor;width:17px;height:17px}
 .nav-category-divider{margin:9px 10px;height:1px;background:var(--line)}
 .nav-count{font-size:12px;font-weight:400;font-variant-numeric:tabular-nums}
-.button-primary{color:#fff}.button-primary:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright)}
+.button-primary{color:var(--accent-text)}.button-primary:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright)}
 .button,.editor-toolbar,.context-menu,.field,.workspace-tools{font-family:var(--ui-font)}
 .button,.context-menu button{font-size:13px}
 .editor-toolbar{font-size:13px}
@@ -82,6 +260,59 @@
 @media(max-width:900px){.breadcrumb{max-width:90px;overflow:hidden}.topbar{padding-left:12px;padding-right:12px}.topbar-right>.button{padding:0 8px}.topbar-utilities{gap:0;margin-left:0;padding-left:3px}.workspace-tools summary{padding:0 6px}}
 @media(prefers-reduced-motion:reduce){.nav-item::before{transition:none}}
 @media(max-width:1090px){.global-search-trigger{width:30px;min-width:30px}}
+
+/* Functional states keep opaque text; theme changes include menus and dialogs. */
+.button-danger{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.button-danger:hover:not(:disabled){background:var(--danger-soft);border-color:var(--danger)}
+.app-shell button:disabled,.app-dialog button:disabled,.context-menu button:disabled{
+  opacity:1;color:var(--disabled);background:var(--disabled-bg);cursor:default;
+}
+.app-shell button:disabled svg,.app-dialog button:disabled svg,.context-menu button:disabled svg{color:inherit}
+.nav-item.active{background:var(--accent-soft)}
+.context-menu{box-shadow:var(--shadow);border-color:var(--line)}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline-color:var(--focus)}
+
+/* Workbench choice is available in both modes; no extra permanent toolbar. */
+.workspace-tools-popover{width:220px;max-width:calc(100vw - 24px)}
+.workspace-layout-switch{margin-top:7px;padding:10px 4px 4px;border-top:1px solid var(--line);font:12px/1.5 var(--ui-font)}
+.workspace-layout-switch>span{display:block;margin:0 3px 7px;color:var(--muted);font-weight:600}
+.workspace-layout-switch>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+.workspace-layout-switch [data-workspace-layout]{justify-content:center;width:100%;min-width:0;min-height:34px;padding:6px 5px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);color:var(--text);font:inherit;white-space:nowrap}
+.workspace-layout-switch [data-workspace-layout]:hover:not(:disabled){background:var(--panel-hover)}
+.workspace-layout-switch [data-workspace-layout][aria-pressed="true"]:not(:disabled){background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
+
+/* Focus layout reuses the real sidebar; resources and open documents retain their hosts. */
+.app-shell.focus-workbench{min-width:0}
+.app-shell.focus-workbench>.sidebar{width:218px;flex-basis:218px;padding-top:18px}
+.focus-workbench .brand{padding-bottom:18px}
+.focus-workbench .topbar{min-height:58px;height:auto;flex-wrap:wrap;padding:10px 22px;gap:8px 16px}
+.focus-workbench .topbar-right{flex-wrap:wrap;justify-content:flex-end;flex:1}
+.focus-workbench .search-wrap{min-width:120px;width:clamp(140px,20vw,300px)}
+.focus-workbench .skill-focus-navigation{overflow-y:auto;overflow-x:hidden;min-height:0;overscroll-behavior:contain}
+.focus-workbench .skill-focus-navigation .nav-item{font-size:14px;min-height:34px;padding:7px 10px}
+.focus-workbench .skill-focus-navigation .nav-item::before{background:var(--panel-hover)}
+.focus-workbench .skill-navigation-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 10px 5px;color:var(--muted);font:600 12px/1.5 var(--ui-font)}
+.focus-workbench .skill-navigation-heading:first-child{margin-top:6px}
+.focus-workbench .skill-focus-navigation .nav-item>span{min-width:0;overflow-wrap:anywhere}
+.focus-workbench .skill-focus-navigation .nav-count{flex:none;font-size:11px}
+.focus-workbench .skill-tag-choices{display:flex;flex-wrap:wrap;gap:5px;margin:6px 9px 10px;max-height:180px;overflow-y:auto;overscroll-behavior:contain}
+.focus-workbench .skill-tag-choices button{min-width:0;max-width:100%;min-height:27px;overflow-wrap:anywhere;white-space:normal}
+.focus-workbench .library,.focus-workbench .resource-viewport{min-width:0}
+@media(max-width:1090px){
+  .app-shell.focus-workbench>.sidebar{width:184px;flex-basis:184px}
+  .focus-workbench .topbar{padding:9px 14px;gap:8px}
+}
+@media(max-width:700px){
+  .app-shell.focus-workbench>.sidebar{width:154px;flex-basis:154px;padding-left:6px;padding-right:6px}
+  .focus-workbench .brand{gap:6px}
+  .focus-workbench .brand>span:not(.version-tag){font-size:18px}
+  .focus-workbench .brand-mark{width:26px;height:26px}
+  .focus-workbench .brand small{font-size:6px;letter-spacing:1px}
+  .focus-workbench .topbar{padding:8px 10px}
+  .focus-workbench .breadcrumb{max-width:100%}
+  .focus-workbench .topbar-right{flex-basis:100%;justify-content:flex-start;gap:5px}
+  .focus-workbench .search-wrap{flex:1;width:auto}
+}
 
 /* Documents get the workspace by default; the list can be restored per tab. */
 .workspace.editing.reading-document{grid-template-columns:minmax(190px,var(--browser-width,24%)) 5px minmax(0,1fr)}

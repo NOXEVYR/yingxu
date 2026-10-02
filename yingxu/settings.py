@@ -16,6 +16,7 @@ DEFAULTS = {
     'default_view': 'grid',
     'default_sort': 'updated',
     'appearance_theme': 'swiss',
+    'workspace_layout': 'focus',
     'autoplay_media': False,
     'capture_enabled': True,
     'capture_hotkey': 'Ctrl+Alt+Shift+S',
@@ -25,7 +26,9 @@ DEFAULTS = {
     'automatic_update_download': True,
 }
 OPTIONS = {'default_view': {'grid','list','board'}, 'default_sort': {'updated','name','order'},
-           'capture_mode': {'quick','annotate'}, 'appearance_theme': {'swiss','pine','paper'}}
+           'capture_mode': {'quick','annotate'},
+           'appearance_theme': {'swiss','graphite','paper','pine','ocean','plum'},
+           'workspace_layout': {'classic','focus'}}
 
 
 class Settings:

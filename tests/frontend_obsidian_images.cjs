@@ -13,7 +13,7 @@ assert.match(context.render('![[图 片.png|120]]',resolver),/width="120"/);asse
 for(const raw of ['`![[a.png]]`','``![[a.png]]``','\\![[a.png]]'])assert.doesNotMatch(context.render(raw,resolver),/<img/);
 assert.equal(calls,1);
 assert.match(context.render('![[a.png|120x80]]',resolver),/height:80px;object-fit:contain/);
-const deps=path.join(root,'tools/markdown-editor/node_modules'),esbuild=require(path.join(deps,'esbuild'));
+const deps=process.env.YINGXU_MARKDOWN_TEST_DEPENDENCIES?path.resolve(process.env.YINGXU_MARKDOWN_TEST_DEPENDENCIES):path.join(root,'tools/markdown-editor/node_modules'),esbuild=require(path.join(deps,'esbuild'));
 const source=fs.readFileSync(path.join(root,'frontend/live-markdown-source.mjs'),'utf8');
 const built=esbuild.buildSync({stdin:{contents:source+'\nexport {buildEditorState,previewDecorations,LocalImageWidget};',resolveDir:path.join(root,'frontend'),loader:'js'},nodePaths:[deps],bundle:true,write:false,platform:'node',format:'cjs'});
 const loaded=new Module(path.join(root,'obsidian-test.cjs'),module);loaded.filename=path.join(root,'obsidian-test.cjs');loaded._compile(built.outputFiles[0].text,loaded.filename);const api=loaded.exports;

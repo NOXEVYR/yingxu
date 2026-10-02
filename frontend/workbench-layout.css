@@ -1,0 +1,70 @@
+/* Contextual navigation changes the shell only, never the document host. */
+.workspace.skill-focus-view{grid-template-columns:minmax(0,1fr)}
+.workspace.skill-focus-view>.inspector{display:none}
+.workspace.skill-library-view,.workspace.collaboration-workspace-view{grid-template-columns:minmax(0,1fr)}
+.workspace.skill-library-view>.inspector,.workspace.collaboration-workspace-view>.inspector{display:none}
+.skill-focus-view .library-toolbar{display:none}
+.skill-library-view .project-hero{padding:20px 26px 16px}
+.skill-library-view .hero-title{display:flex;align-items:center;gap:10px;font-size:24px;margin:0 0 7px}
+.skill-library-view .hero-description{font-size:13px;line-height:1.5;margin:0}
+.skill-focus-count{font:500 11px/1.8 var(--ui-font)}
+.skill-focus-navigation .nav-item>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-navigation-heading .icon-button{width:24px;height:24px}
+.skill-navigation-heading svg{width:14px;height:14px}
+.skill-tag-choices{display:flex;flex-wrap:wrap;gap:6px;max-height:300px;overflow:auto}
+.skill-tag-choices>button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1090px){.skill-library-view .project-hero{padding:18px 20px 13px}}
+
+.ai-support-details{grid-column:1/-1;padding:12px 0;border-top:1px solid var(--line);font-size:12px;min-width:0}.ai-support-details>summary{cursor:pointer;color:var(--muted);padding:4px 0}.ai-support-details[open]>div{padding-top:16px}
+
+/* Both modes share the same page. Only focus moves the task list to the sidebar. */
+.context-page{container:collaboration / inline-size}
+.collaboration-workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:0 24px;align-items:start;position:relative;min-width:0}
+.collaboration-main{min-width:0}
+.collaboration-tools-bar{grid-column:1/-1;display:none;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;font-size:12px;color:var(--muted)}
+.collaboration-tools{position:sticky;top:0;display:flex;flex-direction:column;min-width:0;height:610px;max-height:calc(100vh - 205px);border:1px solid var(--line);border-radius:8px;background:var(--panel-2);overflow:hidden}
+.collaboration-tools-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px 10px;font-size:13px}
+.collaboration-tools-close{display:none}
+.collaboration-tool-tabs{display:flex;gap:4px;margin:0 12px;padding:3px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.collaboration-tool-tabs>button{flex:1;border:0;border-radius:4px;padding:8px 6px;background:transparent;color:var(--muted);font:500 12px var(--ui-font);cursor:pointer}
+.collaboration-tool-tabs>button[aria-selected="true"]{background:var(--bg);color:var(--text);box-shadow:0 1px 3px #0000000d}
+.collaboration-tool-tabs>button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.collaboration-tool-panel{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;padding:16px;overflow-wrap:anywhere}
+.collaboration-tool-panel[hidden]{display:none}
+.collaboration-tool-panel .context-actions{align-items:center;gap:8px;padding:0 0 14px}
+.collaboration-tool-panel .handoff-card{padding:0 0 14px;margin:0 0 14px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+.collaboration-tool-panel .handoff-card h3,.collaboration-tool-panel .handoff-compose h3,.collaboration-tool-panel .mcp-connection h3{font-size:14px;line-height:1.5;margin:0 0 8px}
+.collaboration-tool-panel .handoff-card p,.collaboration-tool-panel .field-hint{font-size:11px;line-height:1.65}
+.collaboration-tool-panel .handoff-counts{gap:13px;margin:12px 0 0;padding:0;border:0;font-size:10px}
+.collaboration-tool-panel .handoff-counts strong{font-size:15px}
+.collaboration-tool-panel .handoff-compose{padding:0;margin:0 0 18px;border:0;background:transparent}
+.collaboration-tool-panel .fields-two{grid-template-columns:1fr;gap:0}
+.collaboration-tool-panel .field input,.collaboration-tool-panel .field textarea,.collaboration-tool-panel .field select{font-size:12px}
+.collaboration-tool-panel .context-path{padding:12px 0;border:0;border-top:1px solid var(--line);background:transparent;margin:0}
+.collaboration-tool-panel .context-path code{font-size:10px;max-height:72px;overflow:auto;white-space:normal}
+.collaboration-tool-panel .context-path .inline-link-button{display:block;margin:7px 0}
+.collaboration-tool-panel .context-preview{max-height:230px;overflow:auto;padding:10px;font-size:11px}
+.collaboration-tool-panel .settings-buttons{display:flex;gap:6px;flex-wrap:wrap}
+.collaboration-tool-panel .button{white-space:normal}
+.collaboration-tool-panel .handoff-output{max-height:240px;overflow:auto}
+.collaboration-tool-panel .mcp-address input{min-width:0}
+.collaboration-nav-tasks{display:flex;flex-direction:column;gap:3px}
+.collaboration-nav-task>span{min-width:0;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.45}
+.collaboration-nav-task small{display:block;margin-top:4px;color:var(--muted);font-size:10px;font-weight:400}
+.collaboration-nav-empty{font-size:11px;color:var(--muted);line-height:1.6;padding:0 10px}
+.collaboration-nav-page{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);padding:4px}
+.focus-workbench .collaboration-main .ai-task-list{display:none}
+.collaboration-main .ai-layout{grid-template-columns:170px minmax(0,1fr);gap:18px}
+.focus-workbench .collaboration-main .ai-layout{grid-template-columns:minmax(0,1fr)}
+@container collaboration (max-width:860px){
+  .collaboration-workspace{display:block}
+  .collaboration-tools-bar{display:flex}
+  .collaboration-tools{display:none;position:absolute;right:0;top:42px;z-index:18;width:min(340px,100%);height:610px;max-height:min(70vh,610px);box-shadow:var(--shadow);background:var(--bg)}
+  .collaboration-tools-open>.collaboration-tools{display:flex}
+  .collaboration-tools-close{display:inline-flex}
+}
+@media(max-width:900px){
+  .collaboration-workspace{display:block}.collaboration-tools-bar{display:flex}
+  .collaboration-tools{display:none;position:absolute;right:0;top:42px;z-index:18;width:min(340px,100%);height:610px;max-height:min(70vh,610px);box-shadow:var(--shadow);background:var(--bg)}
+  .collaboration-tools-open>.collaboration-tools{display:flex}.collaboration-tools-close{display:inline-flex}
+}

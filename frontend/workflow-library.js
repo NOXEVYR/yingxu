@@ -7,10 +7,11 @@ window.YingXuWorkflow = (() => {
   function create(env) {
     const {api,escapeHtml:e,icon,state,showDialog,toast,report,copyText} = env;
     const scopes = [['all','全部技能'],['favorites','我的收藏'],['project','本项目已绑定']];
-    let mountedRoot = null, selectionAnchor = null, sourcesExpanded = false;
+    let mountedRoot = null, selectionAnchor = null, sourcesExpanded = false, focusView = 'grid', queryComposing = false;
     let loadGeneration = 0;
     let folders = [], metadata = new Map();
     const organizationEnabled = () => !state.bootstrap || !!state.bootstrap.capabilities?.skill_organization;
+    const focused = () => !!env.focusLayout?.();
     const button = (action,label,id='') => `<button type="button" class="button button-ghost button-small" data-workflow="${action}" data-id="${e(id)}">${label}</button>`;
     async function load() {
       const generation = ++loadGeneration, projectId = state.projectId || '';
@@ -25,49 +26,126 @@ window.YingXuWorkflow = (() => {
       if(folder !== '*' && folder !== '' && !folders.some(x=>x.id===folder))folder='*';
       if(tag && ![...state.skills,...collections].some(x=>(metadata.get(x.skill_id || x.id)?.tags || x.tags || []).some(value=>value.toLocaleLowerCase()===tag.toLocaleLowerCase())))tag='';
       for(const c of result.categories || [])if(!categories.some(x=>x[0]===c.id))categories.push([c.id,c.label]);
+      env.onNavigationChange?.(navigation());
     }
-    function items(scope = view) {
+    function items(scope = view, filtered = true) {
       const organized = x => ({...x,...(metadata.get(x.skill_id || x.id) || {}),id:x.id,tags:metadata.get(x.skill_id || x.id)?.tags || x.tags || []});
       const external = state.skills.map(x=>organized({...x,collection:false}));
       const own = collections.filter(x=>!env.matchesCollectionSource || env.matchesCollectionSource(x)).map(x=>organized({...x,collection:true}));
       const collected = new Set(own.filter(x=>scope !== 'project' || x.bound).map(x=>x.skill_id));
       let result = scope === 'favorites' ? own : scope === 'project' ? [...own.filter(x=>x.bound),...external.filter(x=>x.bound && !collected.has(x.id))] : [...own,...external.filter(x=>!collected.has(x.id))];
       const query = state.q.trim().toLocaleLowerCase();
-      return result.filter(x=>(!category || x.category===category) && (folder==='*' || (x.folder_id || '')===folder) && (!tag || (x.tags||[]).some(t=>t.toLocaleLowerCase()===tag.toLocaleLowerCase())) && (!query || query.split(/\s+/).every(part=>`${x.name} ${x.description} ${x.path || ''} ${(x.tags||[]).join(' ')} ${x.notes || ''}`.toLocaleLowerCase().includes(part))));
+      return filtered ? result.filter(x=>(!category || x.category===category) && (folder==='*' || (x.folder_id || '')===folder) && (!tag || (x.tags||[]).some(t=>t.toLocaleLowerCase()===tag.toLocaleLowerCase())) && (!query || query.split(/\s+/).every(part=>`${x.name} ${x.description} ${x.path || ''} ${(x.tags||[]).join(' ')} ${x.notes || ''}`.toLocaleLowerCase().includes(part)))) : result;
+    }
+    function navigation() {
+      const rows=items(view,false),all=items('all',false);
+      const current={view,folder,tag,category};
+      const folderCounts=new Map(),tagCounts=new Map(),allTags=new Set();
+      for(const row of rows){const id=row.folder_id || '';folderCounts.set(id,(folderCounts.get(id)||0)+1);for(const value of new Set(row.tags || []))tagCounts.set(value,(tagCounts.get(value)||0)+1);}
+      for(const row of all)for(const value of row.tags || [])allTags.add(value);
+      return {scopes:scopes.map(([id,label])=>({id,label,count:items(id,false).length})),selected:{...current},current:{...current},organizationEnabled:organizationEnabled(),
+        folders:folders.map(x=>({...x,label:x.path || x.name,count:folderCounts.get(x.id)||0})),
+        unfiledCount:folderCounts.get('')||0,
+        tags:[...allTags].sort((a,b)=>a.localeCompare(b)).map(id=>({id,label:id,count:tagCounts.get(id)||0}))};
+    }
+    function navigate(next={}) {
+      
+      if(Object.hasOwn(next,'view')&&scopes.some(([key])=>key===next.view))view=next.view;
+      if(Object.hasOwn(next,'folder')&&(next.folder==='*'||next.folder===''||folders.some(x=>x.id===next.folder)))folder=next.folder;
+      if(Object.hasOwn(next,'tag'))tag=String(next.tag || '');
+      selected.clear();selectionAnchor=null;state.offset=0;env.render();
     }
     function folderOptions(current, all=false) {
       return `${all?`<option value="*" ${current==='*'?'selected':''}>全部分类</option>`:''}<option value="" ${current===''?'selected':''}>未归类</option>`+folders.map(x=>`<option value="${e(x.id)}" ${current===x.id?'selected':''}>${e(x.path || x.name)}</option>`).join('');
     }
-    function organizationHtml() {
+    function organizationHtml(controls=true) {
       if(!organizationEnabled())return '';
       const tags = [...new Set([...state.skills,...collections].flatMap(x=>metadata.get(x.skill_id || x.id)?.tags || x.tags || []))].sort((a,b)=>a.localeCompare(b));
       const children = folder===''?[]:folders.filter(x=>(x.parent_id || '')===(folder==='*'?'':folder));
       const current = folders.find(x=>x.id===folder);
-      return `<div class="skill-organization-intro"><strong>分类、标签与备注</strong><span>用个人文件夹分类；点卡片上的“分类 / 标签 / 备注”编辑，或右键整理。用途与来源可独立筛选。</span></div><div class="skill-organization-tools" aria-label="SKILL 分类文件夹和标签"><label>分类（文件夹）<select id="skillFolder">${folderOptions(folder,true)}</select></label><label>标签<select id="skillTag"><option value="">全部标签</option>${tags.map(x=>`<option value="${e(x)}" ${x===tag?'selected':''}>${e(x)}</option>`).join('')}</select></label>${button('new-folder',icon('folder')+'新建分类文件夹')}${current?button('edit-folder','编辑文件夹',current.id):''}</div>`+
+      return `<div class="skill-organization-intro"><strong>分类、标签与备注</strong><span>用个人文件夹分类；点卡片上的“整理”编辑，或右键整理。用途与来源可独立筛选。</span></div><div class="skill-organization-tools" aria-label="SKILL 分类文件夹和标签">${controls?`<label>分类（文件夹）<select id="skillFolder">${folderOptions(folder,true)}</select></label><label>标签<select id="skillTag"><option value="">全部标签</option>${tags.map(x=>`<option value="${e(x)}" ${x===tag?'selected':''}>${e(x)}</option>`).join('')}</select></label>`:''}${button('new-folder',icon('folder')+'新建分类文件夹')}${current?button('edit-folder','编辑文件夹',current.id):''}</div>`+
         (children.length || current ? `<nav class="skill-folder-path" aria-label="技能文件夹">${current?button('folder','返回上级',current.parent_id || '*')+`<span>${e(current.path || current.name)}</span>`:''}</nav><div class="skill-folder-tiles">${children.map(x=>`<button type="button" class="skill-folder-tile" data-workflow="folder" data-id="${e(x.id)}">${icon('folder')}<span>${e(x.name)}</span><small>${Number(x.count)||0}</small></button>`).join('')}</div>`:'');
+    }
+    function syncQuery() {
+      const input=mountedRoot?.querySelector('[data-workflow-query]');
+      if(!input || queryComposing)return;
+      if(input.value!==state.q)input.value=state.q;
+      const clear=mountedRoot.querySelector('[data-workflow-query-clear]');
+      if(clear)clear.hidden=!input.value;
+    }
+    function setQuery(value, immediate=false) {
+      if(env.setQuery)return env.setQuery(value,{immediate});
+      state.q=String(value);state.offset=0;syncQuery();env.render();
+    }
+    function mountSearch(root) {
+      let search=root.querySelector('[data-workflow-search]');
+      if(search)return search;
+      queryComposing=false;
+      search=document.createElement('div');search.className='skill-library-search';search.dataset.workflowSearch='';
+      search.innerHTML=`<label for="skillLibrarySearch">搜索 SKILL</label><div class="skill-library-search-field">${icon('search')}<input id="skillLibrarySearch" type="search" data-workflow-query placeholder="名称、用途、标签或备注…" autocomplete="off" spellcheck="false"><button type="button" class="icon-button" data-workflow-query-clear aria-label="清除 SKILL 搜索" title="清除搜索" hidden>${icon('close')}</button></div>`;
+      const input=search.querySelector('[data-workflow-query]'),clear=search.querySelector('[data-workflow-query-clear]');
+      input.addEventListener('compositionstart',()=>{queryComposing=true;env.cancelQuery?.();});
+      input.addEventListener('compositionend',()=>{queryComposing=false;setQuery(input.value);});
+      input.addEventListener('input',event=>{clear.hidden=!input.value;if(!queryComposing&&!event.isComposing)setQuery(input.value);});
+      clear.onclick=()=>{queryComposing=false;input.value='';setQuery('',true);syncQuery();input.focus();};
+      root.prepend(search);
+      return search;
     }
     function render(root) {
       mountedRoot = root;
       const rows=items(), ids=new Set(rows.map(x=>x.id)); selected=new Set([...selected].filter(id=>ids.has(id)));
       state.offset=Math.min(state.offset,Math.max(0,Math.ceil(rows.length/state.limit)-1)*state.limit);
-      root.className='resource-grid skill-grid skill-library-cards';
+      const focus=focused();
+      root.className='resource-grid skill-grid skill-library-cards skill-polished-library'+(focus?' skill-focus-library':'')+(focusView==='list'?' skill-focus-list':'');
+      // Keep this input connected across card/filter/page renders, including IME composition.
+      const search=mountSearch(root);syncQuery();
+      let body=root.querySelector('[data-workflow-body]');
+      if(!body){body=document.createElement('div');body.dataset.workflowBody='';root.append(body);}
+      // Replace loader skeletons or old result placeholders without detaching the live query.
+      for(const child of [...root.childNodes])if(child!==search && child!==body)child.remove();
       const empty = state.q || category || tag || env.hasSourceFilter?.() ? '没有符合筛选条件的技能。' : folder!=='*' ? '这个文件夹还没有技能。可在全部技能中框选，再点“分类 / 标签（所选）”。' : view==='project' ? '当前项目尚未绑定技能，已扫描的技能仍在全部技能中。' : view==='favorites' ? '还没有收藏技能，可以从全部技能中选择。' : '尚未发现技能，请扫描本机 SKILL 或登记扫描位置。';
-      root.innerHTML=`<div class="skill-library-tools" role="group" aria-label="SKILL 范围">${scopes.map(([key,label])=>`<button type="button" class="button button-secondary button-small ${view===key?'active':''}" data-workflow="view" data-id="${key}" aria-pressed="${view===key}">${label} <small>${items(key).length}</small></button>`).join('')}<select id="skillPurpose" aria-label="按用途筛选">${categories.map(([id,label])=>`<option value="${id}" ${id===category?'selected':''}>${label}</option>`).join('')}</select><details class="skill-library-more"><summary>更多</summary><div>${button('builtin','内置规范')}${button('shared-library','曜核 / 客户端接入')}</div></details></div>`+`<details class="skill-library-sources" ${sourcesExpanded?'open':''}><summary>来源筛选 · ${e(env.sourceSummary?.() || '全部来源')}</summary>${env.sourcesHtml()}</details>${organizationHtml()}<div class="skill-library-selection"><span data-workflow-count></span><span data-workflow-batch hidden>${button('batch-collect','收藏所选')}${organizationEnabled()?button('batch-organize','分类 / 标签（所选）'):button('batch-category','分类所选')}${button('batch-bind','绑定所选')}${button('clear-selection','取消选择')}</span></div>`+
-        (rows.length?rows.slice(state.offset,state.offset+state.limit).map(x=>`<article class="skill-card" tabindex="0" role="button" data-workflow-card="${e(x.id)}" ${!x.collection?`data-skill="${e(x.id)}"`:`data-workflow-collection="${e(x.id)}"`} aria-label="打开 ${e(x.name)}"><div class="skill-card-top"><span class="skill-symbol">${icon('skills')}</span><span class="skill-source">${e(x.collection?'我的收藏':x.source_label || x.source || '本机')}</span><input type="checkbox" data-workflow-select="${e(x.id)}" aria-label="选择 ${e(x.name)}"></div><h3>${e(x.name)}</h3><p>${e(x.description || '查看技能说明')}</p>${organizationEnabled()?`<div class="skill-card-organization">${button('organize','分类 / 标签 / 备注',x.id)}</div>`:''}<div class="skill-card-bottom"><span>${e(categories.find(c=>c[0]===x.category)?.[1] || (x.editable?'可编辑':'只读源文件'))}${x.bound?' · 项目已启用':''}</span>${x.collection?button('classify','用途',x.id)+button('versions','版本',x.id)+button('bind',x.bound?'解绑':'绑定',x.id):button('collect','收藏',x.id)+`<button type="button" class="icon-button" data-skill-menu="${e(x.id)}" title="SKILL 选项" aria-label="${e(x.name)} SKILL 选项">${icon('more')}</button>`}</div>${x.folder_id?`<small class="skill-card-folder">${icon('folder')}${e(folders.find(f=>f.id===x.folder_id)?.path || '')}</small>`:''}${x.tags?.length?`<small class="skill-card-tags">${e(x.tags.join(' / '))}</small>`:''}${x.notes?`<small class="skill-card-notes" title="${e(x.notes)}">备注：${e(x.notes)}</small>`:''}</article>`).join(''):`<div class="skill-library-empty"><p>${empty}</p>${button('browse-all','查看全部技能')}</div>`);
-      root.querySelector('#skillPurpose').onchange=event=>{category=event.target.value;state.offset=0;render(root);};
+      const purposes=`<select id="skillPurpose" aria-label="按用途筛选">${categories.map(([id,label])=>`<option value="${id}" ${id===category?'selected':''}>${label}</option>`).join('')}</select>`;
+      const sources=`<details class="skill-library-sources" ${sourcesExpanded?'open':''}><summary>来源 · ${e(env.sourceSummary?.() || '全部来源')}</summary><div class="skill-focus-source-panel">${env.sourcesHtml()}</div></details>`;
+      const current=folders.find(x=>x.id===folder);
+      const organization=organizationEnabled()?`<details class="skill-focus-organization"><summary>个人分类管理</summary>${organizationHtml(focus)}</details>`:'';
+      const more=`<details class="skill-library-more"><summary aria-label="技能库管理">${icon('more')}<span>管理</span></summary><div><button type="button" class="button button-ghost button-small" data-action="new-skill">${icon('plus')}创建 SKILL</button>${button('builtin','内置规范')}${button('shared-library','曜核 / 客户端接入')}${organization}</div></details>`;
+      const chips=`${folder!=='*'?button('folder',icon('close')+e(folder===''?'未归类':current?.path || '个人分类'),'*'):''}${tag?button('tag',icon('close')+e(tag),''):''}${category||folder!=='*'||tag||state.q||env.hasSourceFilter?.()?button('browse-all','清除筛选'):''}`;
+      const classicFilters=focus?'':`<div class="skill-library-inline-navigation" aria-label="技能范围与个人分类"><div class="skill-library-scopes" role="group" aria-label="SKILL 范围">${scopes.map(([key,label])=>`<button type="button" class="button button-secondary button-small ${view===key?'active':''}" data-workflow="view" data-id="${key}" aria-pressed="${view===key}">${label} <small>${items(key,false).length}</small></button>`).join('')}</div>${organizationEnabled()?`<label>分类（文件夹）<select id="skillFolder">${folderOptions(folder,true)}</select></label><label>标签<select id="skillTag"><option value="">全部标签</option>${navigation().tags.map(x=>`<option value="${e(x.id)}" ${x.id===tag?'selected':''}>${e(x.label)}</option>`).join('')}</select></label>`:''}</div>`;
+      body.innerHTML=classicFilters+`<div class="skill-library-tools" role="group" aria-label="技能库工具"><label class="skill-focus-select-page"><input type="checkbox" data-workflow-select-page aria-label="选择本页全部技能">全选</label>${purposes}${sources}<span class="skill-focus-filter-chips">${chips}</span><div class="skill-focus-view" role="group" aria-label="技能显示方式">${button('card-view',icon('grid'),'grid')}${button('card-view',icon('list'),'list')}</div>${more}</div><div class="skill-library-selection"><span data-workflow-count></span><span data-workflow-batch hidden>${button('batch-collect','收藏所选')}${organizationEnabled()?button('batch-organize','分类 / 标签（所选）'):button('batch-category','分类所选')}${button('batch-bind','绑定所选')}${button('clear-selection','取消选择')}</span></div>`+
+        (rows.length?rows.slice(state.offset,state.offset+state.limit).map(focusCard).join(''):`<div class="skill-library-empty"><h3>${state.q||category||tag||env.hasSourceFilter?.()?'没有匹配的技能':'这里暂时没有技能'}</h3><p>${empty}</p>${button('browse-all','查看全部技能')}</div>`);
+      root.querySelector('#skillPurpose').onchange=event=>{category=event.target.value;selected.clear();state.offset=0;render(root);};
       root.querySelector('#skillFolder')?.addEventListener('change',event=>action('folder',event.target.value).catch(report));
-      root.querySelector('#skillTag')?.addEventListener('change',event=>{tag=event.target.value;selected.clear();state.offset=0;render(root);});
-      root.querySelectorAll('[data-workflow-select]').forEach(node=>{node.onclick=event=>event.stopPropagation();node.onchange=()=>{node.checked?selected.add(node.dataset.workflowSelect):selected.delete(node.dataset.workflowSelect);updateSelection();};});
+      root.querySelector('#skillTag')?.addEventListener('change',event=>navigate({tag:event.target.value}));
+      root.querySelectorAll('[data-workflow-select]').forEach(node=>{node.onclick=event=>event.stopPropagation();node.onchange=()=>{selectionAnchor=node.dataset.workflowSelect;node.checked?selected.add(node.dataset.workflowSelect):selected.delete(node.dataset.workflowSelect);updateSelection();};});
+      const selectPage=root.querySelector('[data-workflow-select-page]');if(selectPage)selectPage.onchange=()=>{for(const row of rows.slice(state.offset,state.offset+state.limit))selectPage.checked?selected.add(row.id):selected.delete(row.id);updateSelection();};
       root.querySelectorAll('[data-workflow]').forEach(node=>node.onclick=event=>{event.stopPropagation(); action(node.dataset.workflow,node.dataset.id).catch(report);});
-      root.querySelectorAll('[data-workflow-card]').forEach(node=>{
-        const activate=event=>{if(event.target.closest('button,input,summary'))return;event.stopPropagation();const id=node.dataset.workflowCard;
-          if(event.ctrlKey || event.metaKey || event.shiftKey){const page=rows.slice(state.offset,state.offset+state.limit).map(x=>x.id);if(event.shiftKey && page.includes(selectionAnchor)){const a=page.indexOf(selectionAnchor),b=page.indexOf(id);page.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>selected.add(x));}else{selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;}updateSelection();return;}
-          action('open',id).catch(report);
-        };node.onclick=activate;node.onkeydown=event=>{if(event.target!==node || !['Enter',' '].includes(event.key))return;event.preventDefault();event.stopPropagation();if(event.key===' '){const id=node.dataset.workflowCard;selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;updateSelection();}else activate(event);};
+      root.querySelectorAll('[data-workflow-collection]').forEach(node=>{
+        const own=collections.find(x=>x.id===node.dataset.workflowCollection),source=state.skills.find(x=>x.id===own?.skill_id);
+        if(!source?.editable)return;
+        const edit=document.createElement('button');edit.type='button';edit.className='button button-ghost button-small';edit.textContent='编辑自建原文';
+        edit.onclick=event=>{event.stopPropagation();env.openSkill(source.id).catch(report);};
+        node.querySelector('.skill-focus-card-more>div').append(edit);
       });
+      root.querySelectorAll('[data-workflow-card]').forEach(node=>{
+        const activate=event=>{if(event.target.closest('label')){event.stopPropagation();return;}if(event.target.closest('button,input,summary,select,textarea'))return;event.stopPropagation();if(event.target.closest('.skill-focus-card-more'))return;const id=node.dataset.workflowCard;
+          if(event.ctrlKey || event.metaKey || event.shiftKey){const page=rows.slice(state.offset,state.offset+state.limit).map(x=>x.id);if(event.shiftKey && page.includes(selectionAnchor)){const a=page.indexOf(selectionAnchor),b=page.indexOf(id);page.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>selected.add(x));}else{selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;}updateSelection();return;}
+          selected=new Set([id]);selectionAnchor=id;updateSelection();
+        };node.onclick=activate;
+        node.ondblclick=event=>{if(event.target.closest('button,input,summary,select,textarea,label')||event.ctrlKey||event.metaKey||event.shiftKey)return;event.preventDefault();event.stopPropagation();action('open',node.dataset.workflowCard).catch(report);};
+        node.onkeydown=event=>{if(event.target!==node || !['Enter',' '].includes(event.key))return;event.preventDefault();event.stopPropagation();if(event.key===' '){if(event.shiftKey){activate(event);return;}const id=node.dataset.workflowCard;selected.has(id)?selected.delete(id):selected.add(id);selectionAnchor=id;updateSelection();}else if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey){selected=new Set([node.dataset.workflowCard]);selectionAnchor=node.dataset.workflowCard;updateSelection();action(organizationEnabled()?'organize':'open',node.dataset.workflowCard).catch(report);}else activate(event);};
+      });
+      root.querySelectorAll('.skill-focus-card-more summary').forEach(node=>node.onclick=event=>{event.stopPropagation();});
+      root.querySelectorAll('[data-workflow="card-view"]').forEach(node=>{const on=node.dataset.id===focusView;node.setAttribute('aria-pressed',String(on));node.setAttribute('aria-label',node.dataset.id==='grid'?'卡片视图':'列表视图');node.title=node.getAttribute('aria-label');node.classList.toggle('active',on);});
       root.querySelector('#skillSourceDirectory')?.addEventListener('change',event=>env.setSource(event.target.value).catch(report));
       root.querySelector('.skill-library-sources').ontoggle=event=>{sourcesExpanded=event.target.open;};
-      updateSelection();env.pagination(rows.length,scopes.find(x=>x[0]===view)[1]);
+      updateSelection();env.pagination(rows.length,focus?'SKILL 库':scopes.find(x=>x[0]===view)[1]);env.onNavigationChange?.(navigation());
+    }
+    function focusCard(x) {
+      const purpose=categories.find(c=>c[0]===x.category)?.[1] || '未分类用途';
+      const source=x.collection?x.origin?.source_label || state.skills.find(s=>s.id===x.skill_id)?.source_label || '收藏来源':x.source_label || x.source || (x.editable?'映序自建':'本机');
+      const folderLabel=folders.find(f=>f.id===x.folder_id)?.path || '未归类';
+      const star='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L2.9 9.6l6.3-.9L12 3Z"/></svg>';
+      return `<article class="skill-card" tabindex="0" role="button" data-workflow-card="${e(x.id)}" ${x.collection?`data-workflow-collection="${e(x.id)}"`:`data-skill="${e(x.id)}"`} aria-label="选择 ${e(x.name)}；双击阅读"><div class="skill-card-top"><label class="skill-focus-checkbox"><input type="checkbox" data-workflow-select="${e(x.id)}" aria-label="选择 ${e(x.name)}"></label><span class="skill-focus-purpose" title="用途：${e(purpose)}">${e(purpose)}</span><div class="skill-focus-card-actions">${organizationEnabled()?`<button type="button" class="skill-focus-organize" data-workflow="organize" data-id="${e(x.id)}" title="分类 / 标签 / 备注" aria-label="整理 ${e(x.name)}">整理</button>`:''}<button type="button" class="icon-button skill-focus-star ${x.collection?'collected':''}" data-workflow="${x.collection?'versions':'collect'}" data-id="${e(x.id)}" aria-label="${e(x.name)}${x.collection?'已收藏；查看固定版本':'收藏完整包'}" title="${x.collection?'已收藏 · 查看固定版本':'收藏完整技能包'}">${star}</button><details class="skill-focus-card-more"><summary aria-label="${e(x.name)}更多操作" title="更多操作">${icon('more')}</summary><div>${button('open','阅读技能说明',x.id)}${organizationEnabled()?button('organize','分类 / 标签 / 备注',x.id):''}${x.collection?button('classify','编辑用途',x.id)+button('versions','版本管理',x.id)+`<button type="button" class="button button-ghost button-small" data-workflow="bind" data-id="${e(x.id)}" ${state.projectId?'':'disabled title="先打开项目才能绑定"'}>${x.bound?'解除项目绑定':'绑定当前收藏版本'}</button>`:button('collect','收藏完整技能包',x.id)+`<button type="button" class="button button-ghost button-small" data-skill-menu="${e(x.id)}">${x.editable?'编辑 / 原文件操作':'定位 / 隐藏只读源文件'}</button>`}</div></details></div></div><div class="skill-focus-copy"><h3>${e(x.name)}</h3><p>${e(x.description || '查看技能说明')}</p></div><div class="skill-focus-metadata"><span class="skill-source" title="来源：${e(source)}">${e(source)}</span>${x.bound?`<span class="skill-focus-bound" title="${x.collection&&x.bound_version?'项目固定版本：'+e(x.bound_version):'旧项目绑定，尚未固定收藏版本'}">${icon('check')}${x.collection&&x.bound_version?'固定 '+e(x.bound_version.slice(0,8)):'旧绑定 · 未固定'}</span>`:''}</div><div class="skill-card-bottom"><small class="skill-card-folder" title="个人分类：${e(folderLabel)}">${icon('folder')}${e(folderLabel)}</small><small class="skill-card-tags" title="${e((x.tags || []).join(' / '))}">${(x.tags || []).slice(0,3).map(t=>`<button type="button" class="skill-focus-tag" data-workflow="tag" data-id="${e(t)}">${e(t)}</button>`).join('')}${x.tags?.length>3?`<span>+${x.tags.length-3}</span>`:''}</small></div>${x.notes?`<small class="skill-card-notes" title="${e(x.notes)}">备注：${e(x.notes)}</small>`:''}</article>`;
     }
     function updateSelection() {
       if(!mountedRoot)return;
@@ -75,7 +153,10 @@ window.YingXuWorkflow = (() => {
       mountedRoot.querySelectorAll('[data-workflow-select]').forEach(node=>node.checked=selected.has(node.dataset.workflowSelect));
       const count=mountedRoot.querySelector('[data-workflow-count]');if(count)count.textContent=selected.size?`已选 ${selected.size} 项`:'在卡片间的空白处拖动可框选；Ctrl / Shift 可多选。';
       const batch=mountedRoot.querySelector('[data-workflow-batch]');if(batch){batch.hidden=!selected.size;const own=[...selected].some(id=>collections.some(x=>x.id===id)),external=[...selected].some(id=>!collections.some(x=>x.id===id));batch.querySelector('[data-workflow="batch-collect"]').disabled=!external;const classify=batch.querySelector('[data-workflow="batch-category"]');if(classify)classify.disabled=!own;batch.querySelector('[data-workflow="batch-bind"]').disabled=!own || !state.projectId;}
+      mountedRoot.querySelector('.skill-library-selection')?.classList.toggle('has-selection',!!selected.size);
+      const page=mountedRoot.querySelector('[data-workflow-select-page]');if(page){const ids=[...mountedRoot.querySelectorAll('[data-workflow-card]')].map(x=>x.dataset.workflowCard),count=ids.filter(id=>selected.has(id)).length;page.checked=ids.length>0&&count===ids.length;page.indeterminate=count>0&&count<ids.length;}
     }
+    function selectionContext() {return [view,category,folder,tag,state.q,focused(),focusView].join('|');}
     async function refresh() { await load(); env.render(); }
     function editFolder(id='') {
       const own = folders.find(x=>x.id===id), parent = own?.parent_id || (folder!=='*'?folder:'');
@@ -120,10 +201,13 @@ window.YingXuWorkflow = (() => {
       await env.reloadSkills();await refresh();toast(bound?'已绑定当前收藏版本。':'已解绑，收藏与源文件保留。');
     }
     async function action(name,id) {
-      if(name==='view'){view=id;selected.clear();state.offset=0;return env.render();}
+      
+      if(name==='view')return navigate({view:id});
       if(name==='clear-selection'){selected.clear();return updateSelection();}
-      if(name==='browse-all'){view='all';category='';folder='*';tag='';selected.clear();state.q='';state.offset=0;await env.resetFilters?.();return env.render();}
-      if(name==='folder'){folder=id;selected.clear();state.offset=0;return env.render();}
+      if(name==='browse-all'){view='all';category='';folder='*';tag='';selected.clear();state.q='';state.offset=0;setQuery('',true);await env.resetFilters?.();return env.render();}
+      if(name==='folder')return navigate({folder:id});
+      if(name==='tag')return navigate({tag:id});
+      if(name==='card-view'){focusView=id==='list'?'list':'grid';return env.render();}
       if(name==='new-folder')return editFolder();
       if(name==='edit-folder')return editFolder(id);
       if(name==='organize')return organize([id]);
@@ -140,7 +224,7 @@ window.YingXuWorkflow = (() => {
       }
       if(name==='collect')return collect([id]);
       if(name==='classify')return classify([id]);
-      if(name==='bind')return bind([id],!own.bound);
+      if(name==='bind')return own?bind([id],!own.bound):toast('请先确认收藏完整技能包，再绑定收藏版本。','info');
       if(name==='batch-collect')return collect([...selected].filter(id=>!collections.some(x=>x.id===id)));
       if(name==='batch-category')return classify([...selected].filter(id=>collections.some(x=>x.id===id)));
       if(name==='batch-bind')return bind([...selected].filter(id=>collections.some(x=>x.id===id)));
@@ -157,8 +241,8 @@ window.YingXuWorkflow = (() => {
         return showDialog({title:'与曜核和客户端共享',subtitle:'共享固定版本的技能目录，不需要因端口改变重复收藏。',body:`<p>在支持自定义 SKILL 目录的客户端中登记下方目录。映序不改写其他客户端的配置。</p><input readonly aria-label="共享目录" value="${e(info.path||info.root||'')}"><p class="field-hint">已生成版本清单；${info.skipped_unpinned?.length ? `有 ${info.skipped_unpinned.length} 项旧绑定未固定版本，未导出。请先收藏并固定版本。` : ''}可访问不等于已加载或执行。远程客户端无法直接读取本机目录时，需要传递完整技能包。</p>`,actions:'<button type="button" class="button button-primary" data-dialog-cancel>完成</button>'});
       }
     }
-    function mountHandoff(root) {
-      window.YingXuMCP?.mount(root,{api,state,escapeHtml:e,copyText,toast,report});
+    function mountHandoff(root,{mcp=true}={}) {
+      if(mcp)window.YingXuMCP?.mount(root,{api,state,escapeHtml:e,copyText,toast,report});
       if(handoffProject!==state.projectId){handoffProject=state.projectId;handoffDraft={client_id:'codex',conversation_id:'',task:''};try{const saved=JSON.parse(env.storage?.get('yingxu:handoff:'+state.projectId)||'null');if(saved && typeof saved.client_id==='string' && typeof saved.conversation_id==='string')handoffDraft={...handoffDraft,client_id:saved.client_id,conversation_id:saved.conversation_id};}catch{}}
       const chosen=state.handoffSelection?.projectId===state.projectId?[...state.handoffSelection.ids]:[...state.selectedIds];
       const section=document.createElement('section');section.className='handoff-compose';
@@ -186,7 +270,7 @@ window.YingXuWorkflow = (() => {
         }catch(err){if(alive())report(err);}finally{busy=false;if(alive())q('[data-generate]').disabled=false;}
       };
     }
-    return {load,render,mountHandoff,action,getSelection:()=>selected,setSelection:ids=>{selected=new Set(ids);updateSelection();},selectionContext:()=>[view,category,folder,tag,state.q].join('|')};
+    return {load,render,syncQuery,mountHandoff,action,navigation,navigate,getSelection:()=>selected,setSelection:ids=>{selected=new Set(ids);updateSelection();},selectionContext};
   }
   return {create};
 })();

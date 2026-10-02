@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -18,6 +19,8 @@ SDK_VERSION = "1.0.4191.47"
 SDK_SHA256 = "f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0"
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "desktop"
+sys.path.insert(0, str(ROOT / 'tools'))
+from build_identity import read_identity, generated_native_source, generated_native_manifest, require_native_identity
 
 
 def cleanup_integration_fixture(value):
@@ -51,8 +54,10 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--manifest-output", type=Path, help="Optional separate build record for a staged EXE")
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--isolated-test-units", action="store_true", help="Only bounded parameter/identity tests; no GUI or service startup")
     parser.add_argument("--alias-root", type=Path, help="Optional existing junction to test against the physical application folder")
     args = parser.parse_args()
+    identity = read_identity(ROOT)
     if hashlib.sha256(args.sdk_package.read_bytes()).hexdigest() != SDK_SHA256:
         raise SystemExit("WebView2 SDK archive SHA-256 does not match the pinned official package.")
     compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -62,6 +67,14 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="yingxu-desktop-build-") as temporary:
         folder = Path(temporary)
+        identity_source = folder / 'BuildIdentity.cs'
+        identity_source.write_bytes(generated_native_source(identity))
+        native_manifest = folder / 'app.manifest'
+        native_manifest.write_bytes(generated_native_manifest(DESKTOP / 'app.manifest', identity))
+        def compile_native(command, **kwargs):
+            # Legacy csc treats /target following an input as a new output group.
+            # Keep the generated input after every compiler option.
+            return subprocess.run(command + [str(identity_source)], **kwargs)
         members = {
             "Microsoft.Web.WebView2.Core.dll": "lib/net462/Microsoft.Web.WebView2.Core.dll",
             "Microsoft.Web.WebView2.WinForms.dll": "lib/net462/Microsoft.Web.WebView2.WinForms.dll",
@@ -75,16 +88,16 @@ def main():
                   "/reference:System.dll", "/reference:System.Core.dll", "/reference:System.Web.Extensions.dll"]
         if args.test:
             tests = folder / "desktop-tests.exe"
-            subprocess.run(common + ["/target:exe", f"/out:{tests}", str(DESKTOP / "Core.cs"),
+            compile_native(common + ["/target:exe", f"/out:{tests}", str(DESKTOP / "Core.cs"),
                                       str(DESKTOP / "Integration.cs"),
                                       str(DESKTOP / "Tests.cs")], check=True)
             subprocess.run([str(tests), str(ROOT)] + ([str(args.alias_root)] if args.alias_root else []), check=True)
             folder_tests = folder / "folder-foreground-tests.exe"
-            subprocess.run(common + ["/target:exe", f"/out:{folder_tests}", str(DESKTOP / "Core.cs"),
+            compile_native(common + ["/target:exe", f"/out:{folder_tests}", str(DESKTOP / "Core.cs"),
                 str(DESKTOP / "Integration.cs"), str(DESKTOP / "FolderForegroundTests.cs")], check=True)
             subprocess.run([str(folder_tests)], check=True, timeout=15)
             capture_tests = folder / "capture-tests.exe"
-            subprocess.run(common + ["/target:exe", f"/out:{capture_tests}",
+            compile_native(common + ["/target:exe", f"/out:{capture_tests}",
                 "/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll",
                 str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"),
                 str(DESKTOP / "Capture.cs"), str(DESKTOP / "CaptureTests.cs")], check=True)
@@ -94,41 +107,41 @@ def main():
             browser_refs = ["/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll",
                             f"/reference:{folder / 'Microsoft.Web.WebView2.Core.dll'}",
                             f"/reference:{folder / 'Microsoft.Web.WebView2.WinForms.dll'}"]
-            subprocess.run(common + browser_refs + ["/target:exe", f"/out:{smoke}",
-                f"/win32manifest:{DESKTOP / 'app.manifest'}", str(DESKTOP / 'Core.cs'), str(DESKTOP / 'RuntimeCheck.cs')], check=True)
+            compile_native(common + browser_refs + ["/target:exe", f"/out:{smoke}",
+                f"/win32manifest:{native_manifest}", str(DESKTOP / 'Core.cs'), str(DESKTOP / 'RuntimeCheck.cs')], check=True)
             subprocess.run([str(smoke), str(ROOT)], check=True, timeout=55)
         exe = folder / "YingXu.exe"
         command = common + ["/target:winexe", f"/out:{exe}",
             "/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll",
             f"/reference:{folder / 'Microsoft.Web.WebView2.Core.dll'}",
             f"/reference:{folder / 'Microsoft.Web.WebView2.WinForms.dll'}",
-            f"/win32manifest:{DESKTOP / 'app.manifest'}", f"/win32icon:{DESKTOP / 'brand.ico'}",
+            f"/win32manifest:{native_manifest}", f"/win32icon:{DESKTOP / 'brand.ico'}",
             f"/resource:{DESKTOP / 'brand.ico'},brand.ico"]
         for name in ('quick-reader.html', 'quick-reader.css', 'quick-reader.js', 'markdown-preview.js', 'obsidian-images.js'):
             command.append(f"/resource:{ROOT / 'frontend' / name},{name}")
         for name in members:
             command.append(f"/resource:{folder / name},{name}")
-        subprocess.run(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs")], check=True)
+        compile_native(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs")], check=True)
         if args.test:
             instance_tests = folder / "single-instance-tests.exe"
-            subprocess.run(common + ["/target:exe", f"/out:{instance_tests}", str(DESKTOP / "Core.cs"),
+            compile_native(common + ["/target:exe", f"/out:{instance_tests}", str(DESKTOP / "Core.cs"),
                 str(DESKTOP / "Integration.cs"), str(DESKTOP / "SingleInstanceTests.cs")], check=True)
             subprocess.run([str(instance_tests), str(exe)], check=True, timeout=35)
             lifecycle = folder / "lifecycle-tests.exe"
             lifecycle_command = [value for value in command if not value.startswith('/target:') and not value.startswith('/out:')]
-            subprocess.run(lifecycle_command + ["/target:exe", f"/out:{lifecycle}", "/main:YingXu.Desktop.LifecycleTests",
-                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
+            compile_native(lifecycle_command + ["/target:exe", f"/out:{lifecycle}", "/main:YingXu.Desktop.LifecycleTests",
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
                 str(DESKTOP / "LifecycleTests.cs")], check=True)
             subprocess.run([str(lifecycle),str(ROOT)],check=True,timeout=30)
             update_tests = folder / "incremental-install-tests.exe"
-            subprocess.run(lifecycle_command + ["/target:exe", f"/out:{update_tests}", "/main:YingXu.Desktop.IncrementalInstallTests",
-                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"),
+            compile_native(lifecycle_command + ["/target:exe", f"/out:{update_tests}", "/main:YingXu.Desktop.IncrementalInstallTests",
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"),
                 str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
                 str(DESKTOP / "IncrementalInstallTests.cs")], check=True)
             subprocess.run([str(update_tests),str(ROOT)],check=True,timeout=30)
             reader_tests = folder / "quick-reader-tests.exe"
-            subprocess.run(lifecycle_command + ["/target:exe", f"/out:{reader_tests}", "/main:YingXu.Desktop.QuickReaderTests",
-                str(DESKTOP / "Core.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),
+            compile_native(lifecycle_command + ["/target:exe", f"/out:{reader_tests}", "/main:YingXu.Desktop.QuickReaderTests",
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),
                 str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickReaderTests.cs")], check=True)
             reader_result = subprocess.run([str(reader_tests), str(ROOT)], capture_output=True, text=True, encoding='utf-8', timeout=90)
             print(reader_result.stdout, end='')
@@ -148,11 +161,24 @@ def main():
                         if not line.startswith('ZOOM_FIXTURE_CLEANUP_AFTER_EXIT='): continue
                         cleanup_integration_fixture(line.split('=', 1)[1])
                     integration.check_returncode()
+        if args.isolated_test_units:
+            units = folder / "isolated-startup-tests.exe"
+            unit_command = ["/target:exe" if item == "/target:winexe" else f"/out:{units}" if item.startswith("/out:") else item for item in command]
+            compile_native(unit_command + ["/main:YingXu.Desktop.IsolatedStartupTests", str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "IsolatedStartupTests.cs")], check=True)
+            unit_result = subprocess.run([str(units)], check=True, capture_output=True, text=True, encoding="utf-8", timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            print(unit_result.stdout, end="")
+        metadata = require_native_identity(exe, identity)
+        if read_identity(ROOT) != identity:
+            raise ValueError('Application identity source changed during native compilation.')
         shutil.copy2(exe, output)
     result = {"exe": output.name, "bytes": output.stat().st_size,
               "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
               "architecture": "x64", "subsystem": "Windows GUI", "sdk": SDK_VERSION,
               "sdk_sha256": SDK_SHA256, "contains_user_data": False}
+    result.update(identity.metadata())
+    result.update(metadata)
+    result['generated_identity_sha256'] = hashlib.sha256(generated_native_source(identity)).hexdigest()
+    result['generated_manifest_sha256'] = hashlib.sha256(generated_native_manifest(DESKTOP / 'app.manifest', identity)).hexdigest()
     manifest = args.manifest_output or DESKTOP / "build.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -50,3 +50,108 @@
 .automatic-update-notice{position:fixed;right:20px;bottom:35px;z-index:80;background:var(--panel,#fff);color:var(--text,#202327);border:1px solid var(--line,#d1d5db);box-shadow:0 4px 20px #0002;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 40px)}
 .automatic-update-notice[hidden]{display:none}
 @media(max-width:900px){.skill-library-row{flex-wrap:wrap}.skill-library-row .skill-actions{margin-left:28px}.skill-library-tools{gap:4px}}
+
+/* Focus mode preserves workflow identities and the resource viewport's marquee. */
+.skill-polished-library{grid-template-columns:repeat(auto-fill,minmax(265px,1fr));gap:13px;min-width:0}
+.skill-polished-library .skill-library-tools{gap:9px;padding:0 0 2px;min-width:0;align-items:center;position:relative;z-index:5}
+.skill-polished-library .skill-library-tools .button,.skill-polished-library .skill-library-tools select{font-size:12px;min-height:32px}
+.skill-polished-library .skill-focus-select-page{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer}
+.skill-polished-library input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);margin:0;flex-shrink:0}
+.skill-polished-library .skill-library-sources{position:relative;grid-column:auto;margin:0;font-size:12px}
+.skill-polished-library .skill-library-sources>summary{padding:7px 10px;border:1px solid var(--line);border-radius:5px;background:var(--bg);list-style:none;max-width:195px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-polished-library .skill-focus-source-panel{position:absolute;left:0;top:calc(100% + 7px);width:520px;max-width:calc(100vw - 70px);max-height:420px;overflow:auto;z-index:15;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);box-shadow:var(--shadow)}
+.skill-polished-library .skill-focus-source-panel .skill-source-toolbar{margin:0;padding:0;border:0}
+.skill-polished-library .skill-focus-source-panel .skill-source-top{flex-wrap:wrap;gap:10px}
+.skill-polished-library .skill-focus-source-panel .skill-source-buttons{flex-wrap:wrap;gap:6px}
+.skill-polished-library .skill-focus-source-panel .skill-source-groups{gap:6px}
+.skill-polished-library .skill-focus-filter-chips{display:flex;gap:4px;flex-wrap:wrap;min-width:0}
+.skill-polished-library .skill-focus-filter-chips .button{background:var(--panel);font-size:11px;min-height:28px;max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-polished-library .skill-focus-filter-chips svg{width:12px;height:12px;flex-shrink:0}
+.skill-polished-library .skill-focus-view{margin-left:auto;display:flex;gap:1px;border:1px solid var(--line);border-radius:5px;padding:2px;background:var(--bg)}
+.skill-polished-library .skill-focus-view .button{padding:5px;min-width:28px;min-height:27px;box-shadow:none;display:flex;align-items:center;justify-content:center}
+.skill-polished-library .skill-focus-view .button.active{background:var(--panel);color:var(--accent)}
+.skill-polished-library .skill-focus-view svg{width:16px;height:16px}
+.skill-polished-library .skill-library-more{margin-left:0}
+.skill-polished-library .skill-library-more>summary{display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);border-radius:5px;background:var(--bg);min-height:32px;list-style:none;padding:6px 9px}
+.skill-polished-library .skill-library-more>summary svg{width:16px;height:16px}
+.skill-polished-library .skill-library-more>div{width:310px;max-width:calc(100vw - 60px);max-height:430px;overflow:auto;gap:4px;padding:12px;top:calc(100% + 7px)}
+.skill-polished-library .skill-library-more>div>.button{justify-content:flex-start;text-align:left}
+.skill-polished-library .skill-focus-organization>summary{cursor:pointer;padding:10px 5px}
+.skill-polished-library .skill-focus-organization .skill-organization-intro{display:none}
+.skill-polished-library .skill-focus-organization .skill-organization-tools{gap:8px;flex-direction:column;align-items:stretch}
+.skill-polished-library .skill-focus-organization .skill-organization-tools label{flex:auto;display:flex;flex-direction:column;align-items:stretch;gap:5px}
+.skill-polished-library .skill-focus-organization .skill-organization-tools select{max-width:100%}
+.skill-polished-library .skill-focus-organization .skill-folder-tiles{display:flex;flex-direction:column;align-items:stretch}
+.skill-polished-library .skill-focus-organization .skill-folder-tile{max-width:100%;padding:7px 9px}
+.skill-polished-library .skill-library-selection{display:none;gap:8px;border:1px solid var(--line);border-radius:7px;padding:7px 10px;background:var(--bg);font-size:12px;position:sticky;top:0;z-index:4}
+.skill-polished-library .skill-library-selection.has-selection{display:flex}
+.skill-polished-library [data-workflow-batch]:not([hidden]){display:flex;gap:4px;flex-wrap:wrap}
+.skill-polished-library .skill-library-selection .button{font-size:12px;padding:5px 7px}
+.skill-polished-library .skill-card{display:flex;flex-direction:column;min-height:213px;padding:12px 14px;border-radius:9px;background:var(--bg);overflow:visible}
+.skill-polished-library .skill-card:hover{background:var(--bg)}
+.skill-polished-library .skill-card.checked{background:var(--panel)}
+.skill-polished-library .skill-card-top{display:flex;justify-content:flex-start;gap:7px;min-height:27px;margin:0 0 7px;padding:0;flex-shrink:0}
+.skill-polished-library .skill-focus-checkbox{display:flex;align-items:center;cursor:pointer;padding:3px 0}
+.skill-polished-library .skill-focus-purpose{font-size:11px;line-height:1.25;padding:3px 5px;color:var(--muted);background:var(--panel);border-radius:4px;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.skill-polished-library .skill-focus-card-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0}
+.skill-polished-library .skill-focus-star{width:27px;height:27px;color:var(--muted)}
+.skill-polished-library .skill-focus-star svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.5;fill:none}
+.skill-polished-library .skill-focus-star.collected{color:var(--accent)}
+.skill-polished-library .skill-focus-star.collected svg{fill:var(--panel-3)}
+.skill-polished-library .skill-focus-card-more{position:relative}
+.skill-polished-library .skill-focus-card-more>summary{width:27px;height:27px;display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;border-radius:4px;color:var(--muted)}
+.skill-polished-library .skill-focus-card-more>summary:hover{background:var(--panel)}
+.skill-polished-library .skill-focus-card-more>summary svg{width:17px;height:17px}
+.skill-polished-library .skill-focus-card-more[open]{z-index:12}
+.skill-polished-library .skill-focus-card-more>div{position:absolute;right:0;top:calc(100% + 4px);width:220px;max-width:calc(100vw - 60px);display:grid;gap:2px;padding:7px;background:var(--bg);border:1px solid var(--line);border-radius:7px;box-shadow:var(--shadow);z-index:12}
+.skill-polished-library .skill-focus-card-more .button{text-align:left;justify-content:flex-start;padding:8px 9px;font-size:12px;white-space:normal}
+.skill-polished-library .skill-focus-copy{flex:1;min-width:0}
+.skill-polished-library .skill-card h3{font-size:15px;line-height:1.4;font-weight:600;margin:0 0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.skill-polished-library .skill-card p{font-size:13px;line-height:1.7;-webkit-line-clamp:2;min-height:44px;margin:0 0 13px}
+.skill-polished-library .skill-focus-metadata{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;padding-bottom:9px;flex-shrink:0}
+.skill-polished-library .skill-source{font-size:11px;min-width:0}
+.skill-polished-library .skill-focus-bound{display:flex;align-items:center;gap:3px;color:var(--accent);font-size:11px;white-space:nowrap}
+.skill-polished-library .skill-focus-bound svg{width:12px;height:12px;flex-shrink:0}
+.skill-polished-library .skill-card-bottom{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;min-height:30px;padding-top:9px;margin:0;border-color:var(--line);flex-shrink:0}
+.skill-polished-library .skill-card-folder{display:flex;align-items:center;gap:4px;margin:0;font-size:11px;min-width:0;max-width:100%;overflow-wrap:anywhere}
+.skill-polished-library .skill-card-folder svg{width:12px;height:12px}
+.skill-polished-library .skill-card-tags{display:flex;gap:4px;flex-wrap:wrap;font-size:11px;line-height:1.4;margin:0;min-width:0;max-width:100%;color:var(--muted)}
+.skill-polished-library .skill-focus-tag{font:inherit;font-size:11px;padding:2px 5px;line-height:1.4;background:var(--panel);color:var(--muted);border:0;border-radius:3px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-polished-library .skill-library-empty{padding:70px 20px;text-align:center;color:var(--muted)}
+.skill-polished-library .skill-library-empty h3{font-size:18px;font-weight:500;color:var(--text);margin:0 0 10px}
+.skill-polished-library .skill-library-empty p{font-size:13px;line-height:1.8;max-width:390px;margin:0 auto 20px}
+.skill-polished-library.skill-focus-list{grid-template-columns:minmax(0,1fr)}
+.skill-polished-library.skill-focus-list .skill-card{display:grid;grid-template-columns:155px minmax(0,1fr) 200px;column-gap:18px;row-gap:6px;min-height:110px}
+.skill-polished-library.skill-focus-list .skill-card-top{grid-column:1;grid-row:1/3;align-self:center;flex-wrap:wrap;margin:0}
+.skill-polished-library.skill-focus-list .skill-focus-copy{grid-column:2;grid-row:1/3;align-self:center}
+.skill-polished-library.skill-focus-list .skill-card p{min-height:0;-webkit-line-clamp:1;margin:0}
+.skill-polished-library.skill-focus-list .skill-focus-metadata{grid-column:3;grid-row:1;flex-wrap:wrap;justify-content:flex-start;padding:0}
+.skill-polished-library.skill-focus-list .skill-card-bottom{grid-column:3;grid-row:2;justify-content:flex-start;border:0;padding:0;min-height:0}
+.skill-polished-library button:disabled,.skill-polished-library button:disabled:hover{opacity:1;color:var(--disabled,var(--muted));background:var(--disabled-bg,var(--panel));cursor:default;filter:none}
+@media(max-width:1100px){.skill-polished-library{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}.skill-polished-library.skill-focus-list .skill-card{grid-template-columns:130px minmax(0,1fr) 155px;column-gap:12px}}
+@media(max-width:720px){.skill-polished-library{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.skill-polished-library .skill-card{min-height:246px;padding:10px}.skill-polished-library .skill-focus-metadata{flex-direction:column;align-items:flex-start;gap:3px}.skill-polished-library .skill-source{max-width:100%}.skill-polished-library .skill-card-bottom{min-height:51px;align-items:flex-start;flex-direction:column;gap:5px}.skill-polished-library .skill-focus-purpose{max-width:110px}.skill-polished-library .skill-library-tools{gap:6px}.skill-polished-library .skill-library-more>summary>span{display:none}.skill-polished-library .skill-focus-source-panel{position:fixed;left:16px;top:150px;width:calc(100vw - 32px);max-width:none;max-height:calc(100vh - 190px)}.skill-polished-library.skill-focus-list .skill-card{grid-template-columns:100px minmax(0,1fr);min-height:150px}.skill-polished-library.skill-focus-list .skill-focus-copy{grid-column:2;grid-row:1}.skill-polished-library.skill-focus-list .skill-focus-metadata{grid-column:2;grid-row:2;flex-direction:row;flex-wrap:wrap}.skill-polished-library.skill-focus-list .skill-card-bottom{grid-column:2;grid-row:3;flex-direction:row;min-height:0}}
+@media(max-width:480px){.skill-polished-library{grid-template-columns:minmax(0,1fr)}.skill-polished-library .skill-card{min-height:218px}.skill-polished-library .skill-focus-metadata{flex-direction:row;flex-wrap:wrap}.skill-polished-library .skill-card-bottom{flex-direction:row;min-height:30px}.skill-polished-library .skill-focus-filter-chips{flex-basis:100%}.skill-polished-library .skill-focus-view{margin-left:auto}}
+
+.skill-focus-organize{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:5px 4px;cursor:pointer;border-radius:4px}.skill-focus-organize:hover,.skill-focus-organize:focus-visible{background:var(--panel-hover);color:var(--text)}
+
+/* The search row remains mounted while the shared cards and controls refresh. */
+.skill-library-cards>[data-workflow-body]{display:contents}
+.skill-library-search{grid-column:1/-1;display:flex;align-items:center;gap:12px;min-width:0;margin:0 0 2px}
+.skill-library-search>label{font-size:13px;font-weight:600;white-space:nowrap;color:var(--text)}
+.skill-library-search-field{display:flex;align-items:center;gap:8px;min-width:0;flex:1;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg)}
+.skill-library-search-field:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.skill-library-search-field>svg{width:16px;height:16px;flex-shrink:0;color:var(--muted)}
+.skill-library-search-field input{width:100%;min-width:0;min-height:38px;border:0;outline:none;background:transparent;color:var(--text);font:inherit;font-size:13px;padding:7px 0;box-shadow:none}
+.skill-library-search-field input::-webkit-search-cancel-button{display:none}
+.skill-library-search-field .icon-button{width:28px;height:28px;flex-shrink:0}
+.skill-library-search-field .icon-button[hidden]{display:none}
+.skill-library-inline-navigation{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;font-size:12px;color:var(--muted)}
+.skill-library-scopes{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.skill-library-scopes .active{font-weight:650;box-shadow:inset 0 -2px currentColor}
+.skill-library-inline-navigation>label{display:flex;align-items:center;gap:6px;min-width:0}
+.skill-library-inline-navigation select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:5px;min-height:32px;padding:4px 7px;min-width:0;max-width:190px}
+@media(max-width:720px){.skill-library-search{gap:8px}.skill-library-inline-navigation>label{flex:1}.skill-library-inline-navigation select{flex:1;max-width:100%;width:0}}
+
+.skill-polished-library .skill-card-notes{font-size:11px;line-height:1.5;margin-top:7px;-webkit-line-clamp:1}
+.skill-polished-library.skill-focus-list .skill-card-notes{grid-column:2/4;margin:0}
+@media(max-width:720px){.skill-polished-library.skill-focus-list .skill-card-notes{grid-column:2}}

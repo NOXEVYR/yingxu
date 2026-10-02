@@ -422,12 +422,22 @@ def apply_incremental(snapshot, job, replace=os.replace):
         raise
 
 
-def copy_helper_runtime(install_root, target):
+def _helper_records(install_root, target):
     runtime = checked_path(install_root, 'runtime'); target = checked_path(target)
     records = {e['path']: e for e in read_json(runtime / 'RUNTIME_MANIFEST.json')['files']}
     names = [n for n in records if '/' not in n and Path(n).suffix.lower() in {'.exe','.dll','.pyd','.zip','._pth'}]
     if not names or sum(records[n]['bytes'] for n in names) > 48 * 1024 * 1024:
         raise ValueError('内置 Python 最小运行时无效或过大')
+    # The locked embedded runtime's DLL loader still fails on these long paths,
+    # even when Python filesystem operations accept them or an extended prefix is used.
+    if os.name == 'nt' and any(len(str(target / name).encode('utf-16-le')) // 2 >= 260
+                               for name in names + ['incremental_install.py']):
+        raise ValueError('更新助手缓存路径过长，暂不能自动安装；当前程序未修改，请使用完整包更新。')
+    return runtime, target, records, names
+
+
+def copy_helper_runtime(install_root, target):
+    runtime, target, records, names = _helper_records(install_root, target)
     target.mkdir()
     for name in names:
         source = checked_path(runtime, name); info = fingerprint(source)
@@ -471,7 +481,9 @@ def prepare_install(data_root, install_root, plan_id, native_pid):
                 snapshot = validate_plan(data_root, install_root, plan_id)
                 if set(installation_processes(install_root)) - {native_pid,os.getpid()}:
                     raise ValueError('请先退出同一安装的其他映序窗口或后台')
-                ticket = uuid.uuid4().hex; job = checked_path(base, ticket); job.mkdir()
+                ticket = uuid.uuid4().hex; job = checked_path(base, ticket)
+                _helper_records(install_root, job / 'helper')
+                job.mkdir()
                 check_space(snapshot, job)
                 interpreter = copy_helper_runtime(install_root, job / 'helper')
                 script = interpreter.parent / 'incremental_install.py'
@@ -482,9 +494,13 @@ def prepare_install(data_root, install_root, plan_id, native_pid):
                               backend_pid=os.getpid(), backend_image=str(Path(sys.executable).resolve()),
                               snapshot=snapshot, environment=environment)
                 write_json(job / 'job.json', config)
-            process = subprocess.Popen([str(interpreter), '-I', '-B', str(script), '--worker', str(job)],
-                cwd=job, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
+            try:
+                process = subprocess.Popen([str(interpreter), '-I', '-B', str(script), '--worker', str(job)],
+                    cwd=job, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
+            except OSError as error:
+                write_json(job / 'cancel.json', dict(ticket=ticket, cancelled=True))
+                raise ValueError('更新助手启动失败（系统错误码 ' + str(error.winerror if hasattr(error, 'winerror') else error.errno) + '），窗口保持打开') from None
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
                 if (job / 'ready.json').exists() and process.poll() is None:
@@ -494,7 +510,10 @@ def prepare_install(data_root, install_root, plan_id, native_pid):
                         write_json(job / 'cancel.json', dict(ticket=ticket,cancelled=True))
                         raise ValueError('原映序窗口已退出，安装准备已取消')
                     return dict(prepared=True, ticket=ticket, helper_pid=process.pid, native_pid=native_pid, backend_pid=os.getpid())
-                if process.poll() is not None: break
+                exit_code = process.poll()
+                if exit_code is not None:
+                    write_json(job / 'cancel.json', dict(ticket=ticket, cancelled=True))
+                    raise ValueError('更新助手已退出（错误码 ' + str(exit_code) + '），窗口保持打开')
                 time.sleep(.1)
             write_json(job / 'cancel.json', dict(ticket=ticket, cancelled=True))
             raise ValueError('更新助手未就绪，窗口保持打开')

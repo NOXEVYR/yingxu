@@ -268,14 +268,34 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 
 | 控制接口 | 请求与返回 |
 | --- | --- |
-| `GET /api/mcp/status` | 同源且需要 `X-YingXu-Token`。返回 `{enabled,project_id,project_name,endpoint,read_only:true}`，无凭据 |
-| `POST /api/mcp/configure` | `{enabled:true,project_id}` 开启单个活动项目；`{enabled:false}` 关闭。返回同状态 |
+| `GET /api/mcp/status` | 同源且需要 `X-YingXu-Token`。返回 `{enabled,project_id,project_name,endpoint,default_endpoint,custom_endpoint,address_error,read_only:true}`，无凭据；custom_endpoint 为布尔值 |
+| `POST /api/mcp/configure` | `{enabled:true,project_id}` 开启单个活动项目；`{enabled:false}` 关闭。可加 `endpoint` 字符串应用本机地址，空字符串恢复默认；关闭状态下只保存地址，开启状态下成功切换监听。返回同状态 |
 | `POST /api/mcp/connection` | 空对象；仅启用时返回 `{project_id,read_only:true,config:{mcpServers:{yingxu:{url,headers:{Authorization}}}}}`。仅供显式复制，不显示或记录凭据 |
 
-每次启动默认关闭；同项目显式重开复用私有本地凭据，换项目轮换，关闭阻止新调用。控制接口保留通用写入与退出保护。`/mcp` 使用独立 Bearer 只读凭据、同一 127.0.0.1 端口及 Host/Origin 保护，不接受 UI 会话 token，不放宽其他 `/api` 权限。无 OAuth 自动发现、CORS 跨站放行或其他设备接入。
+每次启动默认关闭；同项目显式重开复用私有本地凭据，换项目轮换，关闭阻止新调用。控制接口保留通用写入与退出保护。默认 `/mcp` 复用映序端口；自定义只能是本机 HTTP 地址（127.0.0.1 或规范为该地址的 localhost）、1024–65535 端口及安全 ASCII 路径。拒绝用户信息、查询、片段、编码、路径穿越与工作台保留路由。独立端口仅开启期间监听，专供 MCP，未知路由均 404；关闭和应用退出释放监听。端口绑定或偏好保存失败保留旧连接与授权。公开地址偏好单独保存在私有应用数据，不含凭据，启动不恢复授权。所有 MCP 地址使用独立 Bearer 只读凭据及当前端口 Host/Origin 保护，不接受 UI 会话 token，不放宽其他 `/api` 权限。无 OAuth 自动发现、CORS 跨站放行或其他设备接入。
 
 `POST /mcp` 接受单个 JSON-RPC 2.0 请求。支持 `initialize`（2025-03-26/2025-06-18/2025-11-25）、旧版 `notifications/initialized`/`ping`、新版 `server/discover`（2026-07-28）、`tools/list`/`tools/call`、`resources/list`/`resources/read`。新版逐请求验证 params._meta 内 protocolVersion/clientCapabilities 与 MCP-Protocol-Version/Mcp-Method/Mcp-Name；完成结果带 resultType、serverInfo，列表及资源缓存 ttlMs:0/cacheScope:private。GET/HEAD/DELETE 仅返回405，不建 session/SSE/订阅。认证失败401，关闭或来源不可信403，过大请求413，格式或参数错误400，未知方法404。
 
 五个只读工具：`get_project_summary {}`；`list_resources {limit?,offset?,q?,category?}`；`read_resource {item_id,offset?,limit?}`；`list_bound_skills {limit?,offset?}`；`read_bound_skill {skill_id,offset?,limit?}`。不接受自由 project_id 或磁盘路径。列表每页最多48项，next_offset 指向下一批已登记条目；文本 offset/limit 按字符，最多16000字符，文件<=1MiB。工具结果含文本 JSON 与 structuredContent；条目不可读返回 isError:true，非法参数返回 JSON-RPC 错误。其他格式返回 content_available:false 的资源信息。资源 URI 为 `yingxu://project/ID/item/ID` 与 `.../skill/ID`，resources/list 使用 items:N/skills:N 分页游标。
 
 按请求读取最新已保存内容；未保存草稿、外部未登记新增内容不提供。不改变正文、索引、绑定版本或交接基线。固定收藏仅读取/校验所绑定 SKILL.md 和其清单，不为列表全包扫描。过滤私密配置、日志、数据库、链接及其他项目；凭据形态文本做遮蔽，但不能将自动遮蔽视为文稿保密审查。请求<=128KiB/响应<=256KiB，最多接受2个在途 MCP 请求。
+
+
+## AI 任务与成果账本
+
+所有 `/api/ai-tasks` 读写需工作台会话令牌，写入仍经过同源、更新与迁移写保护；MCP Bearer 不可代替该令牌。未知字段拒绝，冻结/编辑/审核/完成需 `expected_revision`，GET 不扫描/收件/执行。
+
+| 方法 | 路径 | 契约 |
+|---|---|---|
+| GET / POST | `/api/ai-tasks` | GET `project_id,limit,offset`；POST `project_id,title,kind,goal,acceptance[],idempotency_key?`；同项目相同标识及内容复用持久任务，不同内容 409 |
+| GET / PATCH | `/api/ai-tasks/TID` | 详情或 `expected_revision,title?,goal?,acceptance?,archived?:true`；归档保留成果 |
+| POST | `/api/ai-tasks/TID/runs` | `expected_revision,client_id,conversation_id,goal?,acceptance?,input_item_ids[],skill_pins[{collection_id,version}]`，冻结输入与目录 |
+| GET | `/api/ai-tasks/TID/runs/RID` | 单轮固定输入与成果；只读 |
+| GET / POST | `.../runs/RID/candidates` / `.../runs/RID/receive` | GET 限定目录候选；POST `idempotency_key,files[{relative_path 或 item_id,role?,expected_sha256?}]`，两种身份互斥，返回持久逐项核验结果 |
+| GET | `/api/ai-tasks/TID/receipts/CID` | 重启仍可查询；同标识不同内容 409 |
+| PATCH | `/api/ai-tasks/TID/artifacts/AID/review` | `expected_revision,decision,notes?`，accepted/rejected/needs_revision；再次核验当前文件 |
+| POST | `/api/ai-tasks/TID/complete` | `expected_revision,confirmed:true`，明确验收完成 |
+| POST | `.../runs/RID/handoff` | `client_id,conversation_id,force_full?`，不可变全文/差分；复制不推进基线 |
+| POST | `/api/ai-tasks/TID/handoffs/SID/ack` | 空对象，用户确认已交给该会话，不代表 AI 接收或执行 |
+
+MCP 增加 `read_collaboration_task {task_id,run_id?,offset?,limit?}` 和 `read_run_skill {task_id,run_id,collection_id,offset?,limit?}`。前者分页成果摘要，每页最多 48 项，按序列化字节预算缩短页面时 `next_offset` 以实际返回条数前进；输入和技能仅返回短摘要，长目标、验收条件及备注会截断并标记 `text_truncated`。完整记录在本机任务界面查看。收藏身份为 `col_` 加 32 位十六进制，任务/轮次仍为 32 位十六进制。只读且限定授权项目，固定轮次读取不会替换版本、扫描源或推进任何状态，输出省略本机目录与凭据。

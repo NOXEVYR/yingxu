@@ -1,0 +1,68 @@
+{
+  "status": "source_preview_only",
+  "source_version": "0.4.27",
+  "source_build": "calls.3",
+  "stage": "J",
+  "date": "2026-10-02",
+  "program_release_changed": false,
+  "windows_download_version": "0.4.22",
+  "macos_download_version": "0.4.20-mac.1",
+  "native_stage_j_acceptance": false,
+  "new_program_package": null,
+  "runtime_source_preserved_from_sealed_candidate": true,
+  "excluded_candidate_paths": [
+    ".github/release-support/cached_release.py",
+    ".github/release-support/macos_release.py",
+    ".github/release-support/test_cached_release.py",
+    ".github/release-support/yingxu-0.4.20.json",
+    ".github/release-support/yingxu-0.4.21.json",
+    ".github/workflows/yingxu-cached-release.yml",
+    ".github/workflows/yingxu-macos-preview.yml",
+    "AGENTS.md",
+    "desktop/build.json",
+    "README.md"
+  ],
+  "images": [
+    {
+      "path": "docs/assets/stage-j-20261002/skills-classic.png",
+      "bytes": 117989,
+      "sha256": "928da699f1f1bb2a2a7aae130d2de364f2d72bf0ff19a3b10278e5220d156aa8",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/skills-focus.png",
+      "bytes": 97194,
+      "sha256": "fb99f2f06e24480bebd10639b6f288a6fdac0eb90fca5da9417a2f0b35066f2f",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/collaboration-classic.png",
+      "bytes": 118115,
+      "sha256": "32647f1d7f5cf02674892eb7902577c6432b088f1b2789c9c16fd16263cb0d3e",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/collaboration-focus.png",
+      "bytes": 110927,
+      "sha256": "d757fbb0f9a974b34a90d4e9c653132f2e8dd3a5c79a2a852ab483fe31164245",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance"
+    },
+    {
+      "path": "docs/assets/stage-j-20261002/workspace-comparison.png",
+      "bytes": 724346,
+      "sha256": "74df9fbbca57632878ade714570d49cd3f9ac2ef8305251ea5d92f4728a630dd",
+      "version": "0.4.27/calls.3 Stage J",
+      "data_scope": "synthetic project, skills and collaboration tasks; no user library",
+      "kind": "saved actual application renderer screenshot; not native acceptance"
+    }
+  ],
+  "tests": "saved Stage J results; no product rerun during publication"
+}

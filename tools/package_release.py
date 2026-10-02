@@ -5,10 +5,15 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import zipfile
+try:
+    from .build_identity import read_identity, require_native_identity
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from build_identity import read_identity, require_native_identity
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.23'
 FIXED = (
     'README.md', 'RUNNING.md', 'LICENSE', 'AGENTS.md', 'API_CONTRACT.md', '.gitignore', '.gitattributes',
     'server.py', 'macos_app.py', 'launcher.pyw', 'start.vbs', 'Stop-YingXu.ps1', 'YingXu.exe',
@@ -24,8 +29,8 @@ FIXED = (
     'desktop/make_icon.py', 'desktop/brand.svg', 'desktop/brand.ico', 'desktop/brand.icns',
     'desktop/app.manifest', 'desktop/WebView2-LICENSE.txt',
     'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
-    'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'THIRD_PARTY_NOTICES.md',
-    'docs/stability-audit-2026-09-27.md', 'docs/skill-workflow.md',
+    'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'tools/build_identity.py', 'THIRD_PARTY_NOTICES.md',
+    'docs/stability-audit-2026-09-27.md', 'docs/skill-workflow.md', 'docs/ai-collaboration.md',
     'docs/project-folder-import.md', 'docs/incremental-updates.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
 )
 PATTERNS = ('yingxu/*.py', 'frontend/*.html', 'frontend/*.css', 'frontend/*.js',
@@ -73,14 +78,17 @@ def main():
     parser.add_argument('--runtime-dir', type=Path, default=ROOT / 'runtime')
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'releases')
     args = parser.parse_args()
+    identity = read_identity(ROOT)
+    require_native_identity(ROOT / 'YingXu.exe', identity)
+    version = identity.version
     target = args.output_dir
     target.mkdir(exist_ok=True)
-    package = target / f'YingXu-v{VERSION}-Windows-x64.zip'
+    package = target / f'YingXu-v{version}-Windows-x64.zip'
     paths = [(p, p.relative_to(ROOT).as_posix()) for p in files_to_package()]
     paths += list(runtime_files(args.runtime_dir))
     manifest = {
-        'application': 'YingXu', 'version': VERSION, 'root': 'YingXu/',
-        'build_revision': 'workflow.4',
+        'application': 'YingXu', 'version': version, 'root': 'YingXu/',
+        'build_revision': identity.build_revision,
         'icon_revision': 'viewfinder-v1',
         'icon_sha256': hashlib.sha256((ROOT / 'desktop/brand.ico').read_bytes()).hexdigest(),
         'source_commit': os.environ.get('GITHUB_SHA', ''),
@@ -96,15 +104,15 @@ def main():
         for path, name in paths:
             archive.write(path, 'YingXu/' + name)
         archive.writestr('YingXu/RELEASE_MANIFEST.json', manifest_bytes)
-    result = {'file': package.name, 'version': VERSION, 'bytes': package.stat().st_size,
+    result = {'file': package.name, 'version': version, 'bytes': package.stat().st_size,
               'sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
               'release_manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
               'build_revision': manifest['build_revision'],
               'entries': len(paths) + 1, 'root': 'YingXu/', 'contains_user_data': False,
               'python_bundled': True, 'icon_revision': manifest['icon_revision'],
               'icon_sha256': manifest['icon_sha256'], 'source_commit': manifest['source_commit']}
-    (target / f'YingXu-v{VERSION}-manifest.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-    (target / f'YingXu-v{VERSION}-SHA256.txt').write_text(f"{result['sha256']}  {package.name}\n", encoding='ascii')
+    (target / f'YingXu-v{version}-manifest.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    (target / f'YingXu-v{version}-SHA256.txt').write_text(f"{result['sha256']}  {package.name}\n", encoding='ascii')
     print(json.dumps(result, ensure_ascii=False))
 
 

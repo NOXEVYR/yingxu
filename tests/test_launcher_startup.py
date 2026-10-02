@@ -82,7 +82,8 @@ class LauncherStartupTests(unittest.TestCase):
                         self.assertIsNone(launcher.health(port))
                         body.update(app="yingxu", instance_id="other-data")
                         self.assertIsNone(launcher.health(port))
-                        body.update(instance_id=launcher.instance_id(launcher.DATA), version=launcher.__version__)
+                        body.update(instance_id=launcher.instance_id(launcher.DATA), version=launcher.__version__,
+                                    build_revision=launcher.__build__, program_id=launcher.instance_id(launcher.ROOT))
                         self.assertEqual(launcher.require_current_service(launcher.health(port)), body)
                         body.update(version="0.0.0")
                         with self.assertRaises(RuntimeError):
@@ -91,6 +92,20 @@ class LauncherStartupTests(unittest.TestCase):
             finally:
                 server.shutdown()
                 thread.join(3)
+
+    def test_same_version_other_build_or_program_cannot_reuse_backend(self):
+        launcher = self.launcher
+        good = dict(app='yingxu', ok=True, version=launcher.__version__, build_revision=launcher.__build__,
+                    program_id=launcher.instance_id(launcher.ROOT), instance_id=launcher.instance_id(launcher.DATA))
+        self.assertIs(launcher.require_current_service(good), good)
+        for field, value in (('build_revision','other.1'), ('program_id','0'*64),
+                             ('build_revision',None), ('program_id',None)):
+            with self.subTest(field=field,value=value), \
+                 patch.object(launcher, 'health', return_value=dict(good, **{field:value})), \
+                 patch.object(launcher, 'acquire_mutex') as mutex, patch.object(launcher.subprocess, 'Popen') as start:
+                with self.assertRaises(RuntimeError): launcher.ensure_running(12345)
+                mutex.assert_not_called()
+                start.assert_not_called()
 
     def test_foreign_service_racing_negative_hint_is_not_replaced(self):
         launcher = self.launcher

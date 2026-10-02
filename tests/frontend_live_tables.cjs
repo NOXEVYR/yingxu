@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
-const root=path.resolve(__dirname,'..'),dependencies=path.join(root,'tools/markdown-editor/node_modules');
+const root=path.resolve(__dirname,'..'),dependencies=process.env.YINGXU_MARKDOWN_TEST_DEPENDENCIES || path.join(root,'tools/markdown-editor/node_modules');
 test('real Chromium live tables render safely, edit source, preserve history and survive IME',async t=>{
   const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p=>p&&fs.existsSync(p));
   if(!browser||!fs.existsSync(path.join(dependencies,'esbuild'))){t.skip('Requires installed Chromium and locked development dependencies');return;}

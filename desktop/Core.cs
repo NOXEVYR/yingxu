@@ -347,11 +347,13 @@ namespace YingXu.Desktop
                     if (count > 65536) return false;
                     var health = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(new string(buffer, 0, count));
                     object name;
-                    object ok, identity, version;
+                    object ok, identity, version, build, program;
                     return health != null && health.TryGetValue("app", out name) && (name as string) == "yingxu" &&
                            health.TryGetValue("ok", out ok) && ok is bool && (bool)ok &&
                            health.TryGetValue("instance_id", out identity) && (identity as string) == InstanceId() &&
-                           health.TryGetValue("version", out version) && (version as string) == "0.4.23";
+                           health.TryGetValue("version", out version) && (version as string) == BuildIdentity.Version &&
+                           health.TryGetValue("build_revision", out build) && (build as string) == BuildIdentity.BuildRevision &&
+                           health.TryGetValue("program_id", out program) && (program as string) == PathIdentity(NormalizeRoot(Root));
                 }
             }
             catch { return false; }
