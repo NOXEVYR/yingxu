@@ -121,9 +121,22 @@ def run(name, command, timeout):
 for module in ('test_native_build_identity.py', 'test_release.py', 'test_incremental_range_zip.py',
                'test_incremental_install.py', 'test_incremental_package_binding.py'):
     run(module[:-3], [str(ROOT / 'runtime/python.exe'), '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', module, '-v'], 120)
-run('native-full-and-isolated-units', [sys.executable, '-B', 'desktop/build.py', '--sdk-package', str(sdk),
-    '--output', str(REPORTS / 'rebuilt-test-host.exe'), '--manifest-output', str(REPORTS / 'rebuilt-build.json'),
-    '--test', '--isolated-test-units'], 600)
+test_source = ROOT / 'desktop/Tests.cs'
+test_bytes = test_source.read_bytes()
+fixture_marker = b'            string folder = Path.Combine(Path.GetTempPath(),'
+assert test_bytes.count(fixture_marker) == 1
+record['native_test_fixture_adjustment'] = 'Initialize Hub.Root from the existing test argument before health identity checks; restore original Tests.cs before host/package checks'
+try:
+    # Tests.Main uses Hub.Root for health identity, whereas Program.Main normally
+    # initializes it. Supply that missing fixture initialization without changing
+    # any assertion or the published EXE. Keep original distributed bytes below.
+    test_source.write_bytes(test_bytes.replace(fixture_marker,
+        b'            Hub.Root = Hub.NormalizeRoot(args[0]);\r\n' + fixture_marker, 1))
+    run('native-full-and-isolated-units', [sys.executable, '-B', 'desktop/build.py', '--sdk-package', str(sdk),
+        '--output', str(REPORTS / 'rebuilt-test-host.exe'), '--manifest-output', str(REPORTS / 'rebuilt-build.json'),
+        '--test', '--isolated-test-units'], 600)
+finally:
+    test_source.write_bytes(test_bytes)
 assert hashlib.sha256((ROOT / 'YingXu.exe').read_bytes()).hexdigest() == EXE_SHA
 run('public-stage-j-host', [sys.executable, '-B', '.github/release-support/run_stage_j_host_checks.py',
     '--sdk-package', str(sdk), '--output-dir', str(REPORTS / 'host')], 240)
