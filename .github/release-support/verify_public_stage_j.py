@@ -116,7 +116,8 @@ def run(name, command, timeout):
     (REPORTS / 'result.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
     if code != 0:
         print((REPORTS / (name + '.stderr.txt')).read_text(encoding='utf-8', errors='replace'))
-        raise SystemExit(name + ' failed')
+        print(name + ' failed; collecting independent package checks', flush=True)
+    return code == 0
 
 for module in ('test_native_build_identity.py', 'test_release.py', 'test_incremental_range_zip.py',
                'test_incremental_install.py', 'test_incremental_package_binding.py'):
@@ -147,6 +148,7 @@ with package.open('rb') as verified_file:
     assert hashlib.file_digest(verified_file, 'sha256').hexdigest() == ZIP_SHA
 subprocess.run(['git', '-c', 'core.autocrlf=true', 'diff', '--exit-code', 'HEAD', '--'], cwd=ROOT, check=True)
 assert hashlib.sha256((ROOT / 'YingXu.exe').read_bytes()).hexdigest() == EXE_SHA
-record['ok'] = True
+record['ok'] = all(step['exit_code'] == 0 for step in record['steps'])
 (REPORTS / 'result.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
 print(json.dumps(record))
+raise SystemExit(0 if record['ok'] else 1)

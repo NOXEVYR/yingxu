@@ -359,8 +359,13 @@ def main():
         if not native_result_path.is_file():
             raise RuntimeError('Native host did not write its result record')
         native_result = json.loads(native_result_path.read_text(encoding='utf-8'))
+        # Keep the bounded, synthetic-only startup evidence in the top-level
+        # report even when pageReady fails. The C# harness strips URL query
+        # strings and copies only allow-listed startup log fields.
+        record['native_result'] = native_result
+        record['host_diagnostics'] = native_result.get('host_diagnostics')
         if host_code != 0 or native_result.get('ok') is not True:
-            raise RuntimeError('Final EXE StudioWindow validation failed')
+            raise RuntimeError('Final EXE StudioWindow validation failed; inspect native_result.host_diagnostics')
         record['checks'].extend(native_result.get('checks',[]))
         for name,digest in native_result.get('screenshots_sha256',{}).items():
             shot = native_dir / name
@@ -370,7 +375,6 @@ def main():
         if len(record['screenshots']) != 5:
             raise RuntimeError('Expected four classic/focus pages and one narrow tools screenshot')
         record['checks'].append('screenshots-hashed-and-verified')
-        record['native_result'] = native_result
     except Exception as exc:
         error = exc
         record['error'] = str(exc)

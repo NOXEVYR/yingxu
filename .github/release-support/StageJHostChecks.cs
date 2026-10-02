@@ -32,6 +32,11 @@ internal sealed class StageJHostChecks
     private bool sequenceStarted, ticking, exitRequested;
     private readonly List<object> devtoolsReceivers = new List<object>();
     private readonly TaskCompletionSource<bool> runtimeReady = new TaskCompletionSource<bool>();
+    private readonly List<string> navigationEvents = new List<string>();
+    private bool webViewControlCreated, webViewInitialized, navigationStarted, navigationCompleted;
+    private bool? navigationSucceeded;
+    private string navigationUri, navigationError;
+    private object failureDiagnostics;
     private Exception failure;
     private DateTime pageReadyDeadline;
 
@@ -91,7 +96,24 @@ internal sealed class StageJHostChecks
         window.ControlAdded += OnControlAdded;
         pageReadyDeadline=DateTime.UtcNow.AddSeconds(55);
         timer = new Timer { Interval = 150 };
-        timer.Tick += async delegate { if (ticking) return; ticking = true; try { await Tick(); } catch (Exception error) { failure = error; RequestExit(); } finally { ticking = false; } };
+        timer.Tick += async delegate
+        {
+            if (ticking) return;
+            ticking = true;
+            try
+            {
+                Exception tickError = null;
+                try { await Tick(); }
+                catch (Exception error) { tickError = error; }
+                if (tickError != null)
+                {
+                    if (failure == null) failure = tickError;
+                    await CaptureFailureDiagnostics();
+                    RequestExit();
+                }
+            }
+            finally { ticking = false; }
+        };
         timer.Start();
         Application.Run(window);
         timer.Stop(); timer.Dispose();
@@ -105,6 +127,15 @@ internal sealed class StageJHostChecks
     private async Task Tick()
     {
         if (window.IsDisposed) return;
+        // Initialization callbacks can fail before pageReady. Preserve their
+        // original exception and use the same normal exit handshake instead of
+        // replacing it with the later generic 55-second timeout.
+        if (failure != null && !exitRequested)
+        {
+            await CaptureFailureDiagnostics();
+            RequestExit();
+            return;
+        }
         webView = studioField("web");
         if (webView != null && core == null) core = webView.GetType().GetProperty("CoreWebView2").GetValue(webView, null);
         if (!sequenceStarted && Convert.ToBoolean(studioField("pageReady")))
@@ -116,6 +147,7 @@ internal sealed class StageJHostChecks
         else if (!sequenceStarted && DateTime.UtcNow > pageReadyDeadline)
         {
             failure=new TimeoutException("Production StudioWindow did not report desktop-ready within 55 seconds.");
+            await CaptureFailureDiagnostics();
             RequestExit();
         }
         if (exitRequested && !window.IsDisposed && DateTime.UtcNow > exitDeadline)
@@ -138,6 +170,7 @@ internal sealed class StageJHostChecks
     private void OnControlAdded(object sender, ControlEventArgs args)
     {
         if (!args.Control.GetType().FullName.StartsWith("Microsoft.Web.WebView2.WinForms.WebView2",StringComparison.Ordinal)) return;
+        webViewControlCreated=true;
         EventInfo evt = args.Control.GetType().GetEvent("CoreWebView2InitializationCompleted");
         if (evt == null) { failure=new MissingMemberException("WebView2 initialization event unavailable."); return; }
         evt.AddEventHandler(args.Control,BuildHandler(evt,GetType().GetMethod("OnWebViewInitialized",BindingFlags.Instance|BindingFlags.NonPublic)));
@@ -149,7 +182,10 @@ internal sealed class StageJHostChecks
         {
             object success=args.GetType().GetProperty("IsSuccess").GetValue(args,null);
             if (!(success is bool) || !(bool)success) throw new InvalidOperationException("WebView2 initialization failed before navigation.");
+            webViewInitialized=true;
             core=sender.GetType().GetProperty("CoreWebView2").GetValue(sender,null);
+            SubscribeCoreEvent("NavigationStarting","OnNavigationStarting");
+            SubscribeCoreEvent("NavigationCompleted","OnNavigationCompleted");
             SubscribeDevTools("Runtime.exceptionThrown");
             SubscribeDevTools("Runtime.consoleAPICalled");
             MethodInfo enable=core.GetType().GetMethod("CallDevToolsProtocolMethodAsync",new Type[]{typeof(string),typeof(string)});
@@ -157,7 +193,137 @@ internal sealed class StageJHostChecks
             await command;
             runtimeReady.TrySetResult(true);
         }
-        catch(Exception error) { failure=error;runtimeReady.TrySetException(error); }
+        catch(Exception error) { if(failure==null)failure=error;runtimeReady.TrySetException(error); }
+    }
+
+    private void SubscribeCoreEvent(string eventName,string methodName)
+    {
+        EventInfo evt=core.GetType().GetEvent(eventName);
+        if(evt==null)throw new MissingMemberException("Pinned WebView2 SDK lacks "+eventName+".");
+        MethodInfo target=GetType().GetMethod(methodName,BindingFlags.Instance|BindingFlags.NonPublic);
+        evt.AddEventHandler(core,BuildHandler(evt,target));
+    }
+
+    private void OnNavigationStarting(object sender,object args)
+    {
+        navigationStarted=true;
+        object value=args.GetType().GetProperty("Uri").GetValue(args,null);
+        navigationUri=SafeUrl(Convert.ToString(value));
+        navigationEvents.Add("starting:"+(navigationUri??"unknown"));
+    }
+
+    private void OnNavigationCompleted(object sender,object args)
+    {
+        navigationCompleted=true;
+        object success=args.GetType().GetProperty("IsSuccess").GetValue(args,null);
+        if(success is bool)navigationSucceeded=(bool)success;
+        object status=args.GetType().GetProperty("WebErrorStatus").GetValue(args,null);
+        navigationError=Convert.ToString(status);
+        navigationEvents.Add("completed:"+(navigationSucceeded.HasValue?navigationSucceeded.Value.ToString():"unknown")+":"+navigationError);
+    }
+
+    private static string SafeUrl(string value)
+    {
+        Uri uri;
+        if(String.IsNullOrEmpty(value)||!Uri.TryCreate(value,UriKind.Absolute,out uri))return null;
+        try{return uri.GetLeftPart(UriPartial.Path);}catch{return uri.Scheme+"://"+uri.Host;}
+    }
+
+    private object ReadField(object instance,string name)
+    {
+        try{return instance.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public).GetValue(instance);}
+        catch{return null;}
+    }
+
+    private object ReadProperty(object instance,string name)
+    {
+        try
+        {
+            if(instance==null)return null;
+            PropertyInfo property=instance.GetType().GetProperty(name,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic);
+            return property==null?null:property.GetValue(instance,null);
+        }
+        catch(Exception error){return "unavailable:"+error.GetType().Name;}
+    }
+
+    private object ReadSyntheticStartupLog()
+    {
+        try
+        {
+            string path=Path.Combine(data,"desktop.log");
+            if(!File.Exists(path))return new {state="missing"};
+            var info=new FileInfo(path);
+            if((info.Attributes&FileAttributes.ReparsePoint)!=0)return new {state="reparse-point-refused"};
+            if(info.Length>65536)return new {state="too-large",bytes=info.Length};
+            string[] lines=File.ReadAllLines(path,Encoding.UTF8);
+            var selected=new List<string>();
+            foreach(string line in lines)
+            {
+                int marker=line.IndexOf("startup_stage=",StringComparison.Ordinal);
+                if(marker<0)marker=line.IndexOf("browser_source=",StringComparison.Ordinal);
+                if(marker<0)marker=line.IndexOf("service_",StringComparison.Ordinal);
+                if(marker<0)marker=line.IndexOf("window_ready runtime=",StringComparison.Ordinal);
+                if(marker>=0)
+                {
+                    string value=line.Substring(marker);
+                    if(value.Length>256)value=value.Substring(0,256);
+                    selected.Add(value);
+                    continue;
+                }
+                // Keep only the exception type from a startup error; messages can
+                // contain paths or request details and are unnecessary here.
+                marker=line.IndexOf("window_error ",StringComparison.Ordinal);
+                if(marker>=0)
+                {
+                    string value=line.Substring(marker+"window_error ".Length);
+                    int end=value.IndexOfAny(new char[]{':',' ','\t'});
+                    if(end>=0)value=value.Substring(0,end);
+                    selected.Add("window_error "+value);
+                }
+            }
+            return new {state="read",lines=selected};
+        }
+        catch(Exception error){return new {state="unavailable",error=error.GetType().Name};}
+    }
+
+    private async Task CaptureFailureDiagnostics()
+    {
+        if(failureDiagnostics!=null)return;
+        var details=new Dictionary<string,object>();
+        details["webview_control_created"]=webViewControlCreated;
+        details["webview_initialized"]=webViewInitialized;
+        details["devtools_runtime_enabled"]=runtimeReady.Task.Status==TaskStatus.RanToCompletion;
+        details["navigation_started"]=navigationStarted;
+        details["navigation_completed"]=navigationCompleted;
+        details["navigation_succeeded"]=navigationSucceeded;
+        details["navigation_error_status"]=navigationError;
+        details["navigation_uri_without_query"]=navigationUri;
+        details["navigation_events"]=navigationEvents;
+        details["core_source_without_query"]=SafeUrl(Convert.ToString(ReadProperty(core,"Source")));
+        details["core_is_loading"]=ReadProperty(core,"IsLoading");
+        details["webview_source_without_query"]=SafeUrl(Convert.ToString(ReadProperty(webView,"Source")));
+        details["page_ready"]=ReadField(window,"pageReady");
+        details["page_failed"]=ReadField(window,"pageFailed");
+        details["window_visible"]=window!=null&&!window.IsDisposed&&window.Visible;
+        details["window_client_size"]=window==null?null:window.ClientSize.ToString();
+        object loading=ReadField(window,"loading");
+        details["loading_visible"]=ReadProperty(loading,"Visible");
+        details["loading_text"]=ReadProperty(loading,"Text");
+        details["synthetic_desktop_startup_log"]=ReadSyntheticStartupLog();
+        details["console_error_count"]=consoleErrors.Count;
+        if(core!=null)
+        {
+            try
+            {
+                Task<object> probe=EvaluateJs("JSON.stringify({readyState:document.readyState,title:document.title,path:location.origin+location.pathname,resourceItems:!!document.querySelector('#resourceItems'),appShell:!!document.querySelector('.app-shell'),nativeStartup:window.yingxuNativeStartup===true})");
+                Task completed=await Task.WhenAny(probe,Task.Delay(2500));
+                if(completed==probe)details["document_probe"]=await probe;
+                else details["document_probe"]="timed-out";
+            }
+            catch(Exception error){details["document_probe"]="unavailable:"+error.GetType().Name;}
+        }
+        else details["document_probe"]="core-not-initialized";
+        failureDiagnostics=details;
     }
 
     private Delegate BuildHandler(EventInfo evt,MethodInfo target)
@@ -356,7 +522,7 @@ internal sealed class StageJHostChecks
     private static string Lit(string text) { return new JavaScriptSerializer().Serialize(text); }
     private void SaveResult()
     {
-        var result=new Dictionary<string,object>{{"ok",failure==null&&consoleErrors.Count==0},{"version",version},{"build_revision",build},{"port",port},{"project_id",projectId},{"skill",skill},{"task",task},{"synthetic_data_dir",data},{"synthetic_projects_dir",projects},{"checks",checks},{"console_errors",consoleErrors},{"screenshots_sha256",screenshots},{"error",failure==null?null:failure.ToString()}};
+        var result=new Dictionary<string,object>{{"ok",failure==null&&consoleErrors.Count==0},{"version",version},{"build_revision",build},{"port",port},{"project_id",projectId},{"skill",skill},{"task",task},{"synthetic_data_dir",data},{"synthetic_projects_dir",projects},{"checks",checks},{"console_errors",consoleErrors},{"screenshots_sha256",screenshots},{"host_diagnostics",failureDiagnostics},{"error",failure==null?null:failure.ToString()}};
         File.WriteAllText(Path.Combine(output,"native-result.json"),json.Serialize(result),new UTF8Encoding(false));
     }
 }
