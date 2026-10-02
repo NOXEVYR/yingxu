@@ -64,6 +64,11 @@ for test in modules:
     step.update(tests=int(ran[1]) if ran else None, skipped=int(skipped[1]) if skipped else 0)
     if test.name == 'test_incremental_support.py' and step['tests'] == 0:
         step['kind'] = 'synthetic-fixture-support-module'
+        # Python 3.13 returns 5 for an empty discovery. This file defines only
+        # shared fixture helpers; keep its raw result without inventing a test.
+        if step['exit_code'] == 5 and raw.strip().endswith('NO TESTS RAN'):
+            step['raw_exit_code'] = 5
+            step['exit_code'] = 0
     elif step['exit_code'] == 0 and not step['tests']:
         step['exit_code'] = 'missing-test-count'
 failed = [s for s in RECORD['steps'] if s['exit_code'] != 0]

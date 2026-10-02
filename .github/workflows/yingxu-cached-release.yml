@@ -13,6 +13,10 @@ on:
         description: 'Exact reviewed main commit SHA; must match this dispatch ref'
         type: string
         required: true
+      verify_existing_release:
+        description: 'Read-only native verification of the pinned public 0.4.27 package'
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths: ['.github/release-requests/yingxu-0.4.22.json']
@@ -109,6 +113,7 @@ jobs:
     if: >-
       github.repository == 'NOXEVYR/yingxu' &&
       github.ref == 'refs/heads/codex/yingxu-0.4.27-verification' &&
+      inputs.verify_existing_release != true &&
       inputs.approve_download_and_publish == false && inputs.source_commit == github.sha
     permissions:
       contents: read
@@ -148,3 +153,40 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           compression-level: 0
+
+  public_stage_j_native_verification:
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' &&
+      github.ref == 'refs/heads/codex/yingxu-0.4.27-verification' &&
+      inputs.verify_existing_release == true &&
+      inputs.approve_download_and_publish == false && inputs.source_commit == github.sha
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify exact published native host and complete package
+        run: |
+          python -B .github/release-support/verify_public_stage_j.py
+          if ($LASTEXITCODE) { throw 'Public package verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yingxu-0.4.27-public-native-verification
+          path: .release-work/public-stage-j/
+          include-hidden-files: true
+          if-no-files-found: error
