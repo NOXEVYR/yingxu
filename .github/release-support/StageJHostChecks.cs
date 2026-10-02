@@ -24,6 +24,7 @@ internal sealed class StageJHostChecks
     private readonly List<string> checks = new List<string>();
     private readonly List<string> consoleErrors = new List<string>();
     private readonly Dictionary<string,string> screenshots = new Dictionary<string,string>();
+    private readonly Dictionary<string,Assembly> hostedSdkAssemblies = new Dictionary<string,Assembly>(StringComparer.Ordinal);
     private Assembly app;
     private Type program, hub;
     private Form window;
@@ -67,6 +68,11 @@ internal sealed class StageJHostChecks
         Environment.SetEnvironmentVariable("PYTHONHOME", null);
         Environment.SetEnvironmentVariable("PYTHONPATH", null);
         app = Assembly.LoadFrom(exe);
+        // Assembly.Load(byte[]) has no normal load context. This reflection host
+        // explicitly requests Core before StudioWindow is JIT compiled, unlike
+        // Program.Main. Resolve both embedded SDK DLLs to one identity instance
+        // so WinForms property signatures and native call sites use the same Core.
+        AppDomain.CurrentDomain.AssemblyResolve += ResolveHostedSdk;
         program = app.GetType("YingXu.Desktop.Program", true);
         hub = app.GetType("YingXu.Desktop.Hub", true);
         Set(hub, "Root", root); Set(hub, "Data", data); Set(hub, "Port", port);
@@ -77,7 +83,7 @@ internal sealed class StageJHostChecks
         Set(program, "InstanceKey", Call(hub, "InstanceId").ToString().Substring(0,24));
         Call(program, "PrepareIsolatedLibraries");
         string loader = (string)Get(program, "LoaderFolder");
-        Type environment = Assembly.Load("Microsoft.Web.WebView2.Core").GetType("Microsoft.Web.WebView2.Core.CoreWebView2Environment", true);
+        Type environment = HostedSdk("Microsoft.Web.WebView2.Core").GetType("Microsoft.Web.WebView2.Core.CoreWebView2Environment", true);
         environment.GetMethod("SetLoaderDllFolderPath", BindingFlags.Public | BindingFlags.Static).Invoke(null, new object[] { loader });
         VerifySdkResource("Microsoft.Web.WebView2.Core.dll");
         VerifySdkResource("Microsoft.Web.WebView2.WinForms.dll");
@@ -130,6 +136,36 @@ internal sealed class StageJHostChecks
         checks.Add("no-webview-console-errors");
         SaveResult();
         return 0;
+    }
+
+    private Assembly ResolveHostedSdk(object sender, ResolveEventArgs args)
+    {
+        var requested = new AssemblyName(args.Name);
+        string name = requested.Name;
+        if (name != "Microsoft.Web.WebView2.Core" && name != "Microsoft.Web.WebView2.WinForms") return null;
+        Assembly resolved = HostedSdk(name);
+        if (!String.Equals(resolved.GetName().FullName, requested.FullName, StringComparison.Ordinal))
+            throw new InvalidDataException("Requested SDK identity differs from packaged resource: " + name);
+        return resolved;
+    }
+
+    private Assembly HostedSdk(string name)
+    {
+        if (name != "Microsoft.Web.WebView2.Core" && name != "Microsoft.Web.WebView2.WinForms")
+            throw new InvalidDataException("Unexpected hosted SDK name.");
+        Assembly resolved;
+        if (!hostedSdkAssemblies.TryGetValue(name, out resolved))
+        {
+            using (var source = app.GetManifestResourceStream(name + ".dll"))
+            using (var memory = new MemoryStream())
+            {
+                if (source == null) throw new InvalidDataException("Packaged SDK resource is missing: " + name);
+                source.CopyTo(memory);
+                resolved = Assembly.Load(memory.ToArray());
+            }
+            hostedSdkAssemblies.Add(name, resolved);
+        }
+        return resolved;
     }
 
     private async Task Tick()
@@ -192,6 +228,11 @@ internal sealed class StageJHostChecks
             if (!(success is bool) || !(bool)success) throw new InvalidOperationException("WebView2 initialization failed before navigation.");
             webViewInitialized=true;
             core=sender.GetType().GetProperty("CoreWebView2").GetValue(sender,null);
+            var coreAssembly=HostedSdk("Microsoft.Web.WebView2.Core");
+            if (!Object.ReferenceEquals(sender.GetType().GetProperty("CoreWebView2").PropertyType.Assembly,coreAssembly) ||
+                !Object.ReferenceEquals(core.GetType().Assembly,coreAssembly))
+                throw new InvalidDataException("Hosted WinForms and native Core SDK type identities differ.");
+            checks.Add("hosted-sdk-single-core-type-identity");
             SubscribeCoreEvent("NavigationStarting","OnNavigationStarting");
             SubscribeCoreEvent("NavigationCompleted","OnNavigationCompleted");
             SubscribeDevTools("Runtime.exceptionThrown");
@@ -302,6 +343,9 @@ internal sealed class StageJHostChecks
         details["window_load_observed"]=windowLoadObserved;
         details["window_shown_observed"]=windowShownObserved;
         details["webview_initialized"]=webViewInitialized;
+        details["hosted_sdk_assembly_instances"]=AppDomain.CurrentDomain.GetAssemblies()
+            .Where(value=>value.GetName().Name=="Microsoft.Web.WebView2.Core" || value.GetName().Name=="Microsoft.Web.WebView2.WinForms")
+            .Select(value=>value.GetName().FullName).ToArray();
         details["devtools_runtime_enabled"]=runtimeReady.Task.Status==TaskStatus.RanToCompletion;
         details["navigation_started"]=navigationStarted;
         details["navigation_completed"]=navigationCompleted;
