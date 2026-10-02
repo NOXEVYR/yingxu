@@ -104,3 +104,52 @@ jobs:
         run: |
           python -B .github/release-support/cached_release.py publish
           if ($LASTEXITCODE) { throw 'Publication failed; retain draft and uploaded assets for inspection' }
+
+  candidate_native_verification:
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' &&
+      github.ref == 'refs/heads/codex/yingxu-0.4.23-verification' &&
+      inputs.approve_download_and_publish == false && inputs.source_commit == github.sha
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare fresh official inputs for disposable verification
+        run: |
+          python -B .github/release-support/prepare_native_verification.py
+          if ($LASTEXITCODE) { throw 'Pinned preparation failed' }
+      - name: Build and run all native synthetic checks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'yingxu-candidate-verify/webview2.nupkg'
+          python -B desktop/build.py --sdk-package $sdk --output YingXu.exe --test 1> native-stdout.txt 2> native-stderr.txt
+          $nativeExit = $LASTEXITCODE
+          Get-Content native-stdout.txt -Tail 20
+          if ($nativeExit) { Get-Content native-stderr.txt; throw 'Native verification failed' }
+          $record = @{source_commit=$env:GITHUB_SHA; version='0.4.23'; build_revision='workflow.4'; exit_code=$nativeExit}
+          [IO.File]::WriteAllText((Join-Path $PWD 'native-result.json'),($record | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yingxu-0.4.23-native-verification
+          path: |
+            YingXu.exe
+            desktop/build.json
+            native-result.json
+            native-preparation.json
+            native-stdout.txt
+            native-stderr.txt
+          if-no-files-found: error
