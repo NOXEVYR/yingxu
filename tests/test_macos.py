@@ -12,16 +12,20 @@ from unittest.mock import Mock, patch
 from macos_app import CloseGuard, Desktop, PREVIEW, stop_server
 from server import Application, Server
 from yingxu.paths import default_data_root
-from yingxu import macos
+from yingxu import macos, __version__, __mac_preview__
 
 
 class MacAdaptersTests(unittest.TestCase):
     def test_preview_and_close_drains_all_workers_in_order_once(self):
-        self.assertEqual(PREVIEW, '0.4.23-mac.1')
+        self.assertEqual(PREVIEW, __mac_preview__)
+        self.assertTrue(PREVIEW.startswith(__version__ + '-mac.'))
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
         events=[]
-        app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.ai_hub_calls.close.side_effect=lambda **kw:events.append(('hub',kw))
+        app.ai_calls.close.side_effect=lambda **kw:events.append(('calls',kw)) or {'worker_stopped':True}
+        app.mcp_listener.close.side_effect=lambda:events.append(('listener',{}))
         app.mcp.close.side_effect=lambda:events.append(('mcp',{}))
         app.update_service.close.side_effect=lambda:events.append(('updates',{}))
         app.migration_jobs.close.side_effect=lambda:events.append(('migration',{}))
@@ -29,12 +33,12 @@ class MacAdaptersTests(unittest.TestCase):
         app.thumbnails.pool.shutdown.side_effect=lambda **kw:events.append(('thumbnails',kw))
         app.context.close.side_effect=lambda:events.append(('context',{})) or True
         app.close();app.close()
-        self.assertEqual(events,[('mcp',{}),('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
+        self.assertEqual(events,[('hub',{'timeout':5}),('calls',{'timeout':5}),('listener',{}),('mcp',{}),('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
 
     def test_close_attempts_remaining_cleanup_when_one_worker_fails(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.jobs.pool.shutdown.side_effect=RuntimeError('synthetic worker failure')
         with self.assertRaises(RuntimeError):app.close()
         app.thumbnails.pool.shutdown.assert_called_once()
@@ -43,6 +47,31 @@ class MacAdaptersTests(unittest.TestCase):
         host=Mock()
         with self.assertRaises(RuntimeError):stop_server(server,host)
         server.server_close.assert_called_once();host.close.assert_called_once()
+
+    def test_listener_shutdown_failure_still_drains_existing_workers(self):
+        app=Application.__new__(Application)
+        app._close_lock=threading.Lock();app._closed=False
+        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.mcp_listener.close.side_effect=RuntimeError('synthetic listener failure')
+        with self.assertRaises(RuntimeError):app.close()
+        for service in (app.mcp,app.update_service,app.migration_jobs,app.context):
+            service.close.assert_called_once()
+        app.jobs.pool.shutdown.assert_called_once_with(wait=True,cancel_futures=False)
+        app.thumbnails.pool.shutdown.assert_called_once_with(wait=True,cancel_futures=False)
+
+    def test_hub_shutdown_failure_still_drains_direct_and_remaining_workers_once(self):
+        app=Application.__new__(Application)
+        app._close_lock=threading.Lock();app._closed=False
+        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.ai_hub_calls.close.side_effect=RuntimeError('synthetic hub failure')
+        with self.assertRaisesRegex(RuntimeError,'synthetic hub failure'):app.close()
+        app.close()
+        app.ai_hub_calls.close.assert_called_once_with(timeout=5)
+        app.ai_calls.close.assert_called_once_with(timeout=5)
+        for service in (app.mcp_listener,app.mcp,app.update_service,app.migration_jobs,app.context):
+            service.close.assert_called_once()
+        app.jobs.pool.shutdown.assert_called_once_with(wait=True,cancel_futures=False)
+        app.thumbnails.pool.shutdown.assert_called_once_with(wait=True,cancel_futures=False)
 
     def test_real_isolated_backend_stops_threads_and_keeps_044_capabilities(self):
         before={thread.ident for thread in threading.enumerate()}

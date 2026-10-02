@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from yingxu import __version__
+from yingxu import __version__, __build__
 from yingxu.paths import default_data_root, default_project_root, instance_id
 
 ROOT = Path(__file__).resolve().parent
@@ -101,7 +101,8 @@ def acquire_mutex(port, timeout):
 
 
 def require_current_service(info):
-    if info and info.get('version') != __version__:
+    if info and (info.get('version') != __version__ or info.get('build_revision') != __build__
+                 or info.get('program_id') != instance_id(ROOT)):
         raise RuntimeError('旧版映序后台仍在运行。请保存编辑、等待导入完成，关闭窗口并运行 Stop-YingXu.ps1，再打开新版。')
     return info
 

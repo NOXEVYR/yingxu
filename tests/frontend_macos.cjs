@@ -45,8 +45,10 @@ test('macOS uses shared version and maintenance settings without unsupported con
   const s=appFixture();await s.settingsDialog();const body=s.dialogs[0].body;
   assert.ok(body.includes('macOS 试用版 '+macPreviewVersion));assert.match(body,/界面与后台版本一致/);assert.match(body,/maintenance-preview/);assert.match(body,/手动更新/);assert.match(body,/data-action="check-update"/);assert.match(body,/maintenanceKeep/);assert.match(body,/macOS 废纸篓/);assert.match(body,/⌘F/);
   assert.doesNotMatch(body,/name="(?:close_to_tray|capture_enabled|capture_hotkey|capture_mode)"|data-action="(?:un)?register-open-with"/);
-  await s.dialogs[0].onSubmit({confirm_delete:true,confirm_trash_delete:true,autoplay_media:true,default_view:'list',default_sort:'name'});
-  assert.deepEqual(Object.keys(s.calls[1].options.body).sort(),['appearance_theme','autoplay_media','confirm_delete','confirm_trash_delete','default_sort','default_view']);
+  assert.match(body,/name="workspace_layout"/);
+  await s.dialogs[0].onSubmit({confirm_delete:true,confirm_trash_delete:true,autoplay_media:true,default_view:'list',default_sort:'name',workspace_layout:'classic'});
+  assert.deepEqual(Object.keys(s.calls[1].options.body).sort(),['appearance_theme','autoplay_media','confirm_delete','confirm_trash_delete','default_sort','default_view','workspace_layout']);
+  assert.equal(s.calls[1].options.body.workspace_layout,'classic');
   assert.equal(s.calls[1].options.body.appearance_theme,'swiss');
   assert.equal(s.state.view,'list');assert.equal(s.state.sort,'name');
 });

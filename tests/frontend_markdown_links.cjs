@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),Module=require('node:module');
 const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
-const root=path.resolve(__dirname,'..'),dependencies=path.join(root,'tools/markdown-editor/node_modules');
+const root=path.resolve(__dirname,'..'),dependencies=process.env.YINGXU_MARKDOWN_TEST_DEPENDENCIES || path.join(root,'tools/markdown-editor/node_modules');
 if(!fs.existsSync(path.join(dependencies,'esbuild')))test('link source checks need existing offline build dependencies',{skip:true},()=>{});
 else{
  const esbuild=require(path.join(dependencies,'esbuild')),source=fs.readFileSync(path.join(root,'frontend/live-markdown-source.mjs'),'utf8');

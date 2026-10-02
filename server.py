@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import parse_qs,urlsplit
@@ -25,6 +26,8 @@ from yingxu.store import safe_name,uid,clean_path
 from yingxu.jobs import Jobs,Thumbnails
 
 ROOT=Path(__file__).resolve().parent
+MAX_REJECT_DRAIN=128*1024
+REJECT_DRAIN_SECONDS=.05
 
 
 class Application:
@@ -59,7 +62,11 @@ class Application:
         from yingxu.handoffs import HandoffService
         self.handoffs=HandoffService(self.store,self.skills,self.context)
         from yingxu.mcp import ProjectMCP
-        self.mcp=ProjectMCP(self.store,self.skills)
+        from yingxu.ai_tasks import AITaskService
+        self.ai_tasks=AITaskService(self.store,self.skills)
+        self.mcp=ProjectMCP(self.store,self.skills,self.ai_tasks)
+        from yingxu.mcp_listener import MCPListener
+        self.mcp_listener=MCPListener(self.mcp,self.store.data_root)
         self.jobs=Jobs(self.store,self.context.request)
         self.thumbnails=Thumbnails(self.store)
         from yingxu.trash import TrashDeletion
@@ -79,8 +86,20 @@ class Application:
         from yingxu.migration_jobs import MigrationJobs
         self.project_migration=ProjectMigration(self.store,self.project_storage)
         self.migration_jobs=MigrationJobs(self,self.project_migration)
+        from yingxu.ai_connections import AIConnectionStore
+        from yingxu.ai_call_jobs import AICallService
+        self.ai_connections=AIConnectionStore(self.store)
+        self.ai_calls=AICallService(self.store,self.ai_tasks,self.migration_jobs,self.ai_connections)
+        from yingxu.ai_capability_selections import AICapabilitySelections
+        self.ai_selections=AICapabilitySelections(self.store,self.ai_tasks,self.ai_connections)
         from yingxu.update_service import UpdateService
         self.update_service=UpdateService(self,ROOT,__version__)
+        from yingxu.ai_hub_sources import HubSourceStore
+        from yingxu.ai_hub_calls import AIHubCallService
+        self.ai_hub_sources=HubSourceStore(self.store)
+        self.ai_hub_calls=AIHubCallService(self.store,self.ai_tasks,self.ai_selections,self.ai_hub_sources,self.migration_jobs,self.update_service)
+        from yingxu.ai_hub_receipts import AIHubReceipts
+        self.ai_hub_receipts=AIHubReceipts(self.store,self.ai_tasks,self.ai_hub_calls)
         self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
@@ -88,24 +107,31 @@ class Application:
         with self._close_lock:
             if self._closed:return
             self._closed=True
-            self.mcp.close()
             try:
-                try:self.update_service.close()
-                finally:self.migration_jobs.close()
+                try:
+                    try:self.ai_hub_calls.close(timeout=5)
+                    finally:self.ai_calls.close(timeout=5)
+                finally:
+                    try:self.mcp_listener.close()
+                    finally:self.mcp.close()
             finally:
                 try:
-                    self.jobs.pool.shutdown(wait=True,cancel_futures=False)
+                    try:self.update_service.close()
+                    finally:self.migration_jobs.close()
                 finally:
-                    try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                    try:
+                        self.jobs.pool.shutdown(wait=True,cancel_futures=False)
                     finally:
-                        if not self.context.close():
-                            raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
+                        try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                        finally:
+                            if not self.context.close():
+                                raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
 
     def bootstrap(self):
         return {'app':'yingxu','version':__version__,'build_revision':__build__,'token':self.token,'settings':self.settings.get(),
           'project_root':str(self.store.project_root),'data_root':str(self.store.data_root),
           'categories':[{'key':k,'label':v[0]} for k,v in CATEGORIES.items()], 'statuses':STATUSES,
-          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True,'automatic_updates':True,'skill_collections':True,'skill_organization':True,'incremental_handoff':True,'mcp_project_read':True}}
+          'capabilities':{'project_file_sync':True,'lazy_markdown':True,'document_search':True,'maintenance':True,'thumbnails':image_support(), 'image_thumbnails':image_support(),'ffmpeg':bool(self.thumbnails.ffmpeg),'docx_edit':True,'platform':sys.platform,'native_picker':os.name=='nt' or self.native_picker is not None,'skills':True,'project_context':True,'folders':True,'trash':True,'move_files':True,'trash_delete':True,'settings':True,'external_open':True,'project_library':True,'project_storage':True,'global_search':True,'resource_groups':True,'manual_update_check':True,'automatic_updates':True,'skill_collections':True,'skill_organization':True,'incremental_handoff':True,'mcp_project_read':True,'ai_collaboration_tasks':True,'ai_tool_calls':True,'ai_hub_source_execution':True}}
 
     def changed(self,project_id=None):
         with self.store.connection() as db:
@@ -317,10 +343,14 @@ class Application:
 class Server(ThreadingHTTPServer):
     daemon_threads=True
     allow_reuse_address=False
-    def __init__(self,address,app):
+    def __init__(self,address,app,*,mcp_only=False):
         self.app=app
-        self.slots=threading.BoundedSemaphore(24)
+        self.mcp_only=mcp_only
+        self.slots=threading.BoundedSemaphore(4 if mcp_only else 24)
         super().__init__(address,Handler)
+        if not mcp_only and hasattr(self.app,'mcp_listener'):
+            self.app.mcp_listener.attach(self.server_port,
+                lambda port:Server(('127.0.0.1',port),app,mcp_only=True))
     def process_request(self,request,client_address):
         if not self.slots.acquire(timeout=1):
             self.shutdown_request(request);return
@@ -349,7 +379,7 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'
 
     def setup(self):
-        super().setup();self.connection.settimeout(30)
+        super().setup();self.connection.settimeout(5 if self.server.mcp_only else 30)
 
     @property
     def app(self):return self.server.app
@@ -394,6 +424,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command!='HEAD':self.wfile.write(raw)
 
+    def reject_json(self,data,status,extra=None):
+        """Deliver a denial before bounded disposal of unread socket bytes.
+
+        Closing a Windows socket with a POST body still arriving can reset TCP
+        and discard the error response. Never parse this untrusted data or run
+        a business operation; half-close writes first, then cap bytes and the
+        total time independently of Content-Length and Transfer-Encoding.
+        """
+        self.close_connection=True
+        self.json(data,status,{**(extra or {}),'Connection':'close'})
+        self.wfile.flush()
+        previous_timeout=self.connection.gettimeout()
+        try:
+            self.connection.shutdown(socket.SHUT_WR)
+            deadline=time.monotonic()+REJECT_DRAIN_SECONDS
+            remaining=MAX_REJECT_DRAIN
+            while remaining>0:
+                duration=deadline-time.monotonic()
+                if duration<=0:break
+                self.connection.settimeout(duration)
+                block=self.connection.recv(min(16*1024,remaining))
+                if not block:break
+                remaining-=len(block)
+        except (OSError,ValueError):pass
+        finally:
+            try:self.connection.settimeout(previous_timeout)
+            except (OSError,ValueError):pass
+
     def file(self,path,media=False,immutable=False,opened=None):
         path=Path(path)
         if media and path.suffix.lower()=='.svg':
@@ -432,7 +490,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk);remaining-=len(chunk)
 
     def handle_request(self):
-        if urlsplit(self.path).path=='/mcp':return self.handle_mcp_request()
+        path=urlsplit(self.path).path
+        listener=getattr(self.app,'mcp_listener',None)
+        if listener and listener.matches(self.server.server_port,path):return self.handle_mcp_request()
+        if self.server.mcp_only:
+            return self.reject_json({'error':'MCP 接口不存在。'},404)
         if self.command in ('GET','HEAD'):return self.handle_application_request()
         try:
             self.check_origin(self.command not in ('GET','HEAD'))
@@ -443,25 +505,24 @@ class Handler(BaseHTTPRequestHandler):
                 with self.app.migration_jobs.mutation(self.command,path):
                     return self.handle_application_request()
         except UserError as error:
-            self.close_connection=True
-            self.json({'error':str(error)},error.status)
+            self.reject_json({'error':str(error)},error.status)
         except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
 
     def mcp_endpoint(self):
-        return f'http://127.0.0.1:{self.server.server_port}/mcp'
+        return self.app.mcp_listener.status()['endpoint']
 
     def handle_mcp_request(self):
         from yingxu.mcp import MAX_REQUEST, ProjectMCP
         try:
             # This is a separate read-only authorization surface. Never accept
             # the workbench session token or bypass its write guards elsewhere.
-            self.check_origin(False)
+            self.app.mcp_listener.check_origin(self.server.server_port,self.headers)
             if urlsplit(self.path).query:raise UserError('MCP 不接受 URL 参数。',400)
             with self.app.mcp.request_slot():
-                self.app.mcp.authorize(self.headers.get('Authorization',''))
+                generation=self.app.mcp_listener.request_generation(self.server.server_port,
+                    urlsplit(self.path).path,self.headers.get('Authorization',''))
                 if self.command!='POST':
-                    self.close_connection=True
-                    return self.json(ProjectMCP.error(None,-32600,'Use POST for MCP'),405,{'Allow':'POST'})
+                    return self.reject_json(ProjectMCP.error(None,-32600,'Use POST for MCP'),405,{'Allow':'POST'})
                 if self.headers.get('Transfer-Encoding'):raise UserError('MCP 不支持此传输格式。',400)
                 try:size=int(self.headers.get('Content-Length','0'))
                 except ValueError:raise UserError('MCP 请求长度无效。',400)
@@ -470,22 +531,162 @@ class Handler(BaseHTTPRequestHandler):
                     raise UserError('MCP 仅接受 JSON。',415)
                 try:message=json.loads(self.rfile.read(size).decode('utf-8'))
                 except (ValueError,UnicodeError,RecursionError):
-                    self.close_connection=True
-                    return self.json(ProjectMCP.error(None,-32700,'Invalid JSON'),400)
-                result,status=self.app.mcp.handle(message,self.headers,reserved=True)
+                    return self.reject_json(ProjectMCP.error(None,-32700,'Invalid JSON'),400)
+                result,status=self.app.mcp_listener.dispatch(self.server.server_port,urlsplit(self.path).path,
+                    lambda:self.app.mcp.handle(message,self.headers,reserved=True),generation=generation)
                 if result is None:
                     self.send_response(status);self.headers_common('application/json')
                     self.send_header('Cache-Control','no-store');self.send_header('Content-Length','0');self.end_headers()
                     return
                 return self.json(result,status)
         except UserError as error:
-            self.close_connection=True
-            return self.json(ProjectMCP.error(None,-32000,str(error)),error.status)
+            return self.reject_json(ProjectMCP.error(None,-32000,str(error)),error.status)
         except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
         except Exception:
             # Documents, paths and credential fields never enter an MCP error.
-            self.close_connection=True
-            return self.json(ProjectMCP.error(None,-32603,'MCP read failed'),500)
+            return self.reject_json(ProjectMCP.error(None,-32603,'MCP read failed'),500)
+
+    def handle_ai_request(self,path,query,data=None):
+        """Local workbench task ledger; MCP credentials never authorize writes."""
+        service=self.app.ai_tasks
+        if '/calls' in path or '/capability-selections' in path or '/hub-calls' in path:
+            return self.handle_tool_call_request(path,query,data)
+        if path=='/api/ai-tasks':
+            if self.command in ('GET','HEAD'):
+                if set(query)-{'project_id','limit','offset'}:raise UserError('协作列表参数无效。')
+                try:limit,offset=int(query.get('limit',48)),int(query.get('offset',0))
+                except (ValueError,TypeError):raise UserError('协作分页参数无效。') from None
+                return self.json(service.list_tasks(query.get('project_id',''),limit=limit,offset=offset))
+            if self.command=='POST' and not query:return self.json(service.create_task(data),201)
+        match=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})(?:/(.*))?',path)
+        if not match or query:raise UserError('协作接口不存在或参数无效。',404)
+        task,tail=match[1],match[2] or ''
+        if not tail:
+            if self.command in ('GET','HEAD'):return self.json(service.get_task(task))
+            if self.command=='PATCH':return self.json(service.update_task(task,data))
+        if tail=='runs' and self.command=='POST':return self.json(service.freeze_run(task,data),201)
+        if tail=='complete' and self.command=='POST':return self.json(service.complete_task(task,data))
+        run=re.fullmatch(r'runs/([a-f0-9]{32})(?:/(handoff|candidates|receive))?',tail)
+        if run:
+            if self.command in ('GET','HEAD'):
+                if not run[2]:return self.json(service.get_run(task,run[1]))
+                if run[2]=='candidates':return self.json(service.receipts.preview(task,run[1]))
+            if self.command=='POST':
+                if run[2]=='handoff':return self.json(service.create_handoff(task,run[1],data),201)
+                if run[2]=='receive':return self.json(service.receipts.receive(task,run[1],data),201)
+        review=re.fullmatch(r'artifacts/([a-f0-9]{32})/review',tail)
+        if review and self.command=='PATCH':return self.json(service.review_artifact(task,review[1],data))
+        ack=re.fullmatch(r'handoffs/([a-f0-9]{32})/ack',tail)
+        if ack and self.command=='POST':
+            if data:raise UserError('确认交接不接受额外字段。')
+            return self.json(service.acknowledge_handoff(task,ack[1]))
+        receipt=re.fullmatch(r'receipts/([a-f0-9]{32})',tail)
+        if receipt and self.command in ('GET','HEAD'):return self.json(service.receipts.get(task,receipt[1]))
+        raise UserError('协作接口不存在。',404)
+
+    def handle_tool_call_request(self,path,query,data=None):
+        hub_receipt=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/hub-calls/([a-f0-9]{32})/receipts(?:/([a-f0-9]{32})(?:/(resume))?)?',path)
+        if hub_receipt:
+            task,run,binding,selected,action=hub_receipt.groups()
+            if query:raise UserError('曜核成果关联不接受额外参数。')
+            receipts=self.app.ai_hub_receipts
+            if self.command in ('GET','HEAD') and not action:
+                return self.json(receipts.get(task,run,binding,selected) if selected else receipts.list(task,run,binding))
+            if self.command=='POST' and not selected:return self.json(receipts.receive(task,run,binding,data),201)
+            if self.command=='POST' and action=='resume':
+                if not isinstance(data,dict) or data:raise UserError('恢复原关联只接受空对象。')
+                return self.json(receipts.resume(task,run,binding,selected))
+            raise UserError('曜核成果关联接口不存在。',404)
+        hub_match=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/hub-calls(?:/([a-f0-9]{32})(?:/(accept|query|cancel|restore))?)?',path)
+        if hub_match:
+            task,run,binding,action=hub_match.groups()
+            if self.command in ('GET','HEAD') and not binding:
+                if set(query)-{'limit','offset'}:raise UserError('曜核执行分页无效。')
+                try:limit,offset=int(query.get('limit',48)),int(query.get('offset',0))
+                except ValueError:raise UserError('曜核执行分页无效。') from None
+                return self.json(self.app.ai_hub_calls.list(task,run,limit,offset))
+            if query:raise UserError('曜核执行接口不接受额外参数。')
+            if self.command in ('GET','HEAD') and binding and not action:return self.json(self.app.ai_hub_calls.get(task,run,binding))
+            if self.command=='POST' and not binding:return self.json(self.app.ai_hub_calls.prepare(task,run,data),201)
+            if self.command=='POST' and action:
+                if not isinstance(data,dict) or data:raise UserError('曜核动作只接受空对象。')
+                if action=='restore':return self.json(self.app.ai_hub_calls.restore_prepare(task,run,binding),201)
+                return self.json(self.app.ai_hub_calls.operate(task,run,binding,action))
+            raise UserError('曜核执行接口不存在。',404)
+        if path=='/api/ai-hub-sources':
+            if query:raise UserError('来源配置不接受额外参数。')
+            if self.command in ('GET','HEAD'):return self.json(self.app.ai_hub_sources.list())
+            if self.command=='POST':
+                with self.app.ai_hub_calls.local_operation():return self.json(self.app.ai_hub_sources.put(data),201)
+        hub_source=re.fullmatch(r'/api/ai-hub-sources/([a-f0-9]{32})(?:/(check))?',path)
+        if hub_source:
+            if query:raise UserError('来源配置不接受额外参数。')
+            if self.command in ('GET','HEAD') and not hub_source[2]:return self.json(self.app.ai_hub_sources.get(hub_source[1]))
+            if self.command=='POST' and hub_source[2]:
+                if not isinstance(data,dict) or data:raise UserError('来源检查只接受空对象。')
+                with self.app.ai_hub_calls.local_operation():return self.json(self.app.ai_hub_sources.check(hub_source[1]))
+        """Explicit workbench actions only; no MCP write or arbitrary endpoint proxy."""
+        reading=self.command in ('GET','HEAD')
+        receipt=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/calls/([a-f0-9]{32})/receipts(?:/([a-f0-9]{32})(?:/(resume))?)?',path)
+        if receipt:
+            if query:raise UserError('调用成果关联不接受额外参数。')
+            task,run,attempt,selected,action=receipt.groups()
+            service=self.app.ai_calls.receipts
+            if reading and not selected:return self.json(service.list(task,run,attempt))
+            if reading and selected and not action:return self.json(service.get(task,run,attempt,selected))
+            if self.command=='POST' and not selected:return self.json(service.receive(task,run,attempt,data),201)
+            if self.command=='POST' and action=='resume':
+                if not isinstance(data,dict) or data:raise UserError('恢复关联只接受空对象。')
+                return self.json(service.resume(task,run,attempt,selected),201)
+            raise UserError('调用成果关联接口不存在。',404)
+        selection=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/capability-selections(?:/([a-f0-9]{32})(?:/(verify))?)?',path)
+        if selection:
+            task,run,selected,action=selection.groups()
+            if reading and not selected:
+                if set(query)-{'limit','offset'}:raise UserError('选型分页参数无效。')
+                try:limit,offset=int(query.get('limit',24)),int(query.get('offset',0))
+                except ValueError:raise UserError('选型分页参数无效。') from None
+                return self.json(self.app.ai_selections.list(task,run,limit,offset))
+            if query:raise UserError('选型接口不接受额外参数。')
+            if reading and selected and not action:return self.json(self.app.ai_selections.get(task,run,selected))
+            if self.command=='POST' and not selected:return self.json(self.app.ai_selections.create(task,run,data),201)
+            if self.command=='POST' and action:
+                if not isinstance(data,dict) or data:raise UserError('核对选型仅接受空对象。')
+                return self.json(self.app.ai_selections.verify(task,run,selected))
+            raise UserError('选型接口不存在。',404)
+        call_list=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/calls',path)
+        if reading and call_list:
+            if set(query)-{'limit','offset'}:raise UserError('请求记录分页参数无效。')
+            try:limit,offset=int(query.get('limit',48)),int(query.get('offset',0))
+            except ValueError:raise UserError('请求记录分页参数无效。') from None
+            return self.json(self.app.ai_calls.list(*call_list.groups(),limit=limit,offset=offset))
+        if query:raise UserError('工具调用接口不接受额外参数。',400)
+        if path=='/api/ai-connections':
+            if reading:return self.json(self.app.ai_connections.list())
+            if self.command=='POST':return self.json(self.app.ai_connections.put(data),201)
+        connection=re.fullmatch(r'/api/ai-connections/([a-f0-9]{32})(?:/(check))?',path)
+        if connection:
+            if reading and not connection[2]:return self.json(self.app.ai_connections.get_public(connection[1]))
+            if self.command=='POST' and connection[2]=='check':
+                if not isinstance(data,dict) or data:raise UserError('检查连接只接受空对象。')
+                return self.json(self.app.ai_connections.check(connection[1]))
+        if path=='/api/ai-calls/status' and reading:
+            direct=self.app.ai_calls.status();hub=self.app.ai_hub_calls.status()
+            direct.update(local_busy=bool(direct['local_busy'] or hub['local_busy']),busy=bool(direct['busy'] or hub['busy']),
+                local_queued=direct['local_queued']+hub['local_queued'],remote_pending=direct['remote_pending']+hub['remote_pending'],hub=hub)
+            return self.json(direct)
+        match=re.fullmatch(r'/api/ai-tasks/([a-f0-9]{32})/runs/([a-f0-9]{32})/calls(?:/([a-f0-9]{32})(?:/(query|cancel))?)?',path)
+        if match:
+            task,run,attempt,action=match.groups()
+            if not attempt:
+                if reading:return self.json(self.app.ai_calls.list(task,run))
+                if self.command=='POST':return self.json(self.app.ai_calls.create(task,run,data),202)
+            elif reading and not action:return self.json(self.app.ai_calls.get(task,run,attempt))
+            elif self.command=='POST' and action:
+                if not isinstance(data,dict) or data:raise UserError('核对或取消请求只接受空对象。')
+                operation=self.app.ai_calls.query if action=='query' else self.app.ai_calls.cancel
+                return self.json(operation(task,run,attempt),202)
+        raise UserError('工具调用接口不存在。',404)
 
     def handle_application_request(self):
         try:
@@ -493,10 +694,16 @@ class Handler(BaseHTTPRequestHandler):
             parsed=urlsplit(self.path);path=parsed.path
             query={k:v[-1] for k,v in parse_qs(parsed.query).items()}
             if self.command in ('GET','HEAD'):
+                if path.startswith(('/api/ai-connections','/api/ai-calls','/api/ai-hub-sources')):
+                    self.check_origin(True)
+                    return self.handle_tool_call_request(path,query)
+                if path.startswith('/api/ai-tasks'):
+                    self.check_origin(True)
+                    return self.handle_ai_request(path,query)
                 if path=='/api/mcp/status':
                     self.check_origin(True)
                     if query:raise UserError('MCP 状态不接受额外参数。')
-                    return self.json(self.app.mcp.status(self.mcp_endpoint()))
+                    return self.json(self.app.mcp_listener.status())
                 if path=='/api/updates/automatic/status':
                     self.check_origin(True)
                     if query:raise UserError('自动更新状态不接受额外参数。')
@@ -525,7 +732,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.check_origin(True)
                     if set(query)-{'ticket'}:raise UserError('更新安装参数无效。')
                     return self.json(self.app.update_service.install_status(query.get('ticket')))
-                if path=='/api/health':return self.json({'app':'yingxu','ok':True,'version':__version__,'instance_id':instance_id(self.app.store.data_root)})
+                if path=='/api/health':return self.json({'app':'yingxu','ok':True,'version':__version__,'build_revision':__build__,'program_id':instance_id(ROOT),'instance_id':instance_id(self.app.store.data_root)})
                 if path=='/api/bootstrap':return self.json(self.app.bootstrap())
                 if path=='/api/settings':return self.json(self.app.settings.get())
                 if path=='/api/project-storage':return self.json(self.app.project_storage.snapshot())
@@ -595,12 +802,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.file(static)
             if self.command=='POST' and path=='/api/upload':return self.json(self.app.receive_upload(self,query),201)
             data=self.body()
+            if path.startswith(('/api/ai-connections','/api/ai-calls','/api/ai-hub-sources')):
+                return self.handle_tool_call_request(path,query,data)
+            if path.startswith('/api/ai-tasks'):
+                return self.handle_ai_request(path,query,data)
             if self.command=='POST' and path=='/api/mcp/configure':
                 if query:raise UserError('MCP 设置不接受额外参数。')
-                return self.json(self.app.mcp.configure(data,self.mcp_endpoint()))
+                return self.json(self.app.mcp_listener.configure(data))
             if self.command=='POST' and path=='/api/mcp/connection':
                 if data or query:raise UserError('MCP 连接参数无效。')
-                return self.json(self.app.mcp.connection(self.mcp_endpoint()))
+                return self.json(self.app.mcp_listener.connection())
             if self.command=='POST' and path.startswith('/api/updates/'):
                 service=self.app.update_service
                 if path=='/api/updates/automatic/start':
@@ -869,15 +1080,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(result)
             raise UserError('接口或请求方式不存在。',404)
         except UserError as e:
-            if self.command not in ('GET','HEAD'):self.close_connection=True
-            self.json({'error':str(e)},e.status)
+            if self.command not in ('GET','HEAD'):self.reject_json({'error':str(e)},e.status)
+            else:self.json({'error':str(e)},e.status)
         except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError,socket.timeout):pass
         except (ValueError,TypeError,KeyError) as e:
-            self.close_connection=True;self.json({'error':'请求字段不正确，请检查输入。'},400)
+            self.reject_json({'error':'请求字段不正确，请检查输入。'},400)
         except OSError:
-            traceback.print_exc();self.close_connection=True;self.json({'error':'文件操作失败，可能被占用或已移动；你的原文件和草稿会保留。'},409)
+            traceback.print_exc();self.reject_json({'error':'文件操作失败，可能被占用或已移动；你的原文件和草稿会保留。'},409)
         except Exception:
-            traceback.print_exc();self.close_connection=True;self.json({'error':'工作台遇到错误，请查看本地服务日志。'},500)
+            traceback.print_exc();self.reject_json({'error':'工作台遇到错误，请查看本地服务日志。'},500)
 
     do_GET=handle_request
     do_HEAD=handle_request

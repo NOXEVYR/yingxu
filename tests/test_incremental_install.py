@@ -244,6 +244,34 @@ class IncrementalInstallTests(unittest.TestCase):
         self.assertFalse((target/'webview2').exists())
         self.assertLess(sum(p.stat().st_size for p in target.iterdir()),48*1024*1024)
 
+    @unittest.skipUnless(os.name=='nt','Windows embedded runtime path boundary')
+    def test_long_helper_path_is_rejected_before_creating_or_copying_runtime(self):
+        runtime=self.root/'runtime';runtime.mkdir()
+        (runtime/'RUNTIME_MANIFEST.json').write_text(json.dumps({'files':[
+            {'path':'python.exe','bytes':1,'sha256':sha(b'p')},
+            {'path':'vcruntime140_1.dll','bytes':1,'sha256':sha(b'd')}]}),encoding='utf-8')
+        target=self.base/('deep-'+'x'*110)/('deep-'+'x'*110)/'helper'
+        with patch.object(install,'_copy') as copy:
+            with self.assertRaisesRegex(ValueError,'缓存路径过长'):
+                install.copy_helper_runtime(self.root,target)
+            copy.assert_not_called()
+        self.assertFalse(target.exists())
+
+    @unittest.skipUnless(os.name=='nt','Windows embedded runtime path boundary')
+    def test_helper_path_limit_counts_utf16_units_before_copying(self):
+        runtime=self.root/'runtime';runtime.mkdir()
+        (runtime/'RUNTIME_MANIFEST.json').write_text(json.dumps({'files':[
+            {'path':'python.exe','bytes':1,'sha256':sha(b'p')}]}),encoding='utf-8')
+        plain=self.base/'emoji-'/'helper'/'incremental_install.py'
+        units=len(str(plain).encode('utf-16-le'))//2
+        count=max(1,(260-units+1)//2)
+        target=self.base/('emoji-'+'\U0001f3ac'*count)/'helper'
+        self.assertLess(len(str(target/'incremental_install.py')),260)
+        self.assertGreaterEqual(len(str(target/'incremental_install.py').encode('utf-16-le'))//2,260)
+        with self.assertRaisesRegex(ValueError,'缓存路径过长'):
+            install.copy_helper_runtime(self.root,target)
+        self.assertFalse(target.exists())
+
     @unittest.skipUnless(os.name=='nt','Windows installer boundary')
     def test_source_python_cannot_prepare_installation(self):
         before=set(self.data.rglob('*'))

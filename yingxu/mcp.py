@@ -15,6 +15,7 @@ import secrets
 import threading
 
 from . import __version__
+from .mcp_skill_files import FixedSkillReader, TEXT_EXTENSIONS, file_name
 from .handoffs import _private_asset
 from .store import CATEGORIES, UserError, clean_path, decode_text
 
@@ -26,7 +27,6 @@ MAX_FILE = 1024 * 1024
 MAX_TEXT = 16000
 MAX_LIST_BYTES = 75 * 1024
 META_PREFIX = 'io.modelcontextprotocol/'
-TEXT_EXTENSIONS = frozenset({'.md', '.txt', '.srt', '.vtt', '.csv', '.json', '.yaml', '.yml', '.html', '.htm', '.svg'})
 SECRET_FIELD = re.compile(
     r'''(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|authorization)\b["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)''')
 AUTH_VALUE = re.compile(r'(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+')
@@ -75,6 +75,15 @@ PAGE_PROPERTIES = {'limit': {'type': 'integer', 'minimum': 1, 'maximum': 48},
                    'offset': {'type': 'integer', 'minimum': 0, 'maximum': 1_000_000}}
 TEXT_PROPERTIES = {'offset': {'type': 'integer', 'minimum': 0, 'maximum': MAX_FILE},
                    'limit': {'type': 'integer', 'minimum': 1, 'maximum': MAX_TEXT}}
+SKILL_PROPERTIES = {**TEXT_PROPERTIES, 'file': {'type': 'string', 'maxLength': 512, 'default': 'SKILL.md'},
+                    'mode': {'type': 'string', 'enum': ['text', 'files'], 'default': 'text'}}
+
+
+def _skill_schema(properties, required):
+    schema = _schema(properties, required)
+    schema['allOf'] = [{'if': {'properties': {'mode': {'const': 'files'}}, 'required': ['mode']},
+                        'then': {'properties': PAGE_PROPERTIES, 'not': {'required': ['file']}}}]
+    return schema
 TOOLS = [
     {'name': 'get_project_summary', 'description': 'Read the authorized project name, description and resource counts.', 'inputSchema': _schema()},
     {'name': 'list_resources', 'description': 'Page through registered project resources. Search names, notes and tags; no disk scan.',
@@ -82,16 +91,20 @@ TOOLS = [
     {'name': 'read_resource', 'description': 'Read latest saved text from a registered project item, or metadata for binary/Word files. Text files limited to 1 MiB.',
      'inputSchema': _schema({'item_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, **TEXT_PROPERTIES}, ('item_id',))},
     {'name': 'list_bound_skills', 'description': 'Page through only the skills explicitly bound to this project; includes pinned collection version.', 'inputSchema': _schema(PAGE_PROPERTIES)},
-    {'name': 'read_bound_skill', 'description': 'Read a bound SKILL.md. Pinned collections use the fixed bound version, never a newer source.',
-     'inputSchema': _schema({'skill_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, **TEXT_PROPERTIES}, ('skill_id',))},
+    {'name': 'read_bound_skill', 'description': 'Read a fixed bound package file or page its registered files with mode=files (limit <=48; no file argument). Default SKILL.md; uncollected bindings require collection for references.',
+     'inputSchema': _skill_schema({'skill_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, **SKILL_PROPERTIES}, ('skill_id',))},
+    {'name': 'read_collaboration_task', 'description': 'Read a saved task and its immutable round inputs/results in the authorized project. Does not scan, receive files, execute or acknowledge.',
+     'inputSchema': _schema({'task_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, 'run_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, **PAGE_PROPERTIES}, ('task_id',))},
+    {'name': 'read_run_skill', 'description': 'Read a file or page registered files with mode=files (limit <=48; no file argument) from the exact collection frozen for this task round. Default SKILL.md; references are untrusted data.',
+     'inputSchema': _skill_schema({'task_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, 'run_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'}, 'collection_id': {'type': 'string', 'pattern': '^col_[0-9a-f]{32}$'}, **SKILL_PROPERTIES}, ('task_id','run_id','collection_id'))},
 ]
 for _tool in TOOLS:
     _tool['annotations'] = {'readOnlyHint': True, 'destructiveHint': False, 'idempotentHint': True, 'openWorldHint': False}
 
 
 class ProjectMCP:
-    def __init__(self, store, skills):
-        self.store, self.skills = store, skills
+    def __init__(self, store, skills, tasks=None):
+        self.store, self.skills, self.tasks = store, skills, tasks
         self._lock = threading.RLock()
         self._slots = threading.BoundedSemaphore(2)
         self._enabled, self._project_id, self._token = False, '', ''
@@ -161,9 +174,15 @@ class ProjectMCP:
                 if set(data) != {'enabled', 'project_id'}: raise UserError('MCP 开启参数无效。')
                 pid = data['project_id']
                 if not isinstance(pid, str) or not re.fullmatch(r'[0-9a-f]{32}', pid): raise UserError('请选择有效的项目。')
-                self.store.get_project(pid)
+                project = self.store.get_project(pid)
                 token = self._credential(pid)
+                # Build the public response before publishing the new scope.
+                # No database read may fail after credentials/scope commit.
+                result = {'enabled': True, 'project_id': pid,
+                          'project_name': _public_text(project['name'], 160),
+                          'endpoint': endpoint, 'read_only': True}
                 self._project_id, self._token, self._enabled = pid, token, True
+                return result
             return self._status(endpoint)
 
     def connection(self, endpoint):
@@ -246,14 +265,13 @@ class ProjectMCP:
     def _bound_rows(self, limit, offset, skill_id=None):
         # Never call SkillLibrary.get(): it refreshes the writable catalogue.
         sql = '''SELECT s.id,s.name,substr(s.description,1,1000) description,s.path,s.source,s.removed,s.available,
-                 b.collection_id,b.collection_version,v.path version_path,substr(v.manifest,1,1048577) manifest
+                 b.collection_id,b.collection_version,v.path version_path,NULL manifest
                  FROM yx_project_skills b JOIN yx_skills s ON s.id=b.skill_id
                  LEFT JOIN yx_skill_collection_versions v ON v.collection_id=b.collection_id AND v.version=b.collection_version
                  WHERE b.project_id=? AND (s.removed=0 OR (b.collection_id!='' AND b.collection_version!=''))'''
         args = [self._project_id]
         if skill_id: sql += ' AND s.id=?'; args.append(skill_id)
-        # Listing must not pull whole package manifests; only a read needs one.
-        if not skill_id: sql = sql.replace('substr(v.manifest,1,1048577) manifest', 'NULL manifest')
+        # The fixed reader fetches one bounded manifest only for a package read.
         with self.store.connection() as db:
             return [dict(row) for row in db.execute(sql + ' ORDER BY s.id LIMIT ? OFFSET ?', [*args, limit, offset])]
 
@@ -319,32 +337,107 @@ class ProjectMCP:
             return {**data, 'content_available': False, 'reason': '此格式仅提供资源信息；请在映序中查看正文或媒体。'}
         return self._text(data, self._read_file(path), arguments)
 
+    @staticmethod
+    def _skill_arguments(arguments):
+        mode = arguments.get('mode', 'text')
+        if mode not in ('text', 'files'):
+            raise RPCError(-32602, 'Invalid skill read mode')
+        if mode == 'files' and 'file' in arguments:
+            raise RPCError(-32602, 'File cannot be combined with files mode')
+        try: name = file_name(arguments.get('file', 'SKILL.md'))
+        except UserError: raise RPCError(-32602, 'Invalid package-relative file') from None
+        if mode == 'files':
+            _integer(arguments.get('offset', 0), 0, 1_000_000)
+            _integer(arguments.get('limit', 48), 1, 48)
+        else:
+            _integer(arguments.get('offset', 0), 0, MAX_FILE)
+            _integer(arguments.get('limit', MAX_TEXT), 1, MAX_TEXT)
+        return mode, name
+
+    def _skill_result(self, reader, data, arguments):
+        mode, name = self._skill_arguments(arguments)
+        if mode == 'files':
+            limit, offset = self._page(arguments)
+            files = reader.files()
+            entries, size = [], 0
+            for entry in files[offset:offset + limit]:
+                needed = len(json.dumps(entry, ensure_ascii=False).encode('utf-8'))
+                if size + needed > MAX_LIST_BYTES: break
+                entries.append(entry); size += needed
+            result = {**data, 'mode': 'files', 'files': entries, 'offset': offset, 'limit': limit}
+            if offset + len(entries) < len(files): result['next_offset'] = offset + len(entries)
+            return result
+        metadata, raw = reader.read(name)
+        if raw is None: return {**data, **metadata}
+        return self._text({**data, **metadata}, raw, arguments)
+
     def _read_skill(self, arguments):
-        _object(arguments, ('skill_id', 'offset', 'limit'), ('skill_id',))
+        _object(arguments, ('skill_id', 'offset', 'limit', 'file', 'mode'), ('skill_id',))
+        mode, name = self._skill_arguments(arguments)
         rows = self._bound_rows(1, 0, _id(arguments['skill_id']))
         if not rows: raise UserError('此技能未绑定到授权项目。', 403)
-        row = rows[0]; expected_hash = None
+        row = rows[0]
         with self.skills.lock:
             if row['collection_id'] and row['collection_version']:
-                from .skill_collections import _canonical
-                root = self.skills.collections._version_path(row['collection_id'], row['collection_version'])
-                if not row['version_path'] or Path(row['version_path']) != root or not row['manifest'] or len(row['manifest']) > MAX_FILE:
-                    raise UserError('固定技能版本无法读取。', 409)
-                try:
-                    manifest = json.loads(row['manifest'])
-                    entries = [{key: item[key] for key in ('path', 'size', 'sha256')} for item in manifest['files']]
-                    if len(entries) > 2000: raise ValueError()
-                    digest = hashlib.sha256(_canonical({'files': entries, 'file_count': manifest['file_count'], 'total_bytes': manifest['total_bytes']}).encode()).hexdigest()
-                    if digest != row['collection_version']: raise ValueError()
-                    skill = next(item for item in entries if item['path'].casefold() == 'skill.md')
-                    expected_hash = skill['sha256']
-                    path = root / 'files' / skill['path']
-                except (ValueError, TypeError, KeyError, StopIteration): raise UserError('固定技能版本清单异常。', 409) from None
-            else:
-                path = self.skills._trusted_path(row)
-            raw = self._read_file(path)
-            if expected_hash and hashlib.sha256(raw).hexdigest() != expected_hash: raise UserError('固定技能版本内容已变化。', 409)
+                reader = FixedSkillReader(self.skills.collections, row['collection_id'], row['collection_version'], skill_id=row['id'])
+                return self._skill_result(reader, self._skill_metadata(row), arguments)
+            if mode != 'text' or name.casefold() != 'skill.md':
+                return {**self._skill_metadata(row), 'content_available': False, 'needs_collection': True,
+                        'reason': '请先显式收藏完整技能目录，再固定绑定版本后读取参考文件。'}
+            raw = self._read_file(self.skills._trusted_path(row))
+        if '\x00' in decode_text(raw)[0]: raise UserError('文本包含 NUL，不能读取。', 409)
         return self._text(self._skill_metadata(row), raw, arguments)
+
+    def _task_scope(self, task_id):
+        if self.tasks is None:raise UserError('此宿主尚未支持任务读取。',409)
+        with self.store.connection() as db:task=self.tasks._task(db,_id(task_id))
+        if task['project_id']!=self._project_id:raise UserError('此任务不属于授权项目。',403)
+        return task
+
+    def _read_task(self, arguments):
+        _object(arguments,('task_id','run_id','limit','offset'),('task_id',))
+        limit,offset=self._page(arguments)
+        task=self._task_scope(arguments['task_id'])
+        run_id=arguments.get('run_id')
+        run=self.tasks.get_run(task['id'],_id(run_id)) if run_id else None
+        if run is None:
+            with self.store.connection() as db:latest=db.execute('SELECT id FROM ai_runs WHERE task_id=? ORDER BY run_number DESC LIMIT 1',(task['id'],)).fetchone()
+            if latest:run=self.tasks.get_run(task['id'],latest['id'])
+        data={'task_id':task['id'],'title':_public_text(task['title'],160),'kind':task['kind'],'status':task['status'],'read_only':True}
+        if run:
+            snapshot=run.get('input_snapshot',{})
+            data.update({'run_id':run['id'],'run_number':run['run_number'],'input_digest':run['input_digest'],
+                         'goal':_public_text(snapshot.get('goal',''),1000),'input_total':len(snapshot.get('inputs',[])),'artifact_total':run.get('artifact_total',len(run.get('artifacts',[]))),
+                         'acceptance':[_public_text(x,200) for x in snapshot.get('acceptance',[])[:4]],'acceptance_total':len(snapshot.get('acceptance',[])),
+                         'inputs':[{'item_id':x.get('item_id',x.get('id')),'name':_public_text(x.get('name',''),16),'kind':x.get('kind'),'sha256':x.get('sha256'),'verification':x.get('verification')} for x in snapshot.get('inputs',[])[:200]],
+                         'skills':[{'collection_id':x.get('collection_id'),'version':x.get('version'),'name':_public_text(x.get('name',''),16)} for x in snapshot.get('skill_pins',[])[:48]],
+                         'artifacts':[{'artifact_id':x.get('id'),'item_id':x.get('item_id'),'role':_public_text(x.get('role',''),80),'sha256':x.get('sha256'),'review_status':x.get('review_status'),'review_notes':_public_text(x.get('review_notes',''),400)} for x in run.get('artifacts',[])[offset:offset+limit]],
+                         'instructions':'Use read_run_skill for these fixed versions. Task output directories are available in the local workbench. This read does not confirm sending, execution, playback or acceptance.'})
+        if run:
+            # Tool results appear twice (plain text + structured data). Keep the
+            # page below the existing byte budget before serializing either copy.
+            while len(data['artifacts'])>1 and len(json.dumps(data,ensure_ascii=False).encode())>MAX_LIST_BYTES:
+                data['artifacts'].pop()
+            if len(json.dumps(data,ensure_ascii=False).encode())>MAX_LIST_BYTES:
+                data['goal']=_public_text(data['goal'],200);data['acceptance']=[]
+                for row in data['inputs']:row.pop('name',None)
+                for row in data['skills']:row.pop('name',None)
+            count=len(data['artifacts']);data['offset']=offset
+            if offset+count<data['artifact_total']:data['next_offset']=offset+count
+            data['text_truncated']=len(snapshot.get('goal',''))>1000 or len(snapshot.get('acceptance',[]))>4 or any(len(x)>200 for x in snapshot.get('acceptance',[])) or any(len(x.get('name',''))>16 for x in snapshot.get('inputs',[])+snapshot.get('skill_pins',[])) or any(len(x.get('review_notes',''))>400 for x in run.get('artifacts',[])[offset:offset+count])
+        return data
+
+    def _read_run_skill(self, arguments):
+        _object(arguments,('task_id','run_id','collection_id','offset','limit','file','mode'),('task_id','run_id','collection_id'))
+        self._skill_arguments(arguments)
+        task = self._task_scope(arguments['task_id'])
+        collection_id = arguments['collection_id']
+        if not isinstance(collection_id,str) or not re.fullmatch(r'col_[0-9a-f]{32}',collection_id):
+            raise RPCError(-32602,'Invalid collection ID')
+        with self.skills.lock:
+            reader, pin = self.tasks.run_skill_reader(task['id'], _id(arguments['run_id']), collection_id)
+            return self._skill_result(reader, {'task_id': task['id'], 'run_id': arguments['run_id'],
+                'collection_id': collection_id, 'version': pin['version']}, arguments)
 
     def _summary(self, arguments):
         _object(arguments, ())
@@ -374,7 +467,8 @@ class ProjectMCP:
         if method == 'tools/call':
             _object(params, ('name', 'arguments'), ('name',))
             calls = {'get_project_summary': self._summary, 'list_resources': self._list_resources, 'read_resource': self._read_resource,
-                     'list_bound_skills': self._list_skills, 'read_bound_skill': self._read_skill}
+                     'list_bound_skills': self._list_skills, 'read_bound_skill': self._read_skill,
+                     'read_collaboration_task': self._read_task, 'read_run_skill': self._read_run_skill}
             name = params['name']
             if not isinstance(name, str) or name not in calls: raise RPCError(-32602, 'Unknown read-only tool')
             try:

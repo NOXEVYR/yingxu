@@ -208,6 +208,12 @@ class PickerMigrationHttpTests(unittest.TestCase):
                 rejected = self.request('/api/project-storage/migration', {'token': 'synthetic-preview'})
                 self.assertEqual(rejected[0], 409)
                 self.assertIn('还有文件操作', rejected[1]['error'])
+            # The response can arrive before the HTTP handler's finally releases
+            # its reservation. Keep the real upload held and wait for that
+            # bounded request to release; do not weaken the writer-count check.
+            deadline = time.monotonic() + 2
+            while self.app.migration_jobs.writers > 1 and time.monotonic() < deadline:
+                time.sleep(.01)
             self.assertEqual(self.app.migration_jobs.writers, 1)
         self.assert_released()
         self.assertEqual(self.app.migration_jobs.records, {})

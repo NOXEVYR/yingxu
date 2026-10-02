@@ -71,11 +71,11 @@ namespace YingXu.Desktop
             File.Copy(Path.Combine(sourceRoot, "yingxu", "paths.py"), Path.Combine(folder, "yingxu", "paths.py"), true);
             File.WriteAllText(Path.Combine(folder, "server.py"),
                 "import ctypes,json,sys,threading\nfrom http.server import BaseHTTPRequestHandler,HTTPServer\n" +
-                "from pathlib import Path\nfrom yingxu.paths import instance_id,default_data_root\n" +
+                "from pathlib import Path\nfrom yingxu.paths import instance_id,default_data_root\nfrom yingxu import __version__,__build__\n" +
                 "Path('logs/console.txt').write_text(str(ctypes.windll.kernel32.GetConsoleWindow()))\n" +
                 "class Handler(BaseHTTPRequestHandler):\n" +
                 " def do_GET(self):\n" +
-                "  body=json.dumps(dict(app='yingxu',ok=True,version='0.4.23',instance_id=instance_id(default_data_root()))).encode()\n" +
+                "  body=json.dumps(dict(app='yingxu',ok=True,version=__version__,build_revision=__build__,program_id=instance_id(Path(__file__).resolve().parent),instance_id=instance_id(default_data_root()))).encode()\n" +
                 "  self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n" +
                 " def log_message(self,*args): pass\n" +
                 "server=HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler)\n" +
@@ -273,7 +273,10 @@ namespace YingXu.Desktop
                 Directory.CreateDirectory(Path.Combine(folder, "frontend"));
                 File.WriteAllText(Path.Combine(folder, "frontend", "index.html"), "");
                 Check(Hub.IsAppRoot(folder), "complete app folder recognized");
-                HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.23\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", true);
+                string exactHealth = "{\"app\":\"yingxu\",\"ok\":true,\"version\":\"" + BuildIdentity.Version + "\",\"build_revision\":\"" + BuildIdentity.BuildRevision + "\",\"program_id\":\"" + Hub.PathIdentity(Hub.NormalizeRoot(Hub.Root)) + "\",\"instance_id\":\"" + Hub.InstanceId() + "\"}";
+                HealthResponse(exactHealth, true);
+                HealthResponse(exactHealth.Replace("\"build_revision\":\"" + BuildIdentity.BuildRevision + "\"", "\"build_revision\":\"other.1\""), false);
+                HealthResponse(exactHealth.Replace(Hub.PathIdentity(Hub.NormalizeRoot(Hub.Root)), "other-program"), false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.4.4\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.3.2\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);
                 HealthResponse("{\"app\":\"yingxu\",\"ok\":true,\"version\":\"0.2.1\",\"instance_id\":\"" + Hub.InstanceId() + "\"}", false);

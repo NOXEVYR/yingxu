@@ -5,7 +5,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const {test} = require('node:test');
 const root = path.resolve(__dirname,'..');
-const dependencies = path.join(root,'tools/markdown-editor/node_modules');
+const dependencies = process.env.YINGXU_MARKDOWN_TEST_DEPENDENCIES || path.join(root,'tools/markdown-editor/node_modules');
 if (!fs.existsSync(path.join(dependencies,'esbuild'))) {
   test('live Markdown development checks require the locked offline build dependencies',{skip:true},()=>{});
 } else {

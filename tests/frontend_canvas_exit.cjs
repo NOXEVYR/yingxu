@@ -48,3 +48,26 @@ test('cancelled move preparation also restores the explicitly discarded active c
  const result=await vm.runInContext('prepareTabs([...state.tabs])',s.context);
  assert.equal(result,false);assert.deepEqual(s.renders,['workspace']);assert.equal(tab.draft,'saved');assert.equal(s.state.tabs[1].dirty,true);
 });
+
+test('a local tool submission blocks exit without discarding an open drawing',async()=>{
+ const s=setup();s.canvas();s.state.aiToolCallBusy=true;
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'tool-write'});assert.equal(s.messages.at(-1).allow,false);assert.equal(s.choicesSeen.length,0);assert.deepEqual(s.destroyed,[]);
+});
+test('accepted background submission is checked before native exit; remote-pending remains exitable',async()=>{
+ const s=setup();s.state.bootstrap={capabilities:{ai_tool_calls:true}};vm.runInContext("api=async()=>({local_busy:true,local_queued:0,queued:0,remote_pending:1});",s.context);
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'provider-send'});assert.equal(s.messages.at(-1).allow,false);
+ vm.runInContext("api=async()=>({local_busy:false,local_queued:0,queued:3,remote_pending:1});",s.context);
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'provider-wait'});assert.equal(s.messages.at(-1).allow,true);assert.equal(s.state.exitBusy,false);
+});
+test('unavailable or malformed tool status preserves drawings and releases the exit guard',async()=>{
+ const s=setup();s.canvas();s.state.bootstrap={capabilities:{ai_tool_calls:true}};
+ vm.runInContext("report=()=>{};api=async()=>{throw new Error('synthetic connection loss');};",s.context);
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'status-lost'});
+ assert.equal(s.messages.at(-1).allow,false);assert.equal(s.state.exitBusy,false);assert.deepEqual(s.destroyed,[]);
+ vm.runInContext("api=async()=>({});",s.context);
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'status-invalid'});
+ assert.equal(s.messages.at(-1).allow,false);assert.equal(s.state.exitBusy,false);assert.equal(s.choicesSeen.length,0);assert.deepEqual(s.destroyed,[]);
+ vm.runInContext("api=async()=>({local_busy:false,local_queued:0,queued:0});",s.context);
+ await s.handleDesktopMessage({action:'prepare-exit',requestId:'status-restored'});
+ assert.equal(s.messages.at(-1).allow,true);assert.deepEqual(s.destroyed,['c']);
+});

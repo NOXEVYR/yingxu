@@ -7,23 +7,24 @@
   "source": {
     "version": "0.4.27",
     "build": "calls.3",
-    "stage": "J",
-    "branch": "preview/workspace-stage-j-20261002",
-    "commit": "b900bfa403de8b7aeff54ba9b98b93f8c2446616",
-    "url": "https://github.com/NOXEVYR/yingxu/tree/b900bfa403de8b7aeff54ba9b98b93f8c2446616",
-    "archive_url": "https://github.com/NOXEVYR/yingxu/archive/b900bfa403de8b7aeff54ba9b98b93f8c2446616.zip",
-    "kind": "source-preview-not-native-program"
+    "stage": "J Windows delivery",
+    "branch": "release/0.4.27-calls.3",
+    "commit": "d226f639e52113c019ac23615edd1eb63f58fcda",
+    "url": "https://github.com/NOXEVYR/yingxu/tree/d226f639e52113c019ac23615edd1eb63f58fcda",
+    "archive_url": "https://github.com/NOXEVYR/yingxu/archive/d226f639e52113c019ac23615edd1eb63f58fcda.zip",
+    "kind": "Windows-program-release-source"
   },
   "windows": {
-    "version": "0.4.22",
-    "build": "workflow.3",
-    "release_url": "https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22",
-    "asset_name": "YingXu-v0.4.22-Windows-x64.zip",
-    "asset_id": 600232095,
-    "bytes": 448336960,
-    "sha256": "f572b591fe8a7ea227d0db49cc2510132ceea836ca23b2ce4dadf1f044ff8f7c",
-    "download_url": "https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.22/YingXu-v0.4.22-Windows-x64.zip",
-    "verification": "current GitHub asset metadata; existing release kept; package not downloaded again"
+    "version": "0.4.27",
+    "build": "calls.3",
+    "release_url": "https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.27",
+    "asset_name": "YingXu-v0.4.27-Windows-x64.zip",
+    "asset_id": 605257994,
+    "bytes": 448637401,
+    "sha256": "9dd3eebf7e7225a619bb3ea5f6581b0fcf9b6f5abe981a39f39ab5036eaa2dac",
+    "source_commit": "d226f639e52113c019ac23615edd1eb63f58fcda",
+    "download_url": "https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.27/YingXu-v0.4.27-Windows-x64.zip",
+    "verification": "new native EXE, isolated real WebView and final ZIP verified; GitHub size/digest matched; three small release assets read back; large ZIP not downloaded again"
   },
   "macos": {
     "version": "0.4.20-mac.1",
@@ -37,12 +38,18 @@
     "verification": "current GitHub asset metadata; historical release kept; package not downloaded again"
   },
   "native_stage_j": {
-    "package": null,
-    "acceptance": false,
-    "blockers": [
-      "No native package corresponding to final Stage J source",
-      "Final native host and complete package acceptance missing",
-      "macos/verify_release.py still checks old 0.4.25 version"
+    "platform": "Windows x64",
+    "package": {
+      "name": "YingXu-v0.4.27-Windows-x64.zip",
+      "url": "https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.27/YingXu-v0.4.27-Windows-x64.zip",
+      "bytes": 448637401,
+      "sha256": "9dd3eebf7e7225a619bb3ea5f6581b0fcf9b6f5abe981a39f39ab5036eaa2dac"
+    },
+    "acceptance": true,
+    "scope": "50 native parameter/identity checks; 14 isolated/offscreen real WebView cases; final complete ZIP verification",
+    "limitations": [
+      "Actual taskbar/tray/global hotkey, real clipboard/screen, user data and external model calls were outside isolated acceptance",
+      "macOS verifier remains tied to 0.4.25; no new Mac package"
     ],
     "stable_label_added": false
   },
@@ -100,6 +107,7 @@
   ],
   "synthetic_scope": "one synthetic project, 60 synthetic skills, two tasks and one fixed run; no user library; MCP disabled and no real generation in this layout check",
   "local_install_changed": false,
-  "release_assets_changed": false,
-  "workflows_dispatched": false
+  "release_assets_changed": true,
+  "workflows_dispatched": false,
+  "local_install_status": "verified program-only delta prepared; waiting for user save and exit"
 }

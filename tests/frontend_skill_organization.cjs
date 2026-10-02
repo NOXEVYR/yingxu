@@ -108,7 +108,8 @@ test('real Edge SKILL organization forms, filters, deduplication and selection',
     check('load uses skill collections and skill organization contracts',calls.some(value=>value.method==='GET'&&value.path.startsWith('/api/skill-collections?'))&&calls.some(value=>value.path==='/api/skill-organization'));
     check('an external uncollected skill has a rendered organize entry',!!card('skill-b')&&!!card('skill-b').querySelector('[data-workflow="organize"]'));
     check('visible organization introduction names categories tags and notes',root.querySelector('.skill-organization-intro')?.textContent.includes('分类、标签与备注')&&root.querySelector('.skill-organization-intro')?.textContent.includes('个人文件夹'));
-    check('card entry clearly names every editable metadata field',card('skill-b').querySelector('[data-workflow="organize"]')?.textContent==='分类 / 标签 / 备注');
+    const organize=card('skill-b').querySelector('[data-workflow="organize"]');
+    check('compact organize entry exposes every editable metadata field',organize?.textContent==='整理'&&organize.title==='分类 / 标签 / 备注');
     check('personal category controls stay separate from purpose and source',root.querySelector('#skillFolder')?.parentElement.textContent.includes('分类（文件夹）')&&!!root.querySelector('#skillPurpose')&&!!root.querySelector('#skillSourceDirectory'));
     check('reading the library never rewrites existing metadata',!calls.some(value=>value.method!=='GET'));
     check('existing favorite deduplicates its external source item',root.querySelectorAll('[data-workflow-card]').length===3&&!card('skill-a')&&!!card('favorite-a'));

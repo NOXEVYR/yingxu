@@ -184,7 +184,7 @@ class ProjectMCPHttpTests(unittest.TestCase):
         self.assertEqual(self.rpc('ping')[2]['result'], {})
         tools = self.rpc('tools/list')[2]['result']['tools']
         self.assertEqual({tool['name'] for tool in tools},
-                         {'get_project_summary', 'list_resources', 'read_resource', 'list_bound_skills', 'read_bound_skill'})
+                         {'get_project_summary', 'list_resources', 'read_resource', 'list_bound_skills', 'read_bound_skill','read_collaboration_task','read_run_skill'})
         for tool in tools:
             self.assertTrue(tool['annotations']['readOnlyHint'])
             self.assertFalse(tool['inputSchema'].get('additionalProperties', True))

@@ -49,7 +49,7 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
       card.scrollIntoView({block:'nearest'});const r=card.getBoundingClientRect(),send=(type,x,y,extra={})=>viewport.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:1,pointerType:'mouse',button:0,clientX:x,clientY:y,...extra}));
       send('pointerdown',r.left-4,r.top+4);send('pointermove',r.left+20,r.top+20);send('pointerup',r.left+20,r.top+20);
       check('blank drag selects actual rendered card using skill identity',ui.getSelection().has('col1')&&card.classList.contains('checked')&&root.querySelector('[data-workflow-card]')===card);
-      send('pointerdown',r.left-4,r.top+4,{ctrlKey:true});send('pointermove',r.left+20,r.top+20);send('pointerup',r.left+20,r.top+20);
+      const selectedRect=card.getBoundingClientRect();send('pointerdown',selectedRect.left-4,selectedRect.top+4,{ctrlKey:true});send('pointermove',selectedRect.left+20,selectedRect.top+20);send('pointerup',selectedRect.left+20,selectedRect.top+20);
       check('Ctrl marquee toggles skill without resource IDs',ui.getSelection().size===0);
       marquee.destroy();
       check('untrusted names escaped',!root.querySelector('favorite')&&root.textContent.includes('<favorite>'));
@@ -83,7 +83,7 @@ test('real Chromium collection filtering and per-conversation handoff lifecycle'
     }catch(error){document.querySelector('#result').textContent=JSON.stringify({error:String(error),stack:error.stack,checks});}
   })();`;
   fs.writeFileSync(path.join(temporary,'runner.js'),runner);
-  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><style>#viewport{width:1000px;height:600px;overflow:auto;padding:20px}#root{padding:20px}</style><div id="viewport"><div id="root"></div></div><pre id="result"></pre><script src="marquee.js"></script><script src="workflow-library.js"></script><script src="runner.js"></script>');
+  fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="workflow-library.css"><style>#viewport{width:1000px;height:600px;overflow:auto;padding:20px}#root{padding:20px}</style><div id="viewport"><div id="root"><div class="skeleton"></div><div class="skeleton"></div><div class="legacy-placeholder">旧错误占位</div><article class="skill-card" data-workflow-card="obsolete">旧结果</article></div></div><pre id="result"></pre><script src="marquee.js"></script><script src="workflow-library.js"></script><script src="runner.js"></script>');
   const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking',`--user-data-dir=${path.join(temporary,'profile')}`,'--window-size=1100,800','--virtual-time-budget=2000','--dump-dom',pathToFileURL(path.join(temporary,'fixture.html')).href],{windowsHide:true,timeout:30000,maxBuffer:2*1024*1024});
   const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-2000));
   const result=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));

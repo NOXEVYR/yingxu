@@ -14,6 +14,11 @@ import tempfile
 import time
 from urllib.parse import urlencode
 import zipfile
+try:
+    from .build_identity import read_identity, require_manifest_identity, require_native_identity
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from build_identity import read_identity, require_manifest_identity, require_native_identity
 
 
 def request(port, method, path, data=None, token=None):
@@ -61,22 +66,31 @@ def wait_health(port, process=None):
     raise RuntimeError('Isolated service health timeout')
 
 
-def check_server(port, data, projects, restart=None):
+def check_server(port, data, projects, restart=None, expected_identity=None, expected_program_root=None):
+    expected_identity = expected_identity or read_identity(Path(__file__).resolve().parents[1])
     health = wait_health(port)
-    assert health['version'] == '0.4.23'
+    assert health['version'] == expected_identity.version
+    assert health['build_revision'] == expected_identity.build_revision
+    assert health['program_id'] == data_identity(expected_program_root or Path(__file__).resolve().parents[1])
     expected = data_identity(data)
     assert health['instance_id'] == expected
     bootstrap = request(port, 'GET', '/api/bootstrap')
+    assert bootstrap['build_revision'] == expected_identity.build_revision
     assert Path(bootstrap['data_root']) == data.resolve()
     assert Path(bootstrap['project_root']) == projects.resolve()
     assert request(port, 'GET', '/api/projects')['projects'] == []
     assert request(port, 'GET', '/api/skills')['skills'] == []
     token = bootstrap['token']
     assert bootstrap['settings']['appearance_theme'] == 'swiss'
-    for theme in ('pine','paper','swiss'):
+    for theme in ('graphite','paper','pine','ocean','plum','swiss'):
         saved = request(port, 'PATCH', '/api/settings', {'appearance_theme': theme}, token)
         assert saved['appearance_theme'] == theme
         assert request(port, 'GET', '/api/settings')['appearance_theme'] == theme
+    assert bootstrap['settings']['workspace_layout'] == 'focus'
+    for layout in ('classic','focus'):
+        saved = request(port, 'PATCH', '/api/settings', {'workspace_layout':layout}, token)
+        assert saved['workspace_layout'] == layout
+        assert request(port, 'GET', '/api/settings')['workspace_layout'] == layout
     # Only create a synthetic source beneath this verifier's temporary root.
     # The server's HOME/USERPROFILE is also redirected by the caller.
     sources = request(port, 'GET', '/api/skill-sources')
@@ -261,6 +275,7 @@ def check_server(port, data, projects, restart=None):
     assert all(path.is_file() for path in backups)
     with socket.socket() as connection:
         connection.connect(('127.0.0.1', port))
+    check_collaboration(port, project, token)
     return ['health version and data identity', 'configured data/projects roots', 'empty projects and SKILL library',
             'SKILL source registry lists bounded local locations and empty counts',
             'custom source registration and source_id/query filters expose read-only synthetic skill',
@@ -276,7 +291,35 @@ def check_server(port, data, projects, restart=None):
             'maintenance preview and zero-candidate cleanup preserve originals and history',
             'project rename preserves project root',
             'project classification subtree moves and returns to root without changing project records',
-            'external Markdown saves original path with BOM/newlines, backup and no project import']
+            'external Markdown saves original path with BOM/newlines, backup and no project import',
+            'AI task creation retry, frozen round, indexed receipt, review and explicit completion in packaged service']
+
+
+def check_collaboration(port, project, token):
+    body = {'project_id': project['id'], 'title': '隔离 AI 成果验收', 'kind': 'skill_test',
+            'goal': '仅核对合成报告', 'acceptance': ['人工审核报告'], 'idempotency_key': 'release-task-probe'}
+    task = request(port, 'POST', '/api/ai-tasks', body, token)
+    assert request(port, 'POST', '/api/ai-tasks', body, token)['id'] == task['id']
+    run = request(port, 'POST', '/api/ai-tasks/' + task['id'] + '/runs',
+                  {'expected_revision': task['revision'], 'client_id': 'release-verifier',
+                   'conversation_id': 'synthetic-only', 'input_item_ids': [], 'skill_pins': []}, token)
+    prefix = '/api/ai-tasks/' + task['id'] + '/runs/' + run['id']
+    report = Path(run['directories']['generated']['path']) / '合成报告.txt'
+    report.write_text('Synthetic report; no AI execution or media acceptance.', encoding='utf-8')
+    candidates = request(port, 'GET', prefix + '/candidates', token=token)
+    assert any(row['relative_path'] == report.name for row in candidates['files'])
+    receipt_body = {'idempotency_key': 'release-receipt-probe', 'files': [{'relative_path': report.name}]}
+    receipt = request(port, 'POST', prefix + '/receive', receipt_body, token)
+    assert receipt['state'] == 'completed'
+    assert request(port, 'POST', prefix + '/receive', receipt_body, token)['id'] == receipt['id']
+    current = request(port, 'GET', '/api/ai-tasks/' + task['id'], token=token)
+    artifact = current['artifacts'][0]
+    request(port, 'PATCH', '/api/ai-tasks/' + task['id'] + '/artifacts/' + artifact['id'] + '/review',
+            {'expected_revision': artifact['revision'], 'decision': 'accepted', 'notes': '合成验收'}, token)
+    current = request(port, 'GET', '/api/ai-tasks/' + task['id'], token=token)
+    completed = request(port, 'POST', '/api/ai-tasks/' + task['id'] + '/complete',
+                        {'expected_revision': current['revision'], 'confirmed': True}, token)
+    assert completed['status'] == '已完成'
 
 
 def check_media(port, root, base, interpreter, environment):
@@ -423,6 +466,10 @@ def main():
             archive.extractall(base)
         checked += ['ZIP CRC and duplicate/path checks', 'all members match SHA-256 manifest', 'single YingXu root']
         root = base / 'YingXu'
+        identity = read_identity(root)
+        require_manifest_identity(manifest, identity)
+        require_native_identity(root / 'YingXu.exe', identity)
+        checked.append('release version and build match literal application source identity')
         editor = json.loads((root / 'frontend/live-markdown.manifest.json').read_text(encoding='utf-8'))
         editor_bytes = (root / 'frontend/live-markdown.js').read_bytes()
         assert editor['file'] == 'live-markdown.js'
@@ -432,6 +479,8 @@ def main():
         assert (root / 'frontend/live-markdown.css').is_file()
         assert (root / 'frontend/global-search.js').is_file() and (root / 'frontend/global-search.css').is_file()
         for relative in ('docs/skill-workflow.md', 'frontend/workflow-library.js', 'frontend/workflow-library.css',
+                         'docs/ai-collaboration.md', 'frontend/ai-collaboration.js', 'frontend/ai-collaboration.css',
+                         'frontend/workbench-layout.css', 'yingxu/ai_tasks.py', 'yingxu/ai_receipts.py',
                          'frontend/automatic-updates.js', 'yingxu/automatic_updates.py',
                          'yingxu/skill_collections.py', 'yingxu/handoffs.py',
                          'frontend/capture.js', 'frontend/resource-groups.js', 'frontend/resource-groups.css',
@@ -487,7 +536,7 @@ def main():
             pid_record = json.loads((data / 'server.pid.json').read_text(encoding='utf-8'))
             assert Path(pid_record['root']) == root and pid_record['port'] == port
             pid = pid_record['pid']
-            checked += check_server(port, data, projects)
+            checked += check_server(port, data, projects, expected_identity=identity, expected_program_root=root)
             checked += check_media(port, root, base, interpreter, environment)
             checked += check_static_formats(port, base)
             second = subprocess.run([interpreter, '-B', str(root / 'launcher.pyw'), '--no-browser', '--no-dialog', '--port', str(port)],
@@ -519,7 +568,7 @@ def main():
                     process = subprocess.Popen([interpreter, '-S', '-B', str(root / 'server.py'), '--port', str(port), '--data', str(data), '--projects-root', str(projects)],
                                                cwd=root, env=environment, stdout=log, stderr=log, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
                     wait_health(port, process)
-                check_server(port, data, projects, restart=restart_cli)
+                check_server(port, data, projects, restart=restart_cli, expected_identity=identity, expected_program_root=root)
                 checked.append('custom SKILL source disabled configuration and skill ID survive real isolated server restart without changing original SHA-256')
                 checked.append('CLI path overrides with isolated bundled interpreter')
             finally:
