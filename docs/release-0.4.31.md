@@ -10,6 +10,14 @@
 
 关系线可在属性面板定位关联主题；范围边界、概要、关系线编辑、精确排版和富文本备注编辑仍保留原有边界。包含复杂范围或被关系线引用的删除请求整批拒绝，防止改变关联含义。
 
-验收包括真实 Chromium 交互回归、链接导航及迟到结果保护、XMind ZIP 保存与备份、Windows 离屏 WebView 可信框选/Delete/撤销事件和完整包检查。最终执行结果记录在交付清单；源代码准备与最终 ZIP 验收分别记录。macOS 0.4.31-mac.1 仍为待原生构建验收的候选，不能把 Windows 测试写为 Mac 原生已通过。
+## Windows 0.4.31 / xmind.3
 
-未更改正式下载入口。所有写入验收使用合成项目，真实用户资料不纳入程序包。
+[下载 Windows x64 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31/YingXu-v0.4.31-Windows-x64.zip) · [发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31) · [精确源码 8d758c3](https://github.com/NOXEVYR/yingxu/tree/8d758c325136bb447f6fb63701fed80b7ea5986a)
+
+- ZIP：448724178 字节；SHA-256：`9505c932c336c96a8a61793bff5bd0f2ec69114a8c05a61537fa2e91548b9dde`。
+- 完整包 38 项检查通过，81 个前端脚本通过。真实 WebView 验收覆盖 Ctrl 滚轮、双击输入、可信框选、Delete 与撤销。
+- 后端运行 1120 项，其中 10 项跳过；另有 2 项因 C 盘测试夹具 ACL 拒绝而报错。涉及相同文件的 26 项相关套件在 D 盘隔离目录通过。
+
+macOS 0.4.31-mac.1 云端回归未通过，暂不发布。[GitHub Actions CI 运行结果](https://github.com/NOXEVYR/yingxu/actions/runs/38039196355)：1120 项中 7 项失败、27 项错误、33 项跳过；结果包含旧测试的 Windows 平台假设及跨项目/迁移残留核验问题。当前 Mac 可下载版本仍为 [0.4.20-mac.1 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)。
+
+所有写入验收使用合成项目，真实用户资料不纳入程序包。

@@ -35,6 +35,10 @@ jobs:
           node-version: '24'
       - name: Prepare locked runtime and SDK
         run: |
+          # The original Gyan archive URL expired. This official mirror serves the
+          # same pinned bytes; prepare_runtime.py still checks the source lock.
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/runtime-cache" | Out-Null
+          Invoke-WebRequest 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip' -OutFile "$env:RUNNER_TEMP/runtime-cache/ffmpeg.zip"
           python -B tools/prepare_runtime.py --cache "$env:RUNNER_TEMP/runtime-cache" --download
           if ($LASTEXITCODE) { throw 'Runtime preparation failed' }
           Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4191.47/microsoft.web.webview2.1.0.4191.47.nupkg' -OutFile "$env:RUNNER_TEMP/webview2.nupkg"

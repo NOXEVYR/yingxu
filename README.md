@@ -1,12 +1,12 @@
 # 映序 · AI 资产与项目管理
 
-开发中的 0.4.31 候选版完善 [XMind 思维导图工作区](docs/xmind.md)：左键框选、多选批量删除与撤销、标签和任务标记、批量备注与样式，以及跨项目文件、网址和主题链接。[本轮交付与验证说明](docs/release-0.4.31.md)；以下正式下载入口继续对应已公开版本。
+Windows 0.4.31 / xmind.3 已发布，完善 [XMind 思维导图工作区](docs/xmind.md)：左键框选、多选批量删除与撤销、标签和任务标记、批量备注与样式，以及跨项目文件、网址和主题链接。[本轮交付与验证说明](docs/release-0.4.31.md)。macOS 0.4.31-mac.1 云端回归未通过，暂不发布；[CI 结果](https://github.com/NOXEVYR/yingxu/actions/runs/38039196355)显示 1120 项中 7 项失败、27 项错误、33 项跳过。当前可下载的 Mac 试用版仍为 0.4.20-mac.1。
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-**Windows 0.4.28 / updater.1 完整包已发布。** 修复自动更新下载衔接、失败退避和中断恢复，改善更新网络等待，补全后台状态与旧补丁缓存预览整理。原生启动器、实际页面和最终 ZIP 已分别完成隔离验收。macOS 保留 0.4.20-mac.1 历史试用版；本次未新增稳定版标记。
+**Windows 0.4.31 / xmind.3 完整包已发布。** 本版通过 38 项完整包检查和 81 个前端脚本；真实 WebView 已验收 Ctrl 滚轮、双击输入、框选、Delete 与撤销。后端套件运行 1120 项、跳过 10 项，另有 2 项因 C 盘测试夹具 ACL 拒绝报错；涉及相同文件的 26 项相关套件在 D 盘隔离目录通过。macOS 0.4.31-mac.1 云端回归未通过，暂不发布，详见[CI 结果](https://github.com/NOXEVYR/yingxu/actions/runs/38039196355)；0.4.20-mac.1 继续作为历史试用版提供下载。
 
-[下载 Windows 0.4.28 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.28/YingXu-v0.4.28-Windows-x64.zip) · [附件校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.28) · [精确构建源码](https://github.com/NOXEVYR/yingxu/tree/6f2b447f4585bd7b83ef683eb17c59fc962040da)。GitHub Source code / Download ZIP 为源码，不能作为程序更新包。
+[下载 Windows 0.4.31 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31/YingXu-v0.4.31-Windows-x64.zip) · [附件校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31) · [精确构建源码](https://github.com/NOXEVYR/yingxu/tree/8d758c325136bb447f6fb63701fed80b7ea5986a)。ZIP 大小 448724178 字节，SHA-256 `9505c932c336c96a8a61793bff5bd0f2ec69114a8c05a61537fa2e91548b9dde`。GitHub Source code / Download ZIP 为源码，不能作为程序更新包。
 
 [0.4.28 更新修补](docs/releases/0.4.28.md) · [0.4.27 工作台改进](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)
 
@@ -44,11 +44,11 @@
 
 同时新增独立文档视图：通过“打开方式”或“打开本地文件”打开 Markdown、文本、Word、PDF、HTML 时，默认收起工作台侧栏。文档顶部右上角的展开图标可恢复完整工作台，再次点击可返回独立视图；切换保留编辑器与未保存内容。系统窗口的最小化、最大化和关闭按钮保持原有行为。
 
-**[下载 Windows x64 完整包 · v0.4.27](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.27/YingXu-v0.4.27-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.27) · [0.4.22 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [0.4.20 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20) · [0.4.19 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
+**[下载 Windows x64 完整包 · v0.4.31](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31/YingXu-v0.4.31-Windows-x64.zip)** · [校验与发布说明](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31) · [0.4.28 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.28) · [0.4.27 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.27) · [0.4.22 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.22) · [0.4.20 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20) · [0.4.19 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.19) · [0.4.18 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.18) · [0.4.17 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.17)
 
 自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-[下载 macOS M 系列 0.4.20-mac.1 试用包与校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)，适用于 macOS 14+、Apple Silicon（arm64）。仅使用发布页中已公开的附件；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[macOS 0.4.16 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.16-mac.1)与[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
+macOS 0.4.31-mac.1 云端回归未通过，暂不发布；[CI 结果](https://github.com/NOXEVYR/yingxu/actions/runs/38039196355)为 1120 项中 7 项失败、27 项错误、33 项跳过。当前可下载的 [macOS M 系列 0.4.20-mac.1 历史试用包与校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)适用于 macOS 14+、Apple Silicon（arm64）；试用版未公证，也尚未完成人工中文输入法与不同 DPI 显示环境验收。[macOS 0.4.16 历史包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.16-mac.1)与[原 macOS 0.4.3 试用包](https://github.com/turnsolesama/portfolio/releases/tag/yingxu-v0.4.3)仍保留。
 
 **0.4.17 已收录修复：磁盘目录同步与拖拽移动。** 项目内部文件按真实的分类目录和子文件夹显示，重新同步也会修正未变更文件的旧分类；磁盘新增的嵌套和空文件夹可被识别。打开项目、返回映序窗口时按需检查当前项目目录，无常驻磁盘轮询；刷新按钮仍可手动同步全部登记来源。从资源管理器拖入当前项目已有文件时移动原文件，落在原位置则保持不变；外部文件仍复制导入，导入对话框的复制功能不变。Windows 对已记录且可核对文件标识、创建时间的同一文件，支持在项目内外部移动后保留条目身份；无法确认身份时保留原记录，不按同名或相同内容猜测。
 
