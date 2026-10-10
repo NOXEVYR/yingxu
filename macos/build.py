@@ -14,7 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from macos_app import PREVIEW
-from yingxu import __version__
+from yingxu import __version__, __mac_bundle_build__
 
 
 def main():
@@ -40,7 +40,7 @@ def main():
     app = output / 'YingXu.app'
     info = app / 'Contents/Info.plist'
     values = plistlib.loads(info.read_bytes())
-    values.update(CFBundleShortVersionString=__version__, CFBundleVersion='42501',
+    values.update(CFBundleShortVersionString=__version__, CFBundleVersion=__mac_bundle_build__,
                   LSMinimumSystemVersion='14.0', NSHighResolutionCapable=True,
                   NSDocumentsFolderUsageDescription='选择和管理您明确指定的视频创作项目与素材。')
     info.write_bytes(plistlib.dumps(values))

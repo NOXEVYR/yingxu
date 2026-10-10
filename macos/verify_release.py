@@ -13,6 +13,10 @@ import sys
 import tempfile
 import zipfile
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from yingxu import __version__, __mac_preview__, __mac_bundle_build__
+
 
 def run_report(executable, flag):
     completed = subprocess.run([str(executable), flag], capture_output=True, text=True, timeout=180)
@@ -38,7 +42,7 @@ def verify(archive):
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     assert manifest['sha256']==digest and manifest['bytes']==archive.stat().st_size
-    assert manifest['version']=='0.4.25-mac.1' and manifest['source_version']=='0.4.25'
+    assert manifest['version']==__mac_preview__ and manifest['source_version']==__version__
     assert manifest['contains_user_data'] is False
     assert archive.with_name(archive.stem+'-SHA256.txt').read_text().split()==[digest,archive.name]
     checks=[]
@@ -74,7 +78,7 @@ def verify(archive):
             assert icon.resolve().is_relative_to((app/'Contents/Resources').resolve())
             assert hashlib.sha256(icon.read_bytes()).hexdigest()==manifest['icon_sha256']
             checks.append('Extracted application viewfinder icon matches repair manifest')
-        assert info['CFBundleShortVersionString']=='0.4.25' and info['CFBundleVersion']=='42501'
+        assert info['CFBundleShortVersionString']==__version__ and info['CFBundleVersion']==__mac_bundle_build__
         assert info['LSMinimumSystemVersion']=='14.0'
         assert subprocess.check_output(['lipo','-archs',str(executable)],text=True).strip()=='arm64'
         subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)

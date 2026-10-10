@@ -6,6 +6,12 @@ desktop/build.json
 desktop/verification.json
 runtime/
 .release-work/
+/test-evidence/
+/YingXu.exe
+releases/YingXu-v0.4.29-Windows-x64.zip
+releases/YingXu-v0.4.29-manifest.json
+releases/YingXu-v0.4.29-SHA256.txt
+releases/YingXu-v0.4.29-verification.json
 node_modules/
 
 releases/YingXu-v0.3.0-Windows-x64.zip

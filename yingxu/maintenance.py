@@ -21,7 +21,7 @@ TOKEN_SECONDS = 300
 GROUPS = {'thumbnails': '缩略图缓存', 'versions': '项目文稿历史',
           'external-versions': '外部文稿历史', 'skill_versions': 'SKILL 历史'}
 HEX_ID = re.compile(r'[a-f0-9]{32}')
-VERSION_NAME = re.compile(r'([a-f0-9]{32})\.(md|txt|json|csv|yaml|yml|docx|excalidraw)')
+VERSION_NAME = re.compile(r'([a-f0-9]{32})\.(md|txt|json|csv|yaml|yml|docx|excalidraw|xmind)')
 SKILL_NAME = re.compile(r'\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d\.\d{3}\+00-00_[a-f0-9]{8}\.md')
 
 

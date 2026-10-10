@@ -31,6 +31,7 @@ CATEGORIES = {
 }
 STATUSES = ['待开始', '进行中', '待审核', '已完成']
 KINDS = {
+    '.xmind': 'xmind',
     '.excalidraw': 'excalidraw',
     **dict.fromkeys(['.md', '.markdown'], 'markdown'),
     **dict.fromkeys(['.txt', '.json', '.csv', '.srt', '.vtt', '.yaml', '.yml'], 'text'),
@@ -234,7 +235,7 @@ class Store:
         with self.connection() as db:
             rows = [dict(r) for r in db.execute('SELECT * FROM projects WHERE removed=0 ORDER BY created DESC')]
             for row in rows:
-                counts = db.execute("SELECT count(*) AS total,sum(category='shots') AS shots,sum(category='shots' AND status='已完成') AS completed,sum(kind IN ('markdown','text','docx','excalidraw')) AS documents FROM items WHERE project_id=? AND removed=0", (row['id'],)).fetchone()
+                counts = db.execute("SELECT count(*) AS total,sum(category='shots') AS shots,sum(category='shots' AND status='已完成') AS completed,sum(kind IN ('markdown','text','docx','excalidraw','xmind')) AS documents FROM items WHERE project_id=? AND removed=0", (row['id'],)).fetchone()
                 row['counts'] = {k: int(v or 0) for k, v in dict(counts).items()}
         return rows
 
@@ -380,7 +381,7 @@ class Store:
         for k,v in [('category',category),('status',status),('kind',kind)]:
             if v and v != 'all': filters.setdefault(k,[]).append(v)
         labels={v[0]:k for k,v in CATEGORIES.items()}
-        kind_labels={'图片':'image','视频':'video','音频':'audio','文档':'docx','模型':'model','文本':'text','markdown':'markdown'}
+        kind_labels={'图片':'image','视频':'video','音频':'audio','文档':'docx','模型':'model','文本':'text','markdown':'markdown','思维导图':'xmind','xmind':'xmind'}
         for k, values in filters.items():
             for value in values:
                 if k=='tag':
@@ -440,6 +441,16 @@ class Store:
                 from .docx_io import read_docx
                 content=read_docx(p,structured=False)['content'][:TEXT_LIMIT]
             except (ValueError,OSError,UserError): pass
+        elif kind=='xmind' and stat.st_size<=32*1024*1024:
+            try:
+                from .xmind import read
+                sheets=json.loads(read(p.read_bytes())['content'])
+                pending=[sheet['rootTopic'] for sheet in sheets];titles=[]
+                while pending:
+                    topic=pending.pop();titles.append(topic.get('title',''))
+                    for group in topic.get('children',{}).values():pending.extend(group)
+                content='\n'.join(titles)[:TEXT_LIMIT]
+            except (OSError,UserError): pass
         elif kind=='image' and stat.st_size<=100*1024*1024:
             try:
                 from PIL import Image
@@ -615,7 +626,7 @@ class Store:
         if category not in CATEGORIES: raise UserError('请选择有效分类。')
         project=self.get_project(pid)
         name=safe_name(data.get('name','未命名文档'))
-        extension='.excalidraw' if data.get('format')=='excalidraw' else '.md'
+        extension={'excalidraw':'.excalidraw','xmind':'.xmind'}.get(data.get('format'),'.md')
         if name.lower().endswith(extension):name=name[:-len(extension)]
         if data.get('status','待开始') not in STATUSES:raise UserError('状态不存在。')
         if not isinstance(data.get('tags',[]),list) or len(data.get('tags',[]))>50:raise UserError('标签格式不正确。')
@@ -630,7 +641,11 @@ class Store:
         folder=Organize(self).folder_path(pid,category,data.get('folder_id'))
         path=folder / (name+extension)
         if path.exists():path=folder / (name+'_'+uid()[:6]+extension)
-        with path.open('x',encoding='utf-8',newline='') as f:f.write(content)
+        if extension=='.xmind':
+            from .xmind import create
+            with path.open('xb') as f:f.write(create(name))
+        else:
+            with path.open('x',encoding='utf-8',newline='') as f:f.write(content)
         source=next(s for s in self.sources(pid) if s['path']==str(root))
         self.index_files(source,[path])
         with self.connection() as db:iid=db.execute('SELECT id FROM items WHERE project_id=? AND path=?',(pid,str(path))).fetchone()[0]
@@ -759,11 +774,14 @@ class Store:
             from .svg_content import read_svg_content
             with path.open('rb') as opened:
                 return read_svg_content(opened)
-        if fmt not in ('markdown','text','docx','excalidraw'):
+        if fmt not in ('markdown','text','docx','excalidraw','xmind'):
             return {'format':'binary','content':'','etag':None,'editable':False}
-        limit=32*1024*1024 if fmt=='docx' else TEXT_LIMIT
+        limit=32*1024*1024 if fmt in ('docx','xmind') else TEXT_LIMIT
         if path.stat().st_size>limit:raise UserError('文件较大，请使用系统编辑器打开。')
         raw=path.read_bytes();etag=hashlib.sha256(raw).hexdigest()
+        if fmt=='xmind':
+            from .xmind import read
+            return {**read(raw),'etag':etag}
         if fmt=='docx':
             import io
             from .docx_io import read_docx
@@ -779,13 +797,16 @@ class Store:
     def save_content(self,iid,data):
         with self.lock:
             item=self.get_item(iid);path=self.resolve_item_path(item)
-            if item['kind'] not in ('markdown','text','docx','excalidraw'):raise UserError('此类型不能在工作台编辑。')
+            if item['kind'] not in ('markdown','text','docx','excalidraw','xmind'):raise UserError('此类型不能在工作台编辑。')
             if path.stat().st_nlink>1:raise UserError('文件有多个硬链接。为保留原有路径关系，请复制一份到项目后再编辑。',409)
-            limit=32*1024*1024 if item['kind']=='docx' else TEXT_LIMIT
+            limit=32*1024*1024 if item['kind'] in ('docx','xmind') else TEXT_LIMIT
             if path.stat().st_size>limit:raise UserError('文件较大，请使用系统编辑器打开。')
             before=path.read_bytes();digest=hashlib.sha256(before).hexdigest()
             if not data.get('etag') or digest!=data['etag']:raise UserError('原文件已被其他程序修改。你的编辑仍保留，请先复制草稿并重新打开比较。',409)
-            if item['kind']=='docx':
+            if item['kind']=='xmind':
+                from .xmind import edit
+                after=edit(before,data.get('content'))
+            elif item['kind']=='docx':
                 import io
                 from .docx_io import edit_docx
                 try:after=edit_docx(path,data.get('paragraphs',[]),handle=io.BytesIO(before))

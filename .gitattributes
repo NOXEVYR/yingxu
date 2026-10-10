@@ -1,3 +1,6 @@
 # Generated bundles are hashed byte-for-byte; never rewrite their line endings.
 frontend/live-markdown.js -text
+frontend/live-markdown.LICENSE.txt -text
+frontend/live-markdown.manifest.json -text
+yingxu/__init__.py text eol=lf
 frontend/canvas/** -text

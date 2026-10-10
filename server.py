@@ -169,7 +169,7 @@ class Application:
             if kind=='folder':
                 script="Add-Type -AssemblyName System.Windows.Forms; $d=New-Object Windows.Forms.FolderBrowserDialog; $d.Description='选择要引用的素材文件夹'; $d.ShowNewFolderButton=$false; if($d.ShowDialog() -eq 'OK'){@($d.SelectedPath)|ConvertTo-Json -Compress} else {'[]'}"
             elif kind=='files':
-                script="Add-Type -AssemblyName System.Windows.Forms; $d=New-Object Windows.Forms.OpenFileDialog; $d.Title='选择素材、剧本或分镜文件'; $d.Multiselect=$true; $d.Filter='创作文件|*.zip;*.md;*.txt;*.docx;*.doc;*.pdf;*.svg;*.html;*.htm;*.png;*.jpg;*.jpeg;*.webp;*.gif;*.mp4;*.mov;*.webm;*.mkv;*.wav;*.mp3;*.blend;*.glb;*.fbx;*.obj;*.srt;*.json;*.csv|所有文件|*.*'; if($d.ShowDialog() -eq 'OK'){@($d.FileNames)|ConvertTo-Json -Compress} else {'[]'}"
+                script="Add-Type -AssemblyName System.Windows.Forms; $d=New-Object Windows.Forms.OpenFileDialog; $d.Title='选择素材、剧本或分镜文件'; $d.Multiselect=$true; $d.Filter='创作文件|*.zip;*.xmind;*.excalidraw;*.md;*.txt;*.docx;*.doc;*.pdf;*.svg;*.html;*.htm;*.png;*.jpg;*.jpeg;*.webp;*.gif;*.mp4;*.mov;*.webm;*.mkv;*.wav;*.mp3;*.blend;*.glb;*.fbx;*.obj;*.srt;*.json;*.csv|所有文件|*.*'; if($d.ShowDialog() -eq 'OK'){@($d.FileNames)|ConvertTo-Json -Compress} else {'[]'}"
             else:raise UserError('选择器类型不正确。')
             import base64
             prefix='[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding; '

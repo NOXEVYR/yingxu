@@ -13,12 +13,12 @@ import time
 
 from .store import KINDS, TEXT_LIMIT, UserError, clean_path, decode_text, has_link, uid
 
-PREVIEW_KINDS = frozenset(('markdown','text','docx','excalidraw','pdf','image','svg','html','video','audio'))
+PREVIEW_KINDS = frozenset(('markdown','text','docx','excalidraw','xmind','pdf','image','svg','html','video','audio'))
 MAX_OPEN = 200
 MAX_SESSION = 256
 TTL = 24 * 60 * 60
 WORD_LIMIT = 32 * 1024 * 1024
-EDIT_KINDS = frozenset(('markdown', 'text', 'docx', 'excalidraw'))
+EDIT_KINDS = frozenset(('markdown', 'text', 'docx', 'excalidraw', 'xmind'))
 EDIT_NOTICE = '直接编辑原文件；保存前备份，外部修改会触发冲突保护。未加入项目。'
 
 
@@ -108,7 +108,7 @@ class ExternalPreviews:
                 content = read_svg_content(opened)
         if kind in EDIT_KINDS:
             with self.lock:
-                raw = self._read(iid, WORD_LIMIT if kind == 'docx' else TEXT_LIMIT)
+                raw = self._read(iid, WORD_LIMIT if kind in ('docx','xmind') else TEXT_LIMIT)
             writable = bool(path.stat().st_mode & stat_module.S_IWRITE)
             content.update(etag=hashlib.sha256(raw).hexdigest(), editable=writable,
                            notice=EDIT_NOTICE if writable else '文件为只读，请先修改文件权限或使用系统应用另存副本。')
@@ -118,6 +118,12 @@ class ExternalPreviews:
                 from .canvas import validate
                 validate(text)
             content.update(content=text,encoding=encoding)
+        elif kind=='xmind':
+            from .xmind import read
+            preview=read(raw)
+            content.update(preview)
+            content['editable']=writable and preview['editable']
+            if not writable:content['notice']='文件为只读。 '+preview['notice']
         elif kind=='docx':
             from .docx_io import read_docx
             try:
@@ -190,12 +196,15 @@ class ExternalPreviews:
             mode = path.stat().st_mode
             if not mode & stat_module.S_IWRITE:
                 raise UserError('文件为只读，无法保存；请使用系统应用另存副本。', 403)
-            limit = WORD_LIMIT if kind == 'docx' else TEXT_LIMIT
+            limit = WORD_LIMIT if kind in ('docx','xmind') else TEXT_LIMIT
             before = self._read(iid, limit)
             digest = hashlib.sha256(before).hexdigest()
             if digest != data['etag']:
                 raise UserError('原文件已被其他程序修改。草稿仍保留，请重新打开并比较后保存。', 409)
-            if kind == 'docx':
+            if kind == 'xmind':
+                from .xmind import edit
+                after = edit(before, data[field])
+            elif kind == 'docx':
                 from .docx_io import edit_docx
                 try:
                     after = edit_docx(path, data[field], handle=io.BytesIO(before))

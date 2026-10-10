@@ -145,7 +145,7 @@ namespace YingXu.Desktop
                 Check(before.SequenceEqual(File.ReadAllBytes(file)),"reader never rewrites source "+encoding.WebName);
             }
             foreach(string ext in new[]{".md",".MARKDOWN",".txt",".json",".csv",".srt",".vtt"})Check(QuickReaderDocument.Supports("note"+ext),"quick routing "+ext);
-            foreach(string ext in new[]{".docx",".pdf",".html",".svg",".png",".excalidraw"})Check(!QuickReaderDocument.Supports("note"+ext),"workspace routing "+ext);
+            foreach(string ext in new[]{".docx",".pdf",".html",".svg",".png",".excalidraw",".xmind"})Check(!QuickReaderDocument.Supports("note"+ext),"workspace routing "+ext);
             string large=Path.Combine(temporary,"large.txt");
             using(var stream=File.Create(large))stream.SetLength(QuickReaderDocument.MaximumBytes+1);
             bool rejected=false;try { QuickReaderDocument.Read(large); } catch(InvalidDataException){rejected=true;}

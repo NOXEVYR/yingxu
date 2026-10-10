@@ -273,6 +273,9 @@ namespace YingXu.Desktop
                 Directory.CreateDirectory(Path.Combine(folder, "frontend"));
                 File.WriteAllText(Path.Combine(folder, "frontend", "index.html"), "");
                 Check(Hub.IsAppRoot(folder), "complete app folder recognized");
+                Hub.Root = folder;
+                Hub.Data = Path.Combine(folder, "isolated-data");
+                Directory.CreateDirectory(Hub.Data);
                 string exactHealth = "{\"app\":\"yingxu\",\"ok\":true,\"version\":\"" + BuildIdentity.Version + "\",\"build_revision\":\"" + BuildIdentity.BuildRevision + "\",\"program_id\":\"" + Hub.PathIdentity(Hub.NormalizeRoot(Hub.Root)) + "\",\"instance_id\":\"" + Hub.InstanceId() + "\"}";
                 HealthResponse(exactHealth, true);
                 HealthResponse(exactHealth.Replace("\"build_revision\":\"" + BuildIdentity.BuildRevision + "\"", "\"build_revision\":\"other.1\""), false);
@@ -339,6 +342,7 @@ namespace YingXu.Desktop
                     using (var ext = root.OpenSubKey(@".txt\OpenWithProgids")) Check(ext.GetValue("YingXu.LocalPreview") != null && (string)ext.GetValue("Other.Preview") == "keep","OpenWith adds its candidate and preserves unrelated candidates");
                     using (var ext = root.OpenSubKey(@".svg\OpenWithProgids")) Check(ext != null && ext.GetValue("YingXu.LocalPreview") != null,"OpenWith registers an SVG candidate");
                     using (var ext = root.OpenSubKey(".svg")) Check((string)ext.GetValue("") == "Other.Vector","SVG registration preserves the existing default application");
+                    using (var ext = root.OpenSubKey(@".xmind\OpenWithProgids")) Check(ext != null && ext.GetValue("YingXu.LocalPreview") != null,"OpenWith registers an XMind candidate");
                     foreach (string extension in new [] {".html", ".htm"})
                         using (var ext = root.OpenSubKey(extension+@"\OpenWithProgids")) Check(ext != null && ext.GetValue("YingXu.LocalPreview") != null,"OpenWith registers HTML candidate: "+extension);
                     OpenWithRegistration.Change(root,Path.Combine(folder,"YingXu.exe"),false);

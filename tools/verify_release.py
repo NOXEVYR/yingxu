@@ -245,6 +245,19 @@ def check_server(port, data, projects, restart=None, expected_identity=None, exp
         assert original_path.read_bytes() == original_bytes
     second = request(port, 'POST', '/api/projects', {'name': '另一合成项目'}, token)
     second_item = request(port, 'POST', '/api/items', {'project_id': second['id'], 'category': 'scripts', 'name': '搜索文稿', 'content': '# 合成文稿\n跨项目验收令牌'}, token)
+    mind = request(port, 'POST', '/api/items', {'project_id': second['id'], 'category': 'scripts',
+                   'name': '思维导图验收', 'format': 'xmind'}, token)
+    assert mind['kind'] == 'xmind' and Path(mind['path']).suffix == '.xmind'
+    original_mind = Path(mind['path']).read_bytes()
+    mind_content = request(port, 'GET', '/api/content/' + mind['id'])
+    mind_model = json.loads(mind_content['content'])
+    mind_model[0]['rootTopic']['children'] = {'attached': [{'id': 'synthetic-child', 'title': '包内中文分支'}]}
+    mind_saved = request(port, 'PUT', '/api/content/' + mind['id'],
+                         {'etag': mind_content['etag'], 'content': json.dumps(mind_model, ensure_ascii=False)}, token)
+    assert json.loads(mind_saved['content']) == mind_model
+    assert any(path.read_bytes() == original_mind for path in (data / 'versions').rglob('*.xmind'))
+    with zipfile.ZipFile(mind['path']) as mind_zip:
+        assert mind_zip.testzip() is None and 'content.json' in mind_zip.namelist()
     search = request(port, 'GET', '/api/search?' + urlencode({'q': '跨项目验收令牌', 'limit': 20}))
     assert any(result['type'] == 'item' and result['id'] == second_item['id'] and result['project_id'] == second['id'] for result in search['results'])
     # Exercise the new routes from the extracted package without modifying notes.
@@ -278,6 +291,7 @@ def check_server(port, data, projects, restart=None, expected_identity=None, exp
     check_collaboration(port, project, token)
     return ['health version and data identity', 'configured data/projects roots', 'empty projects and SKILL library',
             'SKILL source registry lists bounded local locations and empty counts',
+            'XMind create, edit, exact backup and standard final archive through packaged HTTP service',
             'custom source registration and source_id/query filters expose read-only synthetic skill',
             'custom source disable/re-enable/remove preserves skill ID and original file SHA-256',
             'collected SKILL classification, immutable project version and idempotent shared directory export',
