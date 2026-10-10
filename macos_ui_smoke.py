@@ -93,6 +93,66 @@ def run():
                 wait(lambda:window.run_js("activeTab().saved === true && !activeTab().dirty && !activeTab().saving"))
                 assert window.run_js("JSON.parse(activeTab().draft)[0].rootTopic.children.attached.length === 1")
                 result['checks'].append('XMind creation, Chinese topic editing, child insertion and save in final frozen WKWebView')
+                assert window.run_js("""(() => {
+                    const stage = document.querySelector('.xmind-stage');
+                    const key = (value, extra = {}) => stage.dispatchEvent(new KeyboardEvent('keydown', {key:value, bubbles:true, cancelable:true, ...extra}));
+                    const button = label => document.querySelector(`.xmind-editor button[aria-label="${label}"]`) || [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === label);
+                    key('Escape');
+                    const rootId = JSON.parse(activeTab().draft)[0].rootTopic.id;
+                    document.querySelector(`.xmind-topic[data-topic-id="${rootId}"]`).click();
+                    button('添加子主题 · Tab').click();
+                    const inline = document.querySelector('.xmind-inline-editor');
+                    inline.value = '批量分支';
+                    inline.dispatchEvent(new Event('input', {bubbles:true}));
+                    inline.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+                    const children = JSON.parse(activeTab().draft)[0].rootTopic.children.attached;
+                    children.forEach((topic, index) => document.querySelector(`.xmind-topic[data-topic-id="${topic.id}"]`).dispatchEvent(new MouseEvent('click', {bubbles:true, metaKey:index > 0})));
+                    button('显示或收起主题属性').click();
+                    const labels = document.querySelector('[aria-label="主题标签"]');
+                    labels.value = 'Mac验收';
+                    labels.dispatchEvent(new Event('input', {bubbles:true}));
+                    button('追加所选主题标签').click();
+                    const priority = document.querySelector('[aria-label="优先级"]');
+                    priority.value = 'priority-2';
+                    priority.dispatchEvent(new Event('change', {bubbles:true}));
+                    const progress = document.querySelector('[aria-label="任务进度"]');
+                    progress.value = 'task-done';
+                    progress.dispatchEvent(new Event('change', {bubbles:true}));
+                    const changed = JSON.parse(activeTab().draft)[0].rootTopic.children.attached;
+                    if (changed.length !== 2 || !changed.every(topic => topic.labels.includes('Mac验收') && topic.markers.some(m => m.markerId === 'priority-2') && topic.markers.some(m => m.markerId === 'task-done'))) return false;
+                    const beforeDelete = activeTab().draft;
+                    stage.focus(); key('Delete');
+                    if ((JSON.parse(activeTab().draft)[0].rootTopic.children?.attached || []).length !== 0) return false;
+                    key('z', {metaKey:true});
+                    return activeTab().draft === beforeDelete;
+                })()""")
+                result['checks'].append('WKWebView Command multi-selection, batch labels/priority/progress, Delete and one-step undo')
+                assert window.run_js("""(() => {
+                    const stage = document.querySelector('.xmind-stage');
+                    const before = activeTab().draft;
+                    const camera = document.querySelector('.xmind-world');
+                    const transform = camera.style.transform;
+                    const wheel = new WheelEvent('wheel', {metaKey:true, deltaY:-100, bubbles:true, cancelable:true});
+                    stage.dispatchEvent(wheel);
+                    return wheel.defaultPrevented && camera.style.transform !== transform && activeTab().draft === before;
+                })()""")
+                result['checks'].append('WKWebView consumes synthetic Command wheel and changes only the mind-map viewport')
+                window.run_js("""(() => {
+                    const topic = JSON.parse(activeTab().draft)[0].rootTopic.children.attached[0];
+                    document.querySelector(`.xmind-topic[data-topic-id="${topic.id}"]`).click();
+                    const input = document.querySelector('[aria-label="主题链接"]');
+                    input.value = 'yingxu://item/' + state.tabs[0].item.id;
+                    input.dispatchEvent(new Event('input', {bubbles:true}));
+                    [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '应用链接到所选主题').click();
+                    window.__macXmindTabId = activeTab().id;
+                    saveTab(activeTab());
+                    return true;
+                })()""")
+                wait(lambda:window.run_js("activeTab().saved === true && !activeTab().dirty && !activeTab().saving"))
+                window.run_js("document.querySelector('.xmind-link-mark').click();true")
+                wait(lambda:window.run_js("activeTab().item.id === state.tabs[0].item.id"))
+                assert window.run_js("state.tabs[0].dirty === true && state.tabs.some(tab => tab.id === window.__macXmindTabId && tab.item.kind === 'xmind')")
+                result['checks'].append('Saved XMind file link opens the registered document while preserving its earlier draft and the map tab')
                 window.run_js("selectSection('skills');true")
                 wait(lambda:window.run_js("Boolean(document.querySelector('[data-source-group=dsh]'))"))
                 window.run_js("document.querySelector('[data-source-group=dsh]').click();true")

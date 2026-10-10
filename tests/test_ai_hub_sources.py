@@ -19,7 +19,7 @@ from yingxu.ai_hub_sources import HubSourceStore, SourceDescriptorProvider, MAX_
 class HubSourcesTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='yingxu-source-test-')
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.store = Store(self.root / 'private', self.root / 'projects')
         self.sources = HubSourceStore(self.store)
         self.token = 'SyntheticSourceSecret' + 'a' * 22

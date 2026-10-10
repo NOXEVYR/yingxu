@@ -34,7 +34,7 @@ class NativeIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='yingxu-identity-test-')
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         (self.root / 'yingxu').mkdir()
 
     def source(self, value="__version__ = '1.2.4'\n__build__ = 'future.99'\n"):
@@ -165,7 +165,12 @@ class NativeIdentityTests(unittest.TestCase):
         record = self.root/'build.json'
         arguments = ['build.py','--sdk-package',str(sdk),'--output',str(self.root/'candidate.exe'),
                      '--manifest-output',str(record),'--test']
-        with patch.object(build, 'ROOT', self.root), patch.object(build, 'DESKTOP', desktop), \
+        windir = self.root / 'synthetic-windows'
+        compiler = windir / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        compiler.parent.mkdir(parents=True)
+        compiler.write_bytes(b'synthetic compiler placeholder')
+        with patch.dict(os.environ, {'WINDIR': str(windir)}), \
+             patch.object(build, 'ROOT', self.root), patch.object(build, 'DESKTOP', desktop), \
              patch.object(build, 'SDK_SHA256', hashlib.sha256(sdk.read_bytes()).hexdigest()), \
              patch.object(build, 'require_native_identity', return_value=dict(file_version='1.2.4.0',product_version='1.2.4+future.99')), \
              patch.object(build.subprocess, 'run', side_effect=run), patch.object(sys, 'argv', arguments), redirect_stdout(io.StringIO()):

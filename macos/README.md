@@ -1,8 +1,12 @@
-# 0.4.31-mac.1 候选准备
+# 映序 macOS 0.4.31-mac.1
 
-本轮候选重建 XMind 独立画布、直接编辑与复制、缩放平移、大纲、搜索、备注和样式，使用与 Windows 0.4.30 相同的源码。当前还未在 Mac 构建机完成 `.app` 构建与原生验收。步骤和待验收项见 [本轮交付说明](../docs/release-0.4.30.md)；正式下载仍以已发布附件为准。
+本版面向 macOS 14+、Apple Silicon（M 系列芯片），同步 Windows 0.4.31 的 XMind 工作区：导入与新建、双击编辑、左键框选、多选批量标注、Delete 删除与撤销、中键平移、Command / Ctrl 滚轮缩放，以及分支中的网页、项目文件和导图主题链接。
 
-下面保留 0.4.20-mac.1 的历史发布说明，不表示当前候选已通过那些检查。
+修复 Mac 文件改名后身份变化导致的跨项目残留与迁移识别问题。此 Mac 包有独立的构建来源提交；Windows 0.4.31 已发布包保持原样。公开状态、来源提交与最终 ZIP 校验报告以 [GitHub 发布列表](https://github.com/NOXEVYR/yingxu/releases)中的实际附件为准。
+
+完整解压 ZIP 后，将 `YingXu.app` 放入“应用程序”。包内自带 Python、Pillow、FFmpeg 与本地编辑器，窗口使用系统 WebKit。试用包采用临时签名，尚未进行 Apple Developer ID 签名及公证；人工输入法、系统权限提示和长期使用仍需实际 Mac 验收。已有数据不随 `.app` 替换而删除。
+
+以下保留历史发布记录，其中版本与验收结论只对应各自的历史包。
 
 # 0.4.20-mac.1 发布说明
 
@@ -13,7 +17,7 @@
 面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
 这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
 
-当前已发布 **0.4.20-mac.1**，最终安装包已通过原生、WebKit 及上传后下载回检。
+历史版本 **0.4.20-mac.1** 的最终安装包已通过原生、WebKit 及上传后下载回检。
 沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）；旧版发布附件保留。
 下载与校验见 [0.4.20-mac.1 发布页](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)。
 请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
@@ -156,6 +160,6 @@
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.15-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.31-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。

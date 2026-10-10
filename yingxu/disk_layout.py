@@ -49,9 +49,22 @@ def register_directory(store, project, path):
             count += 1
 
 
+def _birth_time_ns(info):
+    birth = getattr(info, 'st_birthtime_ns', None)
+    if birth is None:
+        # macOS exposes birthtime in seconds, but not birthtime_ns. Its ctime
+        # changes on rename and cannot identify the same file at its new path.
+        seconds = getattr(info, 'st_birthtime', None)
+        if seconds is not None:
+            birth = int(seconds * 1_000_000_000)
+    if birth is None and os.name == 'nt':
+        birth = info.st_ctime_ns  # Creation time on older Windows Python.
+    return birth
+
+
 def identity(path):
     info = path.stat()
-    birth = getattr(info, 'st_birthtime_ns', info.st_ctime_ns if os.name == 'nt' else None)
+    birth = _birth_time_ns(info)
     if birth is None or not info.st_ino or info.st_nlink != 1 or not path.is_file():
         return None
     return str(info.st_dev), str(info.st_ino), str(birth)
@@ -60,7 +73,9 @@ def identity(path):
 def file_stamp(path, info=None):
     """Identify an exact source copy without hashing it on every later scan."""
     info = info if info is not None else Path(path).stat()
-    birth = getattr(info, 'st_birthtime_ns', info.st_ctime_ns)
+    birth = _birth_time_ns(info)
+    if birth is None:
+        birth = info.st_ctime_ns
     return str(info.st_dev), str(info.st_ino), str(birth), info.st_size, info.st_mtime_ns
 
 

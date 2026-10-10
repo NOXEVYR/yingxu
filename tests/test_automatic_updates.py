@@ -278,6 +278,7 @@ class AutomaticUpdatesTests(unittest.TestCase):
                      'latest_build': 'workflow.3', 'update_kind': 'version', 'url': ''}
             try:
                 with patch.object(manager, '_plan', side_effect=completed_plan), \
+                        patch('yingxu.automatic_updates.sys.platform', 'win32'), \
                         patch('yingxu.updates.check_update', return_value=found):
                     automatic.start(0)
                     self.assertTrue(completed.wait(2), automatic.status())
@@ -329,6 +330,7 @@ class AutomaticUpdatesTests(unittest.TestCase):
                 operation = '_plan' if phase == 'planning' else '_download'
                 try:
                     with patch.object(manager, operation, side_effect=held_operation), \
+                            patch('yingxu.automatic_updates.sys.platform', 'win32'), \
                             patch('yingxu.updates.check_update', side_effect=check):
                         automatic.check_now(force=True)
                         self.assertTrue(entered.wait(2), automatic.status())

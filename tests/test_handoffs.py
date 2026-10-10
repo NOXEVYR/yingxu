@@ -23,8 +23,8 @@ class HandoffTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='yingxu-handoff-test-')
         self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name).resolve()
-        self.store = Store(root / 'data', root / 'projects')
+        self.root = Path(self.temp.name).resolve()
+        self.store = Store(self.root / 'data', self.root / 'projects')
         self.project = self.store.create_project('合成交接项目', '只用于测试的项目目标')
         self.pid = self.project['id']
         self.skills = FakeSkills()
@@ -208,7 +208,7 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(payload).hexdigest(), digest)
 
     def test_pinned_skill_source_edit_and_pin_switch_use_immutable_collection_versions(self):
-        home = Path(self.temp.name) / 'home'
+        home = self.root / 'home'
         skill_dir = home / '.codex' / 'skills' / '导演技能'
         skill_dir.mkdir(parents=True)
         source_file = skill_dir / 'skill.md'
@@ -260,7 +260,7 @@ class HandoffTests(unittest.TestCase):
         self.assertIn(version_v2['version'], switched['prompt'])
 
     def test_removed_source_keeps_pinned_skill_and_broken_pin_never_falls_back(self):
-        home = Path(self.temp.name) / 'home'
+        home = self.root / 'home'
         skill_dir = home / '.codex' / 'skills' / '只读技能'
         skill_dir.mkdir(parents=True)
         source_file = skill_dir / 'SKILL.md'

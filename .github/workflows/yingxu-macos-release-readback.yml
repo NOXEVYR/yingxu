@@ -1,0 +1,58 @@
+name: Verify uploaded YingXu macOS release
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: 'Exact source commit of the selected ref and uploaded package'
+        required: true
+        type: string
+      release_tag:
+        description: 'Existing macOS release tag to download and verify; does not publish'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'NOXEVYR/yingxu' && inputs.source_commit == github.sha
+    runs-on: macos-14
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Download exact uploaded macOS package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python -B -c 'from yingxu import __mac_preview__; print(__mac_preview__)')
+          test "$RELEASE_TAG" = "yingxu-v$version"
+          mkdir -p .release-work/remote-macos
+          gh release download "$RELEASE_TAG" --dir .release-work/remote-macos \
+            --pattern "YingXu-v$version-macOS-arm64.zip" \
+            --pattern "YingXu-v$version-macOS-arm64-manifest.json" \
+            --pattern "YingXu-v$version-macOS-arm64-SHA256.txt"
+          python -B - <<'PY'
+          import json, os
+          from pathlib import Path
+          from yingxu import __mac_preview__
+          manifest = json.loads(Path(f'.release-work/remote-macos/YingXu-v{__mac_preview__}-macOS-arm64-manifest.json').read_text())
+          assert manifest['source_commit'] == os.environ['GITHUB_SHA'], 'Uploaded source commit mismatch'
+          PY
+      - name: Verify final remote ZIP and run its native app and WebKit checks
+        run: |
+          version=$(python -B -c 'from yingxu import __mac_preview__; print(__mac_preview__)')
+          python -B macos/verify_release.py ".release-work/remote-macos/YingXu-v$version-macOS-arm64.zip" --output .release-work/remote-macos/readback-verification.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YingXu-macOS-remote-verification-${{ github.sha }}
+          path: .release-work/remote-macos/readback-verification.json
+          if-no-files-found: error
+          retention-days: 14

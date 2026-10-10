@@ -232,7 +232,8 @@ class UpdatesTests(unittest.TestCase):
         thread.start()
         try:
             url = f'http://127.0.0.1:{server.server_port}/releases?per_page=100'
-            with patch.object(updates, 'RELEASES', url), patch.object(updates, 'RELEASE_LIST_SECONDS', .2):
+            with patch.object(updates.sys, 'platform', 'win32'), \
+                    patch.object(updates, 'RELEASES', url), patch.object(updates, 'RELEASE_LIST_SECONDS', .2):
                 started = time.monotonic()
                 with self.assertRaises(UserError) as failure:
                     updates.check_update()
