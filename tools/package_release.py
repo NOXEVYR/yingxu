@@ -32,7 +32,7 @@ FIXED = (
     'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'tools/build_identity.py', 'THIRD_PARTY_NOTICES.md',
     'docs/stability-audit-2026-09-27.md', 'docs/skill-workflow.md', 'docs/ai-collaboration.md',
-    'docs/xmind.md', 'docs/release-0.4.29.md',
+    'docs/xmind.md', 'docs/release-0.4.29.md', 'docs/release-0.4.30.md', 'tests/fixtures/xmind-workspace-runner.js',
     'docs/project-folder-import.md', 'docs/incremental-updates.md', 'MIGRATION.md', 'docs/完整包验收.md', 'docs/功能指南.md', 'docs/安装与运行.md', 'docs/开发说明.md', 'docs/assets/workspace-map.svg',
 )
 PATTERNS = ('yingxu/*.py', 'frontend/*.html', 'frontend/*.css', 'frontend/*.js',

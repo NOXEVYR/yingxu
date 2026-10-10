@@ -85,7 +85,7 @@ def run():
                 result['checks'].append('Canvas uses the same iframe document across Markdown tab switches')
                 window.run_js("(async () => { const n=await api('/api/items',{method:'POST',body:{project_id:state.tabs[0].item.project_id,category:'scripts',name:'合成思维导图',format:'xmind'}}); await openItem(n.id);return true; })()")
                 wait(lambda:window.run_js("activeTab()?.item.kind === 'xmind' && Boolean(document.querySelector('.xmind-topic'))"))
-                window.run_js("const field=document.querySelector('.xmind-title-field input');field.value='WebKit中文中心';field.dispatchEvent(new Event('input',{bubbles:true}));true")
+                window.run_js("document.querySelector('.xmind-topic').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));const field=document.querySelector('.xmind-inline-editor');field.value='WebKit中文中心';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));true")
                 assert window.run_js("activeTab().dirty && JSON.parse(activeTab().draft)[0].rootTopic.title === 'WebKit中文中心'")
                 window.run_js("document.querySelector('.xmind-tools button').click();true")
                 assert window.run_js("document.querySelectorAll('.xmind-topic').length === 2")

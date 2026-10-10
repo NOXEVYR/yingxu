@@ -14,8 +14,8 @@ test('XMind edit, branches, sheets, undo, composition and read-only behavior in 
     let draft=JSON.stringify(model),blocked=0,composition=false;
     const options={parent,value:draft,editable:true,notice:'保存前备份',onChange:value=>draft=value,onBlocked:()=>blocked++,onComposition:value=>composition=value};
     let editor=YingXuXmind.mount(options);
-    const button=text=>[...parent.querySelectorAll('button')].find(node=>node.textContent===text);
-    const title=()=>parent.querySelector('input'),input=value=>{title().value=value;title().dispatchEvent(new Event('input'));};
+    const aliases={'添加子主题':'＋子主题','添加同级主题':'＋同级','删除主题及分支':'删除分支','确认删除此主题及所有分支':'确认删除整个分支','撤销':'↶','重做':'↷'};const button=text=>[...parent.querySelectorAll('button')].find(node=>node.textContent===(aliases[text]||text));
+    const title=()=>parent.querySelector('[aria-label="主题文字"]'),input=value=>{title().value=value;title().dispatchEvent(new Event('input'));};
     check('three attached and detached topics displayed',parent.querySelectorAll('.xmind-topic').length===3);
     check('root cannot be deleted or given a sibling',button('删除主题及分支').disabled&&button('添加同级主题').disabled);
     input('中文中心');check('input immediately updates serialized draft',JSON.parse(draft)[0].rootTopic.title==='中文中心');
@@ -34,7 +34,7 @@ test('XMind edit, branches, sheets, undo, composition and read-only behavior in 
     editor.destroy();check('destroy clears DOM',!parent.children.length);
     editor=YingXuXmind.mount({...options,value:draft,editable:false});const before=draft;
     input('注入');button('添加子主题').click();check('read-only controls reject injected mutations',title().readOnly&&draft===before&&button('添加子主题').disabled);
-    const card=parent.querySelector('.xmind-topic');check('real tree lays out horizontally with visible connectors',card.getBoundingClientRect().width>=100&&getComputedStyle(parent.querySelector('.xmind-branch ul')).borderLeftStyle==='solid');
+    const card=parent.querySelector('.xmind-topic');check('real tree lays out horizontally with visible connectors',card.getBoundingClientRect().width>=100&&parent.querySelectorAll('.xmind-connections path').length>=2);
     document.querySelector('#result').textContent=JSON.stringify(checks);
   })();`);
   fs.writeFileSync(path.join(temporary,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="appearance.css"><link rel="stylesheet" href="xmind-editor.css"><style>body{display:block}#mount{width:900px;height:700px}</style><div id="mount"></div><pre id="result"></pre><script src="xmind-editor.js"></script><script src="runner.js"></script>');

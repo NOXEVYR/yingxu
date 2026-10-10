@@ -338,6 +338,7 @@ namespace YingXu.Desktop
             web.NavigateToString("<!doctype html><meta charset='utf-8'><script>window.pauseMessageCount=0;window.chrome.webview.addEventListener('message',function(event){if(event.data.action==='pause-media')window.pauseMessageCount++;});</script>");
             for(int i=0;i<100 && !navigation.Task.IsCompleted;i++)await Task.Delay(25);
             Check(navigation.Task.IsCompleted && navigation.Task.Result,"isolated media lifecycle page loads inside real WebView");
+            await CheckXmindInteraction(web,window);
             await CheckMusicMinimize(web,window);
             Field(window,"pageReady",true);
             var close=new FormClosingEventArgs(CloseReason.UserClosing,false);
@@ -352,6 +353,44 @@ namespace YingXu.Desktop
             web.Dispose();
             for(int i=0;i<100 && !exited.Task.IsCompleted;i++) await Task.Delay(25);
             Check(exited.Task.IsCompleted,"isolated browser exits before temporary profile cleanup");
+        }
+        private static async Task CheckXmindInteraction(WebView2 web,StudioWindow window)
+        {
+            using(var host=new MusicFixtureWindow {ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(-32000,-32000),Size=new Size(1000,750)})
+            {
+            web.Parent=host;host.Show();
+            try {
+            // Real renderer events in this owned hidden fixture; no clipboard, user projects or service.
+            var serializer=new JavaScriptSerializer();
+            string css=File.ReadAllText(Path.Combine(Hub.Root,"frontend","xmind-editor.css"));
+            string source=File.ReadAllText(Path.Combine(Hub.Root,"frontend","xmind-editor.js"));
+            await web.CoreWebView2.ExecuteScriptAsync("document.body.style.margin='0';document.body.innerHTML='<div id=map-test style=\"height:500px;width:900px\"></div>';var style=document.createElement('style');style.textContent="+serializer.Serialize(":root{--bg:#fff;--panel-2:#fafafa;--line:#ddd;--text:#222;--muted:#777}"+css)+";document.head.appendChild(style);");
+            await web.CoreWebView2.ExecuteScriptAsync(source);
+            await web.CoreWebView2.ExecuteScriptAsync("window.xmindDraft=JSON.stringify([{id:'native-sheet',title:'Native',rootTopic:{id:'native-root',title:'原生中心',children:{attached:[{id:'native-child',title:'分支'}]}}}]);window.xmindProbe=YingXuXmind.mount({parent:document.getElementById('map-test'),value:xmindDraft,editable:true,onChange:function(value){window.xmindDraft=value;}});window.xmindBefore=xmindProbe.getViewState().cameras['native-sheet'];");
+            Call(window,"ReceiveDesktopRequest",Hub.Url,serializer.Serialize(new{action="image-preview",active=true}));
+            Check(!web.CoreWebView2.Settings.IsZoomControlEnabled,"XMind content routing disables native application zoom");
+            double interfaceZoom=web.ZoomFactor;
+            string position=await web.CoreWebView2.ExecuteScriptAsync("(()=>{var r=document.querySelector('.xmind-stage').getBoundingClientRect();return {x:r.left+50,y:r.top+50};})()");
+            var point=serializer.Deserialize<Dictionary<string,object>>(position);
+            try {
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mouseWheel",x=point["x"],y=point["y"],deltaX=0,deltaY=-120,modifiers=2}));
+            } catch(Exception error) {Console.WriteLine("XMind wheel error type="+error.GetType().FullName+" message="+error.Message+" hresult="+error.HResult);throw;}
+            string zoomed="false";
+            for(int i=0;i<60 && zoomed!="true";i++) {await Task.Delay(25);zoomed=await web.CoreWebView2.ExecuteScriptAsync("xmindProbe.getViewState().cameras['native-sheet'].zoom>xmindBefore.zoom");}
+            Check(zoomed=="true" && Math.Abs(web.ZoomFactor-interfaceZoom)<0.000001,"trusted Ctrl wheel zooms XMind while native application zoom stays unchanged");
+            position=await web.CoreWebView2.ExecuteScriptAsync("(()=>{var r=document.querySelector('[data-topic-id=\"native-root\"] .xmind-topic-text').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()");
+            point=serializer.Deserialize<Dictionary<string,object>>(position);
+            foreach(string type in new[]{"mousePressed","mouseReleased"})await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type=type,x=point["x"],y=point["y"],button="left",clickCount=2}));
+            string editing="false";
+            for(int i=0;i<60 && editing!="true";i++){await Task.Delay(25);editing=await web.CoreWebView2.ExecuteScriptAsync("Boolean(document.querySelector('.xmind-inline-editor'))");}
+            Check(editing=="true","trusted double click opens XMind inline editor in native WebView");
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.insertText",serializer.Serialize(new{text="原生中文修改"}));
+            Check(await web.CoreWebView2.ExecuteScriptAsync("JSON.parse(xmindDraft)[0].rootTopic.title==='原生中文修改'")=="true","native renderer typing reaches XMind save model immediately");
+            await web.CoreWebView2.ExecuteScriptAsync("xmindProbe.destroy();document.body.innerHTML='';");
+            Call(window,"ReceiveDesktopRequest",Hub.Url,serializer.Serialize(new{action="image-preview",active=false}));
+            Check(web.CoreWebView2.Settings.IsZoomControlEnabled,"leaving XMind restores native application zoom");
+            } finally {web.Parent=window;host.Hide();}
+            }
         }
         private sealed class MusicFixtureWindow : Form
         {
