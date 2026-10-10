@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch, Mock
 from urllib.error import HTTPError
@@ -232,7 +233,8 @@ class UpdatesTests(unittest.TestCase):
         thread.start()
         try:
             url = f'http://127.0.0.1:{server.server_port}/releases?per_page=100'
-            with patch.object(updates.sys, 'platform', 'win32'), \
+            # Keep urllib/ssl on the real host platform during the HTTP request.
+            with patch.object(updates, 'sys', SimpleNamespace(platform='win32')), \
                     patch.object(updates, 'RELEASES', url), patch.object(updates, 'RELEASE_LIST_SECONDS', .2):
                 started = time.monotonic()
                 with self.assertRaises(UserError) as failure:
