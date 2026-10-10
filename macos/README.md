@@ -2,33 +2,29 @@
 
 本版面向 macOS 14+、Apple Silicon（M 系列芯片），同步 Windows 0.4.31 的 XMind 工作区：导入与新建、双击编辑、左键框选、多选批量标注、Delete 删除与撤销、中键平移、Command / Ctrl 滚轮缩放，以及分支中的网页、项目文件和导图主题链接。
 
-修复 Mac 文件改名后身份变化导致的跨项目残留与迁移识别问题。此 Mac 包有独立的构建来源提交；Windows 0.4.31 已发布包保持原样。公开状态、来源提交与最终 ZIP 校验报告以 [GitHub 发布列表](https://github.com/NOXEVYR/yingxu/releases)中的实际附件为准。
+修复 Mac 文件改名后身份变化导致的跨项目残留与迁移识别问题。Mac 包来自独立来源提交 [`a226144`](https://github.com/NOXEVYR/yingxu/tree/a2261448545b094dbe6af83debfbfdc9d097447b)；Windows 0.4.31 已发布包保持原样。
 
-完整解压 ZIP 后，将 `YingXu.app` 放入“应用程序”。包内自带 Python、Pillow、FFmpeg 与本地编辑器，窗口使用系统 WebKit。试用包采用临时签名，尚未进行 Apple Developer ID 签名及公证；人工输入法、系统权限提示和长期使用仍需实际 Mac 验收。已有数据不随 `.app` 替换而删除。
+[下载 macOS 0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31-mac.1/YingXu-v0.4.31-mac.1-macOS-arm64.zip) · [Release 与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1) · [本轮交付与验证说明](../docs/release-0.4.31.md)
 
-以下保留历史发布记录，其中版本与验收结论只对应各自的历史包。
+ZIP：76906033 字节；SHA-256：`0c05cbaa906d2d03db2eb7c0846d71c33ce9dbb331af26802c2fa8d1711d9854`。Mac CI 与上传后回读均通过，完整测试范围见本轮交付说明。试用包适用于 macOS 14+、Apple Silicon（arm64），采用临时 ad hoc 签名，未进行 Apple Developer ID 签名及公证。中文输入法、系统权限提示、不同显示缩放与长期使用仍需真实 Mac 验收。完整解压后将 `YingXu.app` 放入“应用程序”；包内自带 Python、Pillow、FFmpeg 与本地编辑器，窗口使用系统 WebKit。已有数据不随 `.app` 替换而删除。
 
-# 0.4.20-mac.1 发布说明
+## 历史发布记录
 
-本次同步音乐分类与播放、目录同步、迁移状态修复和无文字启动动效。复用系统 WebKit 和已有依赖；Windows 截图、目录联接打开与增量安装不宣称为 Mac 功能。最终 ZIP 已通过 20 项解压、临时签名、原生与 WKWebView 检查，上传后按附件 ID 完整下载、核对 SHA-256 并重复验证；仍为未公证的 Apple Silicon 试用版。下文历史发布记录保留，最新下载以仓库已发布附件为准。
+### 0.4.20-mac.1 历史发布说明
 
-# 映序 macOS 试用版
+本次同步音乐分类与播放、目录同步、迁移状态修复和无文字启动动效。复用系统 WebKit 和已有依赖；Windows 截图、目录联接打开与增量安装不宣称为 Mac 功能。最终 ZIP 已通过 20 项解压、临时签名、原生与 WKWebView 检查，上传后按附件 ID 完整下载、核对 SHA-256 并重复验证；仍为未公证的 Apple Silicon 试用版。本段仅记录 0.4.20-mac.1 历史试用版。
 
-面向 **macOS 14 或更新版本、Apple Silicon（M 系列芯片）**。
-这是独立的 macOS 试用包，Windows 版和既有 Windows 发布包保持不变。
+## 当前试用版安装与平台范围
 
-历史版本 **0.4.20-mac.1** 的最终安装包已通过原生、WebKit 及上传后下载回检。
-沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）；旧版发布附件保留。
-下载与校验见 [0.4.20-mac.1 发布页](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)。
-请以[发布列表](https://github.com/turnsolesama/yingxu/releases)中实际可下载的附件和对应校验文件为准。
+当前试用版为 **0.4.31-mac.1**，适用于 **macOS 14+、Apple Silicon（arm64）**；下载与校验入口见本页顶部。沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）。
 
 ## 安装
 
-完整解压所选版本的 `YingXu-v版本号-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
+完整解压顶部所列的 `YingXu-v0.4.31-mac.1-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
 自带 Python、Pillow、FFmpeg 和本地编辑器；窗口使用 macOS 系统 WebKit。
 正常使用无需安装 Python、Node.js 或 Homebrew，也不在启动时下载组件。
 
-试用包没有 Apple Developer ID 签名和公证。如果 macOS 阻止打开，请核对来源和 SHA-256，
+试用包采用临时 ad hoc 签名，没有 Apple Developer ID 签名或公证。如果 macOS 阻止打开，请核对来源和 SHA-256，
 然后在“系统设置 → 隐私与安全”中使用系统提供的“仍要打开”；不需要关闭系统安全保护。
 
 ## 已提供

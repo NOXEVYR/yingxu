@@ -18,6 +18,13 @@
 - 完整包 38 项检查通过，81 个前端脚本通过。真实 WebView 验收覆盖 Ctrl 滚轮、双击输入、可信框选、Delete 与撤销。
 - 后端运行 1120 项，其中 10 项跳过；另有 2 项因 C 盘测试夹具 ACL 拒绝而报错。涉及相同文件的 26 项相关套件在 D 盘隔离目录通过。
 
-macOS 0.4.31-mac.1 云端回归未通过，暂不发布。[GitHub Actions CI 运行结果](https://github.com/NOXEVYR/yingxu/actions/runs/38039196355)：1120 项中 7 项失败、27 项错误、33 项跳过；结果包含旧测试的 Windows 平台假设及跨项目/迁移残留核验问题。当前 Mac 可下载版本仍为 [0.4.20-mac.1 历史试用版](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.20-mac.1)。
+## macOS 0.4.31-mac.1
+
+[下载 macOS Apple Silicon 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31-mac.1/YingXu-v0.4.31-mac.1-macOS-arm64.zip) · [Release 与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1) · [精确构建源码 a226144](https://github.com/NOXEVYR/yingxu/tree/a2261448545b094dbe6af83debfbfdc9d097447b)
+
+- ZIP：76906033 字节；SHA-256：`0c05cbaa906d2d03db2eb7c0846d71c33ce9dbb331af26802c2fa8d1711d9854`。上传后完整下载回读与本地验收 ZIP 一致。
+- [Mac CI 构建](https://github.com/NOXEVYR/yingxu/actions/runs/38045468881)来自提交 `a2261448545b094dbe6af83debfbfdc9d097447b`：后端运行 1126 项，其中 30 项按平台条件跳过，其余通过；81 个前端脚本通过；最终 ZIP 24 项原生与 WKWebView 检查通过。[上传后回读验证](https://github.com/NOXEVYR/yingxu/actions/runs/38046809347)成功，包含原生与 WebKit 检查的 24 项均通过。
+- ZIP 包含 1043 个成员，根目录为单一 `YingXu` 应用目录；CRC 与包内链接检查通过。应用为 arm64 并使用临时 ad hoc 签名。
+- 面向 macOS 14+、Apple Silicon（arm64）。未进行 Apple Developer ID 签名或公证；中文输入法、不同显示缩放、系统权限提示及长期使用仍需真实 Mac 人工验收。
 
 所有写入验收使用合成项目，真实用户资料不纳入程序包。

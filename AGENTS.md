@@ -5,7 +5,7 @@
 - 0.4.30/xmind.2 重建独立思维导图工作区；相机、折叠和历史属于标签临时状态，不能混进归档。直接编辑必须即时同步草稿并保护中文输入；Ctrl/⌘滚轮必须只缩放导图，沿用可信 image-preview 桥接并在离开时恢复应用缩放。回归 frontend_xmind_workspace.cjs、frontend_xmind.cjs 和原生真实渲染事件检查。复杂富文本和摘要结构保持保守编辑边界。
 
 - 0.4.29/xmind.1 是基于最新 0.4.28 的双端候选源码。XMind 保持独立 ZIP 文档，新版 JSON 可编辑、旧版 XML 只读；编辑必须保留其他成员字节和未知字段，并沿用草稿、备份、etag 和原子保存。验收 test_xmind.py、frontend_xmind.cjs 及最终包 XMind 冒烟。
-- `.github/workflows/yingxu-release-candidate.yml` 仅手动构建与验收，不发布。最终 Windows 与 macOS 包必须绑定同一来源提交。旧 main 发布触发器不得作为候选构建入口。
+- `.github/workflows/yingxu-release-candidate.yml` 仅手动构建与验收，不发布。双端新候选应绑定同一来源提交；补发 macOS 0.4.31-mac.1 时，已发布 Windows 0.4.31 附件保持不变，Mac 平台修复使用独立的精确来源提交，并在清单和发布说明分别记录。旧 main 发布触发器不得作为候选构建入口。
 
 - 本分支是 2026-10-02 Windows 0.4.28/updater.1 更新修补源码，沿用 Stage J 界面。程序发布必须使用与精确来源提交绑定的新原生构建和完整包，README 下载版本仅在附件公开并核对后更新。
 - 来源为已封存候选，文档与合成演示截图已作公开范围整理；不含个人项目、技能数据库、私密授权、运行库或 EXE。
