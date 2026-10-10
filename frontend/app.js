@@ -1074,13 +1074,17 @@ async function closeTab(key) {
 function renderTabs() {
   $('#editorTabs').innerHTML = state.tabs.map(tab => `<div class="editor-tab ${tab.key === state.activeKey ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${tab.key === state.activeKey}" data-tab="${escapeHtml(tab.key)}">${icon(kindIcons[tab.item.kind])}<span class="editor-tab-name" title="${escapeHtml(tab.item.name)}">${escapeHtml(tab.item.name)}</span>${tab.dirty || tab.propertiesDirty ? '<span class="dirty-dot" title="文稿或制作信息未保存"></span>' : ''}<button class="tab-close" data-close-tab="${escapeHtml(tab.key)}" aria-label="关闭 ${escapeHtml(tab.item.name)}">${icon('close')}</button></div>`).join('');
 }
+function unmountXmindEditor() {
+  if (!activeXmindEditorTab) return;
+  activeXmindEditorTab.xmindEditor?.destroy(); delete activeXmindEditorTab.xmindEditor; activeXmindEditorTab=null;
+}
 function renderWorkspace() {
   window.chrome?.webview?.postMessage({action:'image-preview',active:['image','svg','xmind'].includes(activeTab()?.item?.kind)});
   const tab = activeTab(); if(documentSearchKey!==tab?.key){documentSearchUI?.close(false);documentSearchKey=tab?.key || null;} const editing = !!tab; $('#workspace').classList.toggle('editing',editing); $('#editor').hidden = !editing; $('#editorDivider').hidden = !editing;
   applyReadingLayout(tab);
   applyWorkbenchLayout();
   discardUnusedMarkdownEditors(); renderTabs(); renderInspector(); if (state.section === 'assets') $$('#resourceItems [data-item]').forEach(node => node.classList.toggle('selected',state.activeKey === `file:${node.dataset.item}`));
-  if (!tab) { if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=true;$('#editorContent').hidden=false;unmountDocxPreview();unmountDocxEditor(); stopImageZoomTracking(); stopPreviewMedia(true); $('#editorContent').replaceChildren(); return; }
+  if (!tab) { if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=true;$('#editorContent').hidden=false;unmountDocxPreview();unmountDocxEditor();unmountXmindEditor(); stopImageZoomTracking(); stopPreviewMedia(true); $('#editorContent').replaceChildren(); return; }
   renderEditorToolbar(tab); renderEditorBody(tab); renderEditorStatus(tab);
 }
 function readingDocument(tab) {
@@ -1270,7 +1274,7 @@ function renderEditorToolbar(tab) {
 function renderEditorBody(tab) {
   if (tab.textComposing || tab.markdownEditor?.isComposing() || activeDocxEditorTab?.docxEditor?.isComposing() || [...canvasTabs].some(value=>value.canvasEditor?.isComposing())) return;
   unmountDocxEditor(); unmountDocxPreview();
-  if (activeXmindEditorTab) { activeXmindEditorTab.xmindEditor?.destroy(); delete activeXmindEditorTab.xmindEditor; activeXmindEditorTab=null; }
+  unmountXmindEditor();
   for(const value of canvasTabs)value.canvasEditor.setActive(false);
   const showingCanvas=tab.item.kind==='excalidraw' && !tab.loading && !tab.error;
   if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=!showingCanvas;$('#editorContent').hidden=showingCanvas;

@@ -224,7 +224,7 @@
     listen(direction, 'change', () => { if (!ready()) { direction.value = layout; return; } finishEdit(); layout = direction.value; render(); fit(); }); listen(search, 'input', () => { updateSearch(); paint(); renderOutline(); }); listen(search, 'keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); stepMatch(event.shiftKey ? -1 : 1); } });
     listen(fontSize, 'change', () => setStyle({'fo:font-size':fontSize.value})); listen(colors, 'change', () => { const [fill, color] = colors.value.split('|'); setStyle({'svg:fill':fill, 'fo:color':color}); });
     const observer = new ResizeObserver(() => { if (!initialized) fit(); else paint(); }); observer.observe(stage); render();
-    return {isComposing:() => composing, getViewState, focusSearch:() => search.focus(), destroy:() => { if (destroyed) return; finishEdit(); viewChanged(); destroyed = true; observer.disconnect(); abort.abort(); root.remove(); }};
+    return {isComposing:() => composing, getViewState, focusSearch:() => search.focus(), destroy:() => { if (destroyed) return; finishEdit(); endPan(); viewChanged(); destroyed = true; observer.disconnect(); abort.abort(); root.remove(); }};
   }
   window.YingXuXmind = {mount};
 })();

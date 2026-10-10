@@ -22,4 +22,5 @@ test('XMind tab disables native interface zoom and releases routing on return to
   vm.runInContext('applyReadingLayout=applyWorkbenchLayout=discardUnusedMarkdownEditors=renderTabs=renderInspector=renderEditorToolbar=renderEditorBody=renderEditorStatus=()=>{};',context);
   for(const kind of ['xmind','image','text']){context.workspace.state.tabs=[{key:'test',item:{kind}}];context.workspace.state.activeKey='test';context.workspace.state.section='none';context.workspace.renderWorkspace();}
   assert.deepEqual(messages.map(m=>m.active),[true,true,false]);assert.ok(messages.every(m=>m.action==='image-preview'));
+  let disposed=0;context.dispose=()=>disposed++;vm.runInContext('globalThis.disposable={xmindEditor:{destroy:dispose}};activeXmindEditorTab=disposable;unmountDocxPreview=unmountDocxEditor=stopImageZoomTracking=stopPreviewMedia=()=>{};',context);context.workspace.state.tabs=[];context.workspace.state.activeKey=null;context.workspace.renderWorkspace();assert.equal(disposed,1);assert.equal(context.disposable.xmindEditor,undefined);assert.equal(messages.at(-1).active,false);
 });
