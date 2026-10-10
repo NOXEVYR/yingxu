@@ -6,6 +6,15 @@ on:
         description: 'Exact reviewed commit SHA of the selected ref; build and verify only'
         type: string
         required: true
+      platform:
+        description: 'Platforms to build and verify'
+        type: choice
+        options:
+          - both
+          - windows
+          - macos
+        default: both
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -13,7 +22,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   windows:
-    if: github.repository == 'NOXEVYR/yingxu' && inputs.source_commit == github.sha
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' &&
+      inputs.source_commit == github.sha &&
+      (inputs.platform == 'both' || inputs.platform == 'windows')
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -84,7 +96,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   macos:
-    if: github.repository == 'NOXEVYR/yingxu' && inputs.source_commit == github.sha
+    if: >-
+      github.repository == 'NOXEVYR/yingxu' &&
+      inputs.source_commit == github.sha &&
+      (inputs.platform == 'both' || inputs.platform == 'macos')
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -110,9 +125,11 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-      - name: Run backend and all frontend regressions
+      - name: Run backend regressions
         run: |
           python -B -m unittest discover -s tests -v
+      - name: Run frontend regressions
+        run: |
           node --check frontend/app.js
           node --check frontend/xmind-editor.js
           test -x "$YINGXU_TEST_BROWSER"

@@ -89,8 +89,8 @@ def run():
                 assert window.run_js("activeTab().dirty && JSON.parse(activeTab().draft)[0].rootTopic.title === 'WebKit中文中心'")
                 window.run_js("document.querySelector('.xmind-tools button').click();true")
                 assert window.run_js("document.querySelectorAll('.xmind-topic').length === 2")
-                window.run_js("saveTab(activeTab());true")
-                wait(lambda:window.run_js("activeTab().saved === true && !activeTab().dirty && !activeTab().saving"))
+                window.run_js("window.__macSaveDone=false;saveTab(activeTab()).then(ok=>{window.__macSaveDone=ok;});true")
+                wait(lambda:window.run_js("window.__macSaveDone === true && activeTab().saved === true && !activeTab().dirty && !activeTab().saving && !state.loadingItems"))
                 assert window.run_js("JSON.parse(activeTab().draft)[0].rootTopic.children.attached.length === 1")
                 result['checks'].append('XMind creation, Chinese topic editing, child insertion and save in final frozen WKWebView')
                 assert window.run_js("""(() => {
@@ -132,24 +132,29 @@ def run():
                     const before = activeTab().draft;
                     const camera = document.querySelector('.xmind-world');
                     const transform = camera.style.transform;
-                    const wheel = new WheelEvent('wheel', {metaKey:true, deltaY:-100, bubbles:true, cancelable:true});
+                    const rect = stage.getBoundingClientRect();
+                    const wheel = new WheelEvent('wheel', {metaKey:true, deltaY:-100, clientX:rect.x + rect.width / 2, clientY:rect.y + rect.height / 2, bubbles:true, cancelable:true});
                     stage.dispatchEvent(wheel);
                     return wheel.defaultPrevented && camera.style.transform !== transform && activeTab().draft === before;
                 })()""")
                 result['checks'].append('WKWebView consumes synthetic Command wheel and changes only the mind-map viewport')
-                window.run_js("""(() => {
+                assert window.run_js("""(() => {
+                    // The preceding zoom can virtualize a branch outside the viewport.
+                    document.querySelector('[aria-label="适应窗口 · Ctrl / ⌘ 0"]').click();
                     const topic = JSON.parse(activeTab().draft)[0].rootTopic.children.attached[0];
                     document.querySelector(`.xmind-topic[data-topic-id="${topic.id}"]`).click();
                     const input = document.querySelector('[aria-label="主题链接"]');
                     input.value = 'yingxu://item/' + state.tabs[0].item.id;
                     input.dispatchEvent(new Event('input', {bubbles:true}));
                     [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '应用链接到所选主题').click();
+                    if (JSON.parse(activeTab().draft)[0].rootTopic.children.attached[0].href !== 'yingxu://item/' + state.tabs[0].item.id) return false;
                     window.__macXmindTabId = activeTab().id;
-                    saveTab(activeTab());
+                    window.__macSaveDone = false;
+                    saveTab(activeTab()).then(ok => { window.__macSaveDone = ok; });
                     return true;
                 })()""")
-                wait(lambda:window.run_js("activeTab().saved === true && !activeTab().dirty && !activeTab().saving"))
-                window.run_js("document.querySelector('.xmind-link-mark').click();true")
+                wait(lambda:window.run_js("window.__macSaveDone === true && activeTab().saved === true && !activeTab().dirty && !activeTab().saving && !state.loadingItems"))
+                assert window.run_js("document.querySelector('[aria-label=\"适应窗口 · Ctrl / ⌘ 0\"]').click();document.querySelector('.xmind-link-mark').click();true")
                 wait(lambda:window.run_js("activeTab().item.id === state.tabs[0].item.id"))
                 assert window.run_js("state.tabs[0].dirty === true && state.tabs.some(tab => tab.id === window.__macXmindTabId && tab.item.kind === 'xmind')")
                 result['checks'].append('Saved XMind file link opens the registered document while preserving its earlier draft and the map tab')
