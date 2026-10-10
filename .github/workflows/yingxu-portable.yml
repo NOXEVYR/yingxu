@@ -1,4 +1,4 @@
-# Independent repository: release builds follow explicit version/workflow changes.
+# Historical publisher: explicit dispatch only. Current builds use yingxu-release-candidate.yml.
 name: YingXu portable release
 on:
   workflow_dispatch:
@@ -8,11 +8,6 @@ on:
         type: boolean
         required: false
         default: false
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/yingxu-portable.yml'
-      - 'yingxu/__init__.py'
 permissions:
   contents: write
 concurrency:
