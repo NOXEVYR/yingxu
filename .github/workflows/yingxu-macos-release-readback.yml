@@ -3,56 +3,212 @@ on:
   workflow_dispatch:
     inputs:
       source_commit:
-        description: 'Exact source commit of the selected ref and uploaded package'
+        description: 'Exact 40-character source commit recorded by the uploaded package'
         required: true
         type: string
       release_tag:
         description: 'Existing macOS release tag to download and verify; does not publish'
         required: true
         type: string
-permissions:
-  contents: read
+      expected_sha256:
+        description: 'Independently recorded SHA-256 of the uploaded ZIP'
+        required: true
+        type: string
+      expected_bytes:
+        description: 'Independently recorded positive byte size of the uploaded ZIP'
+        required: true
+        type: string
 jobs:
-  verify:
-    if: github.repository == 'NOXEVYR/yingxu' && inputs.source_commit == github.sha
-    runs-on: macos-14
-    timeout-minutes: 20
+  download:
+    if: github.repository == 'NOXEVYR/yingxu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     env:
-      PYTHONDONTWRITEBYTECODE: '1'
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
       RELEASE_TAG: ${{ inputs.release_tag }}
-      GH_REPO: ${{ github.repository }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      EXPECTED_BYTES: ${{ inputs.expected_bytes }}
+      GH_REPO: NOXEVYR/yingxu
     steps:
+      - name: Validate source commit input
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo 'source_commit must be a full 40-character commit SHA.' >&2
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_commit }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Verify selected source commit and expected package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import os
+          import re
+          import subprocess
+          from yingxu import __mac_preview__
+
+          source_commit = os.environ['SOURCE_COMMIT'].lower()
+          actual_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual_commit == source_commit, 'Checkout does not match source_commit'
+          assert re.fullmatch(r'[0-9A-Fa-f]{64}', os.environ['EXPECTED_SHA256']), 'expected_sha256 must be 64 hexadecimal characters'
+          assert re.fullmatch(r'[0-9]+', os.environ['EXPECTED_BYTES']), 'expected_bytes must be a positive decimal integer'
+          assert int(os.environ['EXPECTED_BYTES']) > 0, 'expected_bytes must be positive'
+          assert os.environ['RELEASE_TAG'] == f'yingxu-v{__mac_preview__}', 'release_tag does not match the selected source version'
+          PY
       - name: Download exact uploaded macOS package
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
+          set -euo pipefail
           version=$(python -B -c 'from yingxu import __mac_preview__; print(__mac_preview__)')
-          test "$RELEASE_TAG" = "yingxu-v$version"
+          archive="YingXu-v${version}-macOS-arm64.zip"
+          manifest="YingXu-v${version}-macOS-arm64-manifest.json"
+          sidecar="YingXu-v${version}-macOS-arm64-SHA256.txt"
           mkdir -p .release-work/remote-macos
-          gh release download "$RELEASE_TAG" --dir .release-work/remote-macos \
-            --pattern "YingXu-v$version-macOS-arm64.zip" \
-            --pattern "YingXu-v$version-macOS-arm64-manifest.json" \
-            --pattern "YingXu-v$version-macOS-arm64-SHA256.txt"
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" --dir .release-work/remote-macos \
+            --pattern "$archive" --pattern "$manifest" --pattern "$sidecar"
           python -B - <<'PY'
-          import json, os
+          import hashlib
+          import json
+          import os
+          import re
           from pathlib import Path
           from yingxu import __mac_preview__
-          manifest = json.loads(Path(f'.release-work/remote-macos/YingXu-v{__mac_preview__}-macOS-arm64-manifest.json').read_text())
-          assert manifest['source_commit'] == os.environ['GITHUB_SHA'], 'Uploaded source commit mismatch'
+
+          root = Path('.release-work/remote-macos')
+          archive = root / f'YingXu-v{__mac_preview__}-macOS-arm64.zip'
+          manifest_path = root / f'YingXu-v{__mac_preview__}-macOS-arm64-manifest.json'
+          sidecar_path = root / f'YingXu-v{__mac_preview__}-macOS-arm64-SHA256.txt'
+          expected_names = {archive.name, manifest_path.name, sidecar_path.name}
+          entries = list(root.iterdir())
+          assert all(path.is_file() and not path.is_symlink() for path in entries), 'Unexpected non-file release download'
+          assert {path.name for path in entries} == expected_names, 'Release download did not contain exactly the expected three assets'
+
+          expected_commit = os.environ['SOURCE_COMMIT'].lower()
+          expected_digest = os.environ['EXPECTED_SHA256'].lower()
+          expected_bytes = int(os.environ['EXPECTED_BYTES'])
+          assert re.fullmatch(r'[0-9a-f]{64}', expected_digest)
+          digest = hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()
+          size = archive.stat().st_size
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          assert size == expected_bytes, 'ZIP byte size differs from the independent expected_bytes input'
+          assert digest == expected_digest, 'ZIP SHA-256 differs from the independent expected_sha256 input'
+          assert manifest['file'] == archive.name
+          assert manifest['version'] == __mac_preview__
+          assert manifest['source_commit'] == expected_commit, 'Manifest source commit differs from source_commit'
+          assert type(manifest['bytes']) is int and manifest['bytes'] == size
+          assert manifest['sha256'] == digest
+          assert sidecar_path.read_text(encoding='ascii').split() == [digest, archive.name]
           PY
-      - name: Verify final remote ZIP and run its native app and WebKit checks
-        run: |
-          version=$(python -B -c 'from yingxu import __mac_preview__; print(__mac_preview__)')
-          python -B macos/verify_release.py ".release-work/remote-macos/YingXu-v$version-macOS-arm64.zip" --output .release-work/remote-macos/readback-verification.json
       - uses: actions/upload-artifact@v4
         with:
-          name: YingXu-macOS-remote-verification-${{ github.sha }}
+          name: YingXu-macOS-release-assets-${{ inputs.source_commit }}
+          path: .release-work/remote-macos/*
+          if-no-files-found: error
+          retention-days: 1
+
+  verify:
+    needs: download
+    if: github.repository == 'NOXEVYR/yingxu'
+    runs-on: macos-14
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      EXPECTED_BYTES: ${{ inputs.expected_bytes }}
+    steps:
+      - name: Validate source commit input
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo 'source_commit must be a full 40-character commit SHA.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: YingXu-macOS-release-assets-${{ inputs.source_commit }}
+          path: .release-work/remote-macos
+      - name: Reverify source, release identity, ZIP size and digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          from yingxu import __mac_preview__
+
+          source_commit = os.environ['SOURCE_COMMIT'].lower()
+          actual_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual_commit == source_commit, 'Checkout does not match source_commit'
+          assert re.fullmatch(r'[0-9A-Fa-f]{64}', os.environ['EXPECTED_SHA256']), 'expected_sha256 must be 64 hexadecimal characters'
+          assert re.fullmatch(r'[0-9]+', os.environ['EXPECTED_BYTES']), 'expected_bytes must be a positive decimal integer'
+          assert int(os.environ['EXPECTED_BYTES']) > 0, 'expected_bytes must be positive'
+          assert os.environ['RELEASE_TAG'] == f'yingxu-v{__mac_preview__}', 'release_tag does not match the selected source version'
+
+          root = Path('.release-work/remote-macos')
+          archive = root / f'YingXu-v{__mac_preview__}-macOS-arm64.zip'
+          manifest_path = root / f'YingXu-v{__mac_preview__}-macOS-arm64-manifest.json'
+          sidecar_path = root / f'YingXu-v{__mac_preview__}-macOS-arm64-SHA256.txt'
+          expected_names = {archive.name, manifest_path.name, sidecar_path.name}
+          entries = list(root.iterdir())
+          assert all(path.is_file() and not path.is_symlink() for path in entries), 'Unexpected non-file artifact entry'
+          assert {path.name for path in entries} == expected_names, 'Artifact must contain exactly the three original release assets'
+
+          expected_digest = os.environ['EXPECTED_SHA256'].lower()
+          expected_bytes = int(os.environ['EXPECTED_BYTES'])
+          digest = hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()
+          size = archive.stat().st_size
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          assert size == expected_bytes, 'ZIP byte size differs from the independent expected_bytes input'
+          assert digest == expected_digest, 'ZIP SHA-256 differs from the independent expected_sha256 input'
+          assert manifest['file'] == archive.name
+          assert manifest['version'] == __mac_preview__
+          assert manifest['source_commit'] == source_commit, 'Manifest source commit differs from source_commit'
+          assert type(manifest['bytes']) is int and manifest['bytes'] == size
+          assert manifest['sha256'] == digest
+          assert sidecar_path.read_text(encoding='ascii').split() == [digest, archive.name]
+          PY
+      - name: Verify final remote ZIP and run its native app and WebKit checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GH_TOKEN+x}" == x || "${GITHUB_TOKEN+x}" == x ]]; then
+            echo 'Release credentials must not be present during native package verification.' >&2
+            exit 1
+          fi
+          version=$(python -B -c 'from yingxu import __mac_preview__; print(__mac_preview__)')
+          python -B macos/verify_release.py ".release-work/remote-macos/YingXu-v${version}-macOS-arm64.zip" \
+            --output .release-work/remote-macos/readback-verification.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YingXu-macOS-remote-verification-${{ inputs.source_commit }}
           path: .release-work/remote-macos/readback-verification.json
           if-no-files-found: error
           retention-days: 14
