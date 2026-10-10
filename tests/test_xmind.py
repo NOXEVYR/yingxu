@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 from pathlib import Path
@@ -77,6 +78,99 @@ class XmindTests(unittest.TestCase):
             self.store.save_content(item['id'], {'etag': opened['etag'], 'content': opened['content']})
         self.assertEqual(error.exception.status, 409)
         self.assertEqual(json.loads(xmind.read(path.read_bytes())['content']), model)
+
+    def test_annotation_batch_save_roundtrips_native_fields_and_preserves_unknown_data(self):
+        item = self.item()
+        path = Path(item['path'])
+        model = json.loads(xmind.read(path.read_bytes())['content'])
+        custom_marker = {'markerId': 'custom-review', 'groupId': 'vendorReview',
+                         'vendor': {'color': '#123456', 'revision': 7}}
+        model[0]['rootTopic']['children'] = {'attached': [
+            {'id': 'first', 'title': '第一场', 'labels': ['旧标签'],
+             'markers': [{'markerId': 'priority-4', 'groupId': 'priorityMarkers', 'vendor': 'keep'},
+                         copy.deepcopy(custom_marker)],
+             'notes': {'plain': {'content': '旧备注', 'vendor': {'language': 'zh-CN'}},
+                       'vendor': {'revision': 2}},
+             'href': 'https://example.invalid/old',
+             'extensions': [{'provider': 'vendor.example', 'content': {'raw': ['原样', 42]}}]},
+            {'id': 'second', 'title': '第二场',
+             'markers': [{'markerId': 'task-half', 'groupId': 'taskMakers', 'vendor': 'keep'},
+                         {'markerId': 'flag-red'}]},
+            {'id': 'unselected', 'title': '复杂备注保持原样',
+             'notes': {'plain': {'content': '富文本摘要'},
+                       'html': {'content': '<p><strong>原始富文本</strong></p>'}},
+             'markers': [copy.deepcopy(custom_marker)], 'labels': ['不修改']}
+        ]}
+        original_model = copy.deepcopy(model)
+        retained_members = {
+            'metadata.json': b'{ "dataStructureVersion": "2", "vendor": [ 7, true ] }\r\n',
+            'manifest.json': b'{ "file-entries": {"content.json": {}, "resources/raw.bin": {}} }',
+            'resources/raw.bin': bytes(range(256)) * 3,
+            'styles.json': b'{"unknown-theme": { "preserve": true }}\n',
+        }
+        original = archive([('content.json', json.dumps(model, ensure_ascii=False)),
+                            *retained_members.items()])
+        path.write_bytes(original)
+        opened = self.store.read_content(item['id'])
+        edited = json.loads(opened['content'])
+        first, second, _ = edited[0]['rootTopic']['children']['attached']
+        first['labels'] = second['labels'] = ['主线', '待复核 🎬']
+        first['markers'][0]['markerId'] = 'priority-1'
+        first['markers'].append({'markerId': 'task-quarter'})
+        second['markers'][0]['markerId'] = 'task-quarter'
+        second['markers'].append({'markerId': 'priority-1'})
+        first['notes']['plain']['content'] = '第一行中文\n第二行：保留换行\n'
+        second['notes'] = {'plain': {'content': '批量设置后的独立备注'}}
+        first['href'] = second['href'] = 'https://example.invalid/story?q=%E4%B8%AD%E6%96%87#scene'
+
+        saved = self.store.save_content(item['id'], {'etag': opened['etag'],
+                                                   'content': json.dumps(edited, ensure_ascii=False)})
+        reopened = self.store.read_content(item['id'])
+        self.assertEqual(reopened['etag'], saved['etag'])
+        self.assertEqual(json.loads(reopened['content']), edited)
+        actual_first, actual_second, actual_unselected = json.loads(reopened['content'])[0]['rootTopic']['children']['attached']
+        self.assertEqual(actual_first['markers'][1], custom_marker)
+        self.assertEqual(actual_first['notes']['vendor'], {'revision': 2})
+        self.assertEqual(actual_first['notes']['plain']['vendor'], {'language': 'zh-CN'})
+        self.assertEqual(actual_first['extensions'], original_model[0]['rootTopic']['children']['attached'][0]['extensions'])
+        self.assertEqual(actual_second['markers'][1], {'markerId': 'flag-red'})
+        self.assertEqual(actual_unselected, original_model[0]['rootTopic']['children']['attached'][2])
+        self.assertEqual(next((self.root / 'data/versions').rglob('*.xmind')).read_bytes(), original)
+        with zipfile.ZipFile(path) as package:
+            self.assertIsNone(package.testzip())
+            self.assertEqual(set(package.namelist()), {'content.json', *retained_members})
+            for name, value in retained_members.items():
+                with self.subTest(member=name):
+                    self.assertEqual(package.read(name), value)
+
+    def test_clearing_annotations_preserves_custom_markers_and_note_extensions(self):
+        model = json.loads(xmind.read(xmind.create('中心'))['content'])
+        topic = model[0]['rootTopic']
+        custom_marker = {'markerId': 'task-vendor-review', 'groupId': 'vendorTasks',
+                         'data': {'enabled': True, 'title': '未知标记'}}
+        topic.update(labels=['待删除'], href='xmind:#other-topic',
+                     markers=[{'markerId': 'priority-9'}, {'markerId': 'task-pause'}, custom_marker],
+                     notes={'plain': {'content': '待删除备注'}, 'vendor': {'preserve': [1, 2, 3]}})
+        original = archive([('content.json', json.dumps(model, ensure_ascii=False)),
+                            ('metadata.json', b'{ "custom": true }\r\n'),
+                            ('resources/note.bin', b'\x00\xffnote-resource')])
+        edited_model = json.loads(xmind.read(original)['content'])
+        edited_topic = edited_model[0]['rootTopic']
+        del edited_topic['labels']
+        del edited_topic['href']
+        del edited_topic['notes']['plain']
+        edited_topic['markers'] = [edited_topic['markers'][2]]
+        edited = xmind.edit(original, json.dumps(edited_model, ensure_ascii=False))
+        reopened = json.loads(xmind.read(edited)['content'])[0]['rootTopic']
+        self.assertNotIn('labels', reopened)
+        self.assertNotIn('href', reopened)
+        self.assertEqual(reopened['markers'], [custom_marker])
+        self.assertEqual(reopened['notes'], {'vendor': {'preserve': [1, 2, 3]}})
+        with zipfile.ZipFile(io.BytesIO(edited)) as package:
+            self.assertEqual(package.read('metadata.json'), b'{ "custom": true }\r\n')
+            self.assertEqual(package.read('resources/note.bin'), b'\x00\xffnote-resource')
+            self.assertIsNone(package.testzip())
+        self.assertEqual(xmind.edit(edited, json.dumps(edited_model)), edited)
 
     def test_copy_and_reference_import_preserve_archive_not_extract_it(self):
         source = self.root / '外部.xmind'; raw = xmind.create('原文件'); source.write_bytes(raw)

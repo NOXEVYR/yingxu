@@ -324,6 +324,7 @@ namespace YingXu.Desktop
         private bool pageFailed;
         private bool exitUnresponsive;
         private readonly Func<bool> confirmUnavailableExit;
+        internal Action<string> OpenWebUrlLauncher;
         private CaptureCoordinator capture;
         private CaptureHotkey captureHotkey;
         private bool captureEnabled;
@@ -334,6 +335,7 @@ namespace YingXu.Desktop
 
         internal StudioWindow(bool initialize = true, Func<bool> failedExitConfirmation = null, bool routed = false)
         {
+            OpenWebUrlLauncher = LaunchWebUrl;
             confirmUnavailableExit = failedExitConfirmation ?? (() => MessageBox.Show(this,
                 "工作台页面已失去响应，无法完成页面保存。已落盘的草稿会保留，尚未保存的内容可能丢失。\n\n仍要退出映序吗？",
                 "映序 · 确认退出",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2) == DialogResult.Yes);
@@ -626,7 +628,7 @@ namespace YingXu.Desktop
 
         private bool ReceiveDesktopRequest(string source, string json)
         {
-            if (!Hub.IsLocalPage(source,Hub.Url) || String.IsNullOrEmpty(json) || json.Length > 4096) return false;
+            if (!Hub.IsLocalPage(source,Hub.Url) || String.IsNullOrEmpty(json) || json.Length > 8192) return false;
             Dictionary<string,object> message;
             try { message = new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(json); }
             catch { return false; }
@@ -647,6 +649,15 @@ namespace YingXu.Desktop
                 object active;
                 if (message.Count != 2 || !message.TryGetValue("active",out active) || !(active is bool)) return false;
                 if (web != null && web.CoreWebView2 != null) web.CoreWebView2.Settings.IsZoomControlEnabled = !(bool)active;
+                return true;
+            }
+            if (action == "open-web-url")
+            {
+                object rawUrl;string url;
+                if(message.Count!=2 || !message.TryGetValue("url",out rawUrl))return false;
+                if(!TryValidateWebUrl(rawUrl,out url))return false;
+                try { OpenWebUrlLauncher(url); }
+                catch(Exception error) { Notice("网页链接未能打开："+error.Message,true); }
                 return true;
             }
             if (action == "open-file")
@@ -764,6 +775,30 @@ namespace YingXu.Desktop
             } catch(Exception error) { Notice("系统应用未能打开："+error.Message,true); }
         }
 
+        private static bool TryValidateWebUrl(object value, out string normalized)
+        {
+            normalized = null;
+            string raw = value as string;
+            if (String.IsNullOrEmpty(raw) || raw.Length > 4096 ||
+                !(raw.StartsWith("http://",StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://",StringComparison.OrdinalIgnoreCase))) return false;
+            for (int index=0;index<raw.Length;index++)
+                if (Char.IsControl(raw[index]) || Char.IsWhiteSpace(raw[index]) || raw[index]=='\\') return false;
+            Uri uri;
+            if (!Uri.TryCreate(raw,UriKind.Absolute,out uri) || !uri.IsWellFormedOriginalString() ||
+                (uri.Scheme!="http" && uri.Scheme!="https") || String.IsNullOrEmpty(uri.Host) || !String.IsNullOrEmpty(uri.UserInfo)) return false;
+            string absolute=uri.AbsoluteUri;
+            if (absolute.Length>4096) return false;
+            normalized=absolute;
+            return true;
+        }
+
+        private void LaunchWebUrl(string url)
+        {
+            Process process=Process.Start(new ProcessStartInfo(url) { UseShellExecute=true,WindowStyle=ProcessWindowStyle.Normal,
+                ErrorDialog=true,ErrorDialogParentHandle=Handle });
+            if(process!=null)process.Dispose();
+        }
+
         private void FocusFolder(string folder,string selected=null,bool open=false)
         {
             try { FolderForeground.Request(folder,selected,open,() => IsDisposed || closing.IsCancellationRequested); }
@@ -844,9 +879,9 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
-            if(Program.Isolated==null)await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup = true; window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
+            if(Program.Isolated==null)await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup = true; window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuDesktopOpenWebUrl = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
             else {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup=true;window.yingxuDesktopDrag=false;window.yingxuDesktopDropPaths=false;window.yingxuDesktopFocus=false;window.yingxuDesktopOpenFolder=false;window.yingxuCaptureHotkeyRecorder=false;window.yingxuDesktopIncrementalUpdate=false;");
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup=true;window.yingxuDesktopDrag=false;window.yingxuDesktopDropPaths=false;window.yingxuDesktopFocus=false;window.yingxuDesktopOpenFolder=false;window.yingxuDesktopOpenWebUrl=false;window.yingxuCaptureHotkeyRecorder=false;window.yingxuDesktopIncrementalUpdate=false;");
                 core.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
                 core.WebResourceRequested+=delegate(object sender,CoreWebView2WebResourceRequestedEventArgs request){
                     bool allowed=Program.Isolated.AllowRequest(request.Request.Uri,request.Request.Method,isolatedIndexSyncPosts);

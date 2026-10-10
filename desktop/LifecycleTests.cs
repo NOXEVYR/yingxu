@@ -386,6 +386,17 @@ namespace YingXu.Desktop
             Check(editing=="true","trusted double click opens XMind inline editor in native WebView");
             await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.insertText",serializer.Serialize(new{text="原生中文修改"}));
             Check(await web.CoreWebView2.ExecuteScriptAsync("JSON.parse(xmindDraft)[0].rootTopic.title==='原生中文修改'")=="true","native renderer typing reaches XMind save model immediately");
+            foreach(string type in new[]{"keyDown","keyUp"})await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",serializer.Serialize(new{type=type,key="Enter",code="Enter",windowsVirtualKeyCode=13}));
+            position=await web.CoreWebView2.ExecuteScriptAsync("(()=>{var r=document.querySelector('[data-topic-id=\"native-child\"] .xmind-topic-text').parentElement.getBoundingClientRect();return {left:r.left-8,top:r.top-8,right:r.right+8,bottom:r.bottom+8};})()");
+            point=serializer.Deserialize<Dictionary<string,object>>(position);
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mousePressed",x=point["left"],y=point["top"],button="left",buttons=1,clickCount=1}));
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mouseMoved",x=point["right"],y=point["bottom"],button="left",buttons=1}));
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mouseReleased",x=point["right"],y=point["bottom"],button="left",buttons=0,clickCount=1}));
+            Check(await web.CoreWebView2.ExecuteScriptAsync("JSON.stringify(xmindProbe.getViewState().selection)==='[\"native-child\"]'")=="true","trusted left drag selects child branch without panning");
+            foreach(string type in new[]{"keyDown","keyUp"})await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",serializer.Serialize(new{type=type,key="Delete",code="Delete",windowsVirtualKeyCode=46}));
+            Check(await web.CoreWebView2.ExecuteScriptAsync("JSON.parse(xmindDraft)[0].rootTopic.children.attached.length===0")=="true","trusted Delete immediately removes selected branch");
+            foreach(string type in new[]{"keyDown","keyUp"})await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",serializer.Serialize(new{type=type,key="z",code="KeyZ",windowsVirtualKeyCode=90,modifiers=2}));
+            Check(await web.CoreWebView2.ExecuteScriptAsync("JSON.parse(xmindDraft)[0].rootTopic.children.attached[0].id==='native-child'")=="true","trusted Ctrl Z restores deleted branch");
             await web.CoreWebView2.ExecuteScriptAsync("xmindProbe.destroy();document.body.innerHTML='';");
             Call(window,"ReceiveDesktopRequest",Hub.Url,serializer.Serialize(new{action="image-preview",active=false}));
             Check(web.CoreWebView2.Settings.IsZoomControlEnabled,"leaving XMind restores native application zoom");
@@ -458,6 +469,20 @@ namespace YingXu.Desktop
             using (var window = new StudioWindow(false))
             {
                 window.Text = "映序桌面生命周期 · 合成测试";
+                string openedWebUrl=null;
+                window.OpenWebUrlLauncher=url=>openedWebUrl=url;
+                var webLinkJson=new JavaScriptSerializer();
+                IntPtr webLinkHandle=window.Handle;
+                Check(!(bool)Call(window,"ReceiveDesktopRequest","https://example.com",webLinkJson.Serialize(new{action="open-web-url",url="https://example.com/guide"})),"foreign pages cannot request the system browser");
+                foreach(string unsafeUrl in new[]{"file:///C:/Windows/notepad.exe","javascript:alert(1)","https://user:pass@example.com/","https://example.com/\nignored",new string('x',4097)})
+                {
+                    Call(window,"ReceiveDesktopRequest",Hub.Url,webLinkJson.Serialize(new{action="open-web-url",url=unsafeUrl}));
+                    Check(openedWebUrl==null,"native browser bridge refuses to launch unsupported URL");
+                }
+                Check(!(bool)Call(window,"ReceiveDesktopRequest",Hub.Url,webLinkJson.Serialize(new{action="open-web-url",url="https://example.com/",extra=true})),"native browser bridge rejects extra fields");
+                Check((bool)Call(window,"ReceiveDesktopRequest",Hub.Url,webLinkJson.Serialize(new{action="open-web-url",url="https://example.com/guide"})),"trusted page accepts a bounded HTTPS URL");
+                Application.DoEvents();
+                Check(openedWebUrl=="https://example.com/guide","native browser bridge dispatches to injected launcher without opening real browser");
                 var tray = (NotifyIcon)Field(window,"tray");
                 using(var embedded=Assembly.GetExecutingAssembly().GetManifestResourceStream("brand.ico"))
                 using(var bytes=new MemoryStream())

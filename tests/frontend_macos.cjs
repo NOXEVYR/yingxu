@@ -6,13 +6,13 @@ const sourceVersion=versionSource.match(/^__version__ = '([^']+)'/m)[1];
 const macPreviewVersion=versionSource.match(/^__mac_preview__ = '([^']+)'/m)[1];
 const source = fs.readFileSync('frontend/macos.js','utf8');
 function load(search) {
-  const sent=[], events={}, styles=[];
+  const sent=[], events={}, styles=[], reports=[];
   const window={addEventListener:(name,fn)=>events[name]=fn};
-  const context={window,location:{search},URLSearchParams,console,state:{bootstrap:{token:'local'}} ,
-    api:(path,options)=>{sent.push({path,message:options.body});return Promise.resolve({ok:true});},report:()=>{},
+  const context={window,location:{search},URL,URLSearchParams,console,state:{bootstrap:{token:'local'}} ,
+    api:(path,options)=>{sent.push({path,message:options.body});return Promise.resolve({ok:true});},report:error=>reports.push(error),
     document:{createElement:()=>({}),head:{appendChild:style=>styles.push(style)},addEventListener:(name,fn)=>events[name]=fn,querySelector:()=>({setAttribute:(key,value)=>sent.push({key,value})})}};
   vm.createContext(context);vm.runInContext(source,context);
-  return {context,window,sent,events,styles};
+  return {context,window,sent,events,styles,reports};
 }
 const win=load('');assert.equal(win.window.chrome,undefined);assert.equal(win.styles.length,0);
 const mac=load('?desktop=macos');assert.equal(mac.window.yingxuMac,true);
@@ -28,6 +28,22 @@ mac.events.DOMContentLoaded();assert.equal(mac.sent.at(-1).value,'/?desktop=maco
 console.log('macOS bridge: Windows isolation, queued readiness, unsupported action rejection, close routing and hidden controls passed');
 
 const {test}=require('node:test');
+test('macOS advertises and forwards only validated HTTP(S) URLs, reporting native failures',async()=>{
+  const mac=load('?desktop=macos');
+  assert.equal(mac.window.yingxuDesktopOpenWebUrl,true);
+  mac.window.chrome.webview.postMessage({action:'open-web-url',url:'https://example.com/a'});
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(JSON.stringify(mac.sent[0]),JSON.stringify({path:'/api/macos/desktop',message:{action:'open-web-url',url:'https://example.com/a'}}));
+  mac.sent.length=0;
+  mac.window.chrome.webview.postMessage({action:'open-web-url',url:'file:///tmp/private'});
+  assert.equal(mac.sent.length,0);assert.match(mac.reports.at(-1).message,/HTTP\(S\)/);
+  mac.window.chrome.webview.postMessage({action:'open-web-url',url:'https://example.com/','extra':true});
+  assert.equal(mac.sent.length,0);assert.match(mac.reports.at(-1).message,/请求无效/);
+  mac.context.api=(path,options)=>{mac.sent.push({path,message:options.body});return Promise.resolve({ok:false});};
+  mac.window.chrome.webview.postMessage({action:'open-web-url',url:'https://example.com/fail'});
+  await Promise.resolve();await Promise.resolve();
+  assert.match(mac.reports.at(-1).message,/macOS 未能打开/);
+});
 const appSource=fs.readFileSync('frontend/app.js','utf8').replace(/boot\(\);\s*$/,'');
 function appFixture(isMac=true){
   const dialogs=[],calls=[],nodes=new Map();

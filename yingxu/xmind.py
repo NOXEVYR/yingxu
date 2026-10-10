@@ -132,7 +132,7 @@ def read(raw):
             content = _legacy(_read(archive, 'content.xml'))
         validate(content)
         return {'format': 'xmind', 'content': content, 'editable': modern,
-                'notice': ('支持主题文字、子主题和同级主题编辑；原有样式、附件及其他信息保留。保存前备份原文件。'
+                'notice': ('左键框选，中键平移；Delete 删除所选分支，Ctrl / ⌘ Z 撤销。标注和链接在主题属性中设置；保存前备份原文件。'
                            if modern else '旧版 XML XMind 仅预览主题结构；请用 XMind 另存为新版格式后编辑。')}
 
 

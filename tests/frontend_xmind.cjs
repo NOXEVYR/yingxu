@@ -25,8 +25,8 @@ test('XMind edit, branches, sheets, undo, composition and read-only behavior in 
     title().dispatchEvent(new CompositionEvent('compositionstart'));button('添加子主题').click();check('composition refuses structural operations',editor.isComposing()&&composition&&blocked===1);
     const picker=parent.querySelector('select');picker.value='1';picker.dispatchEvent(new Event('change'));check('composition keeps current sheet',picker.value==='0'&&blocked===2);
     title().dispatchEvent(new CompositionEvent('compositionend'));check('composition end restores operations',!editor.isComposing()&&!composition);
-    button('删除主题及分支').click();check('delete needs explicit second click',JSON.parse(draft)[0].rootTopic.children.attached.length===3);
-    button('确认删除此主题及所有分支').click();check('confirmed deletion removes selected subtree',JSON.parse(draft)[0].rootTopic.children.attached.length===2);
+    button('删除主题及分支').click();check('one delete removes selected subtree',JSON.parse(draft)[0].rootTopic.children.attached.length===2);
+    check('one delete creates a reversible history entry',!button('撤销').disabled);
     button('撤销').click();check('undo restores deleted topic',JSON.parse(draft)[0].rootTopic.children.attached.length===3);
     button('重做').click();check('redo restores deletion',JSON.parse(draft)[0].rootTopic.children.attached.length===2);
     picker.value='1';picker.dispatchEvent(new Event('change'));check('sheet switch displays literal title without HTML execution',parent.querySelectorAll('.xmind-topic').length===1&&!parent.querySelector('img')&&title().value===model[1].rootTopic.title);

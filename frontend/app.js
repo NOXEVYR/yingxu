@@ -1055,6 +1055,99 @@ async function openItem(id) {
     tab.loading = false; if (state.activeKey === key) renderWorkspace(); else renderTabs();
   } catch(error) { if (!tabStillOpen(tab)) return; tab.loading = false; tab.error = error.message; if (state.activeKey === key) renderWorkspace(); report(error); }
 }
+function xmindLinkMountIsCurrent(tab,mount) {
+  return !!tab && tabStillOpen(tab) && state.activeKey === tab.key && activeTab() === tab && activeXmindEditorTab === tab && tab.xmindLinkMount === mount;
+}
+function xmindLinkResultHtml(results) {
+  const entries = (Array.isArray(results) ? results : []).filter(entry => entry?.type === 'item' && /^[a-f0-9]{32}$/i.test(String(entry.id || '')));
+  if (!entries.length) return '<p class="global-search-status">没有找到匹配文件，请换一个关键词。</p>';
+  return entries.slice(0,20).map(entry => {
+    const project = String(entry.project_name || '未知项目');
+    const category = entry.category ? ` · ${categoryLabel(entry.category)}` : '';
+    const name = String(entry.name || '未命名文件');
+    return `<button class="global-search-result" type="button" data-xmind-link-id="${escapeHtml(String(entry.id).toLowerCase())}"><span class="global-search-result-heading"><span class="global-search-result-name">${escapeHtml(name)}</span><span class="global-search-result-type">文件</span></span><span class="global-search-result-origin">${escapeHtml(project + category)}</span>${entry.snippet ? `<span class="global-search-result-snippet">${escapeHtml(String(entry.snippet).slice(0,600))}</span>` : ''}</button>`;
+  }).join('');
+}
+function pickXmindLink(tab,mount) {
+  if (!xmindLinkMountIsCurrent(tab,mount)) return Promise.resolve(null);
+  const dialog = showDialog({title:'链接到项目文件',subtitle:'搜索所有项目中的已登记文件，选择后会插入可在映序中打开的链接。',wide:true,body:'<div class="field"><label for="xmindLinkSearch">查找文件</label><input id="xmindLinkSearch" type="search" maxlength="200" autocomplete="off" placeholder="输入文件名或正文关键词" autofocus></div><p class="field-hint">搜索结果会显示项目和分类，未保存的文稿修改不参与正文搜索。</p><div id="xmindLinkResults" class="global-search-results" role="listbox" aria-label="可链接的项目文件"></div><p id="xmindLinkStatus" class="global-search-status" role="status" aria-live="polite">输入关键词，在所有项目中查找文件。</p><nav class="global-search-pages" aria-label="链接搜索结果分页"><button type="button" id="xmindLinkPrev" disabled>上一页</button><span id="xmindLinkPage"></span><button type="button" id="xmindLinkNext" disabled>下一页</button></nav>',actions:'<button type="button" class="button button-ghost" data-xmind-link-cancel>取消</button>'});
+  const input = $('#xmindLinkSearch',dialog), results = $('#xmindLinkResults',dialog), status = $('#xmindLinkStatus',dialog), previous = $('#xmindLinkPrev',dialog), next = $('#xmindLinkNext',dialog), page = $('#xmindLinkPage',dialog);
+  return new Promise(resolve => {
+    let settled = false, chosen = null, revision = 0, timer = null, controller = null, composing = false, offset = 0;
+    const cleanup = () => { clearTimeout(timer); controller?.abort(); controller = null; };
+    const finish = value => { if (settled) return; chosen = value; if (dialog.open) dialog.close(); else { settled = true; cleanup(); resolve(chosen); } };
+    dialog.addEventListener('close',() => { if (settled) return; settled = true; cleanup(); resolve(chosen); },{once:true});
+    const search = async (start = 0) => {
+      if (!dialog.open || settled || composing) return;
+      const query = input.value.trim(), current = ++revision; offset = start;
+      controller?.abort(); controller = null; results.innerHTML = '';
+      if (!query) { status.textContent = '输入关键词，在所有项目中查找文件。'; results.setAttribute('aria-busy','false'); previous.disabled = true; next.disabled = true; page.textContent = ''; return; }
+      previous.disabled = true; next.disabled = true;
+      controller = new AbortController(); const signal = controller.signal;
+      status.textContent = '正在搜索…'; results.setAttribute('aria-busy','true');
+      try {
+        const response = await api(`/api/search?q=${encodeURIComponent(query)}&limit=20&offset=${start}`,{signal});
+        if (current !== revision || !dialog.open || settled) return;
+        if (!response || !Array.isArray(response.results)) throw new Error('搜索结果格式无效，请重试。');
+        const matches = response.results.filter(entry => entry?.type === 'item' && /^[a-f0-9]{32}$/i.test(String(entry.id || '')));
+        results.innerHTML = xmindLinkResultHtml(matches); results.setAttribute('aria-busy','false');
+        const partial = response.truncated || response.total_exact === false;
+        const count = response.results.length, total = Number(response.total) || offset + count;
+        previous.disabled = offset === 0; next.disabled = !(response.has_more === true || offset + count < total);
+        page.textContent = count ? `${offset + 1}–${offset + count} / ${total}` : offset ? `第 ${Math.floor(offset / 20) + 1} 页` : '';
+        status.textContent = matches.length ? `${partial ? '部分结果 · ' : ''}本页有 ${matches.length} 个项目文件，选择一个打开链接。` : '这一页没有匹配文件，可继续翻页或换一个关键词。';
+      } catch(error) {
+        if (current !== revision || !dialog.open || settled || error.name === 'AbortError') return;
+        results.setAttribute('aria-busy','false'); status.textContent = `搜索未完成：${error.message || '请稍后重试。'}`; next.disabled = true;
+      }
+    };
+    const schedule = () => { clearTimeout(timer); controller?.abort(); controller = null; revision++; offset = 0; previous.disabled = true; next.disabled = true; page.textContent = ''; results.innerHTML = ''; results.setAttribute('aria-busy','false'); status.textContent = input.value.trim() ? '输入完成后搜索…' : '输入关键词，在所有项目中查找文件。'; if (!composing && input.value.trim()) timer = setTimeout(()=>search(0),220); };
+    input.addEventListener('input',schedule);
+    input.addEventListener('compositionstart',() => { composing = true; clearTimeout(timer); controller?.abort(); controller = null; revision++; results.innerHTML = ''; results.setAttribute('aria-busy','false'); previous.disabled = true; next.disabled = true; page.textContent = ''; status.textContent = '正在输入…'; });
+    input.addEventListener('compositionend',() => { composing = false; schedule(); });
+    results.addEventListener('click',event => {
+      const button = event.target.closest?.('[data-xmind-link-id]');
+      if (!button || !results.contains(button)) return;
+      if (!xmindLinkMountIsCurrent(tab,mount)) { finish(null); return; }
+      const id = String(button.dataset.xmindLinkId || '').toLowerCase();
+      if (/^[a-f0-9]{32}$/.test(id)) finish(`yingxu://item/${id}`);
+    });
+    previous.addEventListener('click',() => { if (!previous.disabled) search(Math.max(0,offset-20)); });
+    next.addEventListener('click',() => { if (!next.disabled) search(offset+20); });
+    $('#dialogActions [data-xmind-link-cancel]',dialog)?.addEventListener('click',() => finish(null));
+    dialog.addEventListener('cancel',event => { event.preventDefault(); finish(null); });
+  });
+}
+async function openXmindLink(tab,mount,href) {
+  if (!xmindLinkMountIsCurrent(tab,mount)) return false;
+  const value = typeof href === 'string' ? href : '';
+  const itemMatch = /^yingxu:\/\/item\/([a-f0-9]{32})$/i.exec(value);
+  if (itemMatch) {
+    try {
+      // Existing search navigation validates the live item and opens it without dropping other tabs or drafts.
+      return !!await openGlobalSearchResult({type:'item',id:itemMatch[1].toLowerCase()});
+    } catch(error) {
+      if (tabStillOpen(tab) && tab.xmindLinkMount === mount) toast(error.message || '链接目标已不存在或无法打开。','error',7000);
+      return false;
+    }
+  }
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      if (value.length > 4096 || /[\s\\\u0000-\u001f\u007f-\u009f]/u.test(value)) throw new Error('链接地址包含不支持的字符或长度超出限制。');
+      const url = new URL(value);
+      if (!['http:','https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.href.length > 4096) throw new Error('不支持此链接地址。');
+      if (window.yingxuDesktopOpenWebUrl) {
+        if (!window.chrome?.webview?.postMessage) throw new Error('当前桌面窗口无法打开网页链接。');
+        window.chrome.webview.postMessage({action:'open-web-url',url:url.href});
+        return true;
+      }
+      window.open(url.href,'_blank','noopener,noreferrer');
+      return true;
+    } catch(error) { toast(error.message || '链接地址无效，无法打开。','error'); return false; }
+  }
+  toast('此链接不受支持；请使用映序项目文件链接或 HTTP(S) 地址。','error');
+  return false;
+}
 async function closeTab(key) {
   const tab = state.tabs.find(value => value.key === key); if (!tab) return;
   if (!await guardProperties(tab)) return;
@@ -1076,7 +1169,7 @@ function renderTabs() {
 }
 function unmountXmindEditor() {
   if (!activeXmindEditorTab) return;
-  activeXmindEditorTab.xmindEditor?.destroy(); delete activeXmindEditorTab.xmindEditor; activeXmindEditorTab=null;
+  activeXmindEditorTab.xmindEditor?.destroy(); delete activeXmindEditorTab.xmindEditor; delete activeXmindEditorTab.xmindLinkMount; activeXmindEditorTab=null;
 }
 function renderWorkspace() {
   window.chrome?.webview?.postMessage({action:'image-preview',active:['image','svg','xmind'].includes(activeTab()?.item?.kind)});
@@ -1295,7 +1388,8 @@ function renderEditorBody(tab) {
   } else if (item.kind === 'xmind') {
     root.replaceChildren();
     if (!window.YingXuXmind) { root.textContent='思维导图组件未载入，请重新打开映序。';return; }
-    tab.xmindEditor=window.YingXuXmind.mount({parent:root,value:tab.draft,editable:!!tab.content?.editable,selectedId:tab.xmindSelected,sheetIndex:tab.xmindSheet || 0,viewState:tab.xmindView || {},onViewChange:value=>{tab.xmindView=value;},onCopy:value=>copyText(value),notice:tab.content?.notice,onChange:value=>{tab.draft=value;markDirty(tab);},onSelection:(id,sheet)=>{tab.xmindSelected=id;tab.xmindSheet=sheet;},onComposition:value=>{tab.textComposing=value;},onBlocked:message=>toast(message || '请先确认正在输入的文字。','info')});activeXmindEditorTab=tab;
+    const linkMount = {}; tab.xmindLinkMount = linkMount;
+    tab.xmindEditor=window.YingXuXmind.mount({parent:root,value:tab.draft,editable:!!tab.content?.editable,selectedId:tab.xmindSelected,sheetIndex:tab.xmindSheet || 0,viewState:tab.xmindView || {},onViewChange:value=>{tab.xmindView=value;},onCopy:value=>copyText(value),notice:tab.content?.notice,onChange:value=>{tab.draft=value;markDirty(tab);},onSelection:(id,sheet)=>{tab.xmindSelected=id;tab.xmindSheet=sheet;},onComposition:value=>{tab.textComposing=value;},onBlocked:message=>toast(message || '请先确认正在输入的文字。','info'),onPickLink:async()=>pickXmindLink(tab,linkMount),onOpenLink:async href=>openXmindLink(tab,linkMount,href)});activeXmindEditorTab=tab;
   } else if (item.kind === 'excalidraw') {
     root.innerHTML='<div class="canvas-editor-host"></div>';
     if (!window.YingXuCanvas) { root.textContent='画板组件未载入，请重新打开映序。'; return; }
@@ -2759,7 +2853,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.30-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.30 · ${escapeHtml(state.bootstrap?.version === '0.4.30' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.31-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.31 · ${escapeHtml(state.bootstrap?.version === '0.4.31' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     if (captureHotkeyUI?.isRecording()) throw new Error('请先完成快捷键录入，或按 Esc 取消录入。');
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);

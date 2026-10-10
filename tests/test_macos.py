@@ -9,7 +9,7 @@ import urllib.request
 import urllib.error
 from unittest.mock import Mock, patch
 
-from macos_app import CloseGuard, Desktop, PREVIEW, stop_server
+from macos_app import CloseGuard, Desktop, PREVIEW, open_web_url, stop_server
 from server import Application, Server
 from yingxu.paths import default_data_root
 from yingxu import macos, __version__, __mac_preview__
@@ -152,6 +152,40 @@ class MacAdaptersTests(unittest.TestCase):
         self.assertFalse(bridge.post_message(data,'local-token'));host.window.destroy.assert_not_called()
         host.window.get_current_url.return_value=host.origin+'/?desktop=macos'
         self.assertTrue(bridge.post_message(data,'local-token'));host.window.destroy.assert_called_once()
+
+    def test_mac_web_url_bridge_validates_and_uses_injected_launcher(self):
+        app=Mock(token='local-token');opened=[]
+        bridge=Desktop(app,'http://127.0.0.1:8791',web_url_launcher=opened.append)
+        bridge.window=Mock();bridge.window.get_current_url.return_value=bridge.origin+'/?desktop=macos'
+        valid={'action':'open-web-url','url':'HTTPS://example.com/path?q=x'}
+        self.assertTrue(bridge.post_message(valid,'local-token'))
+        self.assertEqual(opened,['HTTPS://example.com/path?q=x'])
+        invalid_urls=(
+            'javascript:alert(1)', 'file:///tmp/private', 'shell://open',
+            'https://user:pass@example.com/', 'https://example.com\\private',
+            'https://example.com/a b', 'https://example.com/a\npath',
+            'https://example.com:'+('9'*4100)+'/',
+            'https://example.com/'+('a'*4100), 'https://example.com:bad/',
+        )
+        for url in invalid_urls:
+            self.assertFalse(bridge.post_message({'action':'open-web-url','url':url},'local-token'),url)
+        self.assertFalse(bridge.post_message({'action':'open-web-url','url':'https://example.com/','extra':True},'local-token'))
+        self.assertFalse(bridge.post_message({'action':'open-web-url','url':'https://example.com/'},'wrong-token'))
+        bridge.window.get_current_url.return_value='https://example.com/'
+        self.assertFalse(bridge.post_message({'action':'open-web-url','url':'https://example.com/'},'local-token'))
+        self.assertEqual(opened,['HTTPS://example.com/path?q=x'])
+        bridge.window.get_current_url.return_value=bridge.origin+'/?desktop=macos'
+        failed=Desktop(app,bridge.origin,web_url_launcher=Mock(side_effect=OSError('synthetic browser failure')))
+        failed.window=bridge.window
+        with self.assertLogs(level='ERROR'):
+            self.assertFalse(failed.post_message({'action':'open-web-url','url':'https://example.com/'},'local-token'))
+
+    def test_mac_web_url_open_uses_argument_list_without_shell(self):
+        with patch('macos_app.subprocess.run') as run:
+            open_web_url('https://example.com/path?x=1&y=2')
+        self.assertEqual(run.call_args.args[0],['/usr/bin/open','https://example.com/path?x=1&y=2'])
+        self.assertIs(run.call_args.kwargs['shell'],False)
+        self.assertTrue(run.call_args.kwargs['check'])
 
     def test_finder_uses_argument_list_and_refuses_symlink(self):
         with tempfile.TemporaryDirectory() as temporary:

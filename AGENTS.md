@@ -1,5 +1,7 @@
 # 当前交付源码范围
 
+- 0.4.31/xmind.3 将左键空白拖动改为框选，中键平移；选择集、相机与历史仅为标签状态。Delete 一次删除选中子树并可整批撤销；复杂关联的批量预检必须原子拒绝。标注使用 labels、markers[].markerId、notes.plain.content、href，保留未知对象。映序文件链接为 yingxu://item/<登记 ID>，沿用跨项目搜索导航与草稿保护，不提供任意路径执行。补充 frontend_xmind_links.cjs、批量选择和原生可信框选/Delete 回归。
+
 - 0.4.30/xmind.2 重建独立思维导图工作区；相机、折叠和历史属于标签临时状态，不能混进归档。直接编辑必须即时同步草稿并保护中文输入；Ctrl/⌘滚轮必须只缩放导图，沿用可信 image-preview 桥接并在离开时恢复应用缩放。回归 frontend_xmind_workspace.cjs、frontend_xmind.cjs 和原生真实渲染事件检查。复杂富文本和摘要结构保持保守编辑边界。
 
 - 0.4.29/xmind.1 是基于最新 0.4.28 的双端候选源码。XMind 保持独立 ZIP 文档，新版 JSON 可编辑、旧版 XML 只读；编辑必须保留其他成员字节和未知字段，并沿用草稿、备份、etag 和原子保存。验收 test_xmind.py、frontend_xmind.cjs 及最终包 XMind 冒烟。

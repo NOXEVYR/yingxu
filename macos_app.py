@@ -4,15 +4,45 @@ import argparse
 import json
 import logging
 import os
+import re
 import secrets
+import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 from server import Application, Server
 from yingxu.paths import default_data_root, default_project_root
 
 from yingxu import __mac_preview__ as PREVIEW
+
+
+def validate_web_url(value):
+    if not isinstance(value, str) or not value or len(value) > 4096:
+        return None
+    if any(character.isspace() or ord(character) < 32 or 127 <= ord(character) <= 159 or character == '\\'
+           for character in value):
+        return None
+    if not re.match(r'^https?://', value, re.IGNORECASE):
+        return None
+    try:
+        parsed = urlsplit(value)
+        # Accessing .port also validates malformed/out-of-range ports.
+        parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in ('http', 'https') or not parsed.hostname or parsed.username is not None or parsed.password is not None or '@' in parsed.netloc:
+        return None
+    return value
+
+
+def open_web_url(url):
+    # Use an argument vector with no shell interpretation. The OS handoff is
+    # intentionally narrow and does not expose filesystem-opening commands.
+    subprocess.run(['/usr/bin/open', url], shell=False, check=True, timeout=8,
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, close_fds=True)
 
 
 class CloseGuard:
@@ -40,12 +70,13 @@ class CloseGuard:
 
 
 class Desktop:
-    def __init__(self, app, origin):
+    def __init__(self, app, origin, web_url_launcher=None):
         self.app = app
         self.origin = origin
         self.window = None
         self.ready = False
         self.guard = CloseGuard()
+        self.web_url_launcher = web_url_launcher or open_web_url
 
     def post_message(self, data, token):
         # No arbitrary filesystem methods are exposed to the browser bridge.
@@ -54,10 +85,26 @@ class Desktop:
         if not isinstance(data, dict) or self.window is None or self.window.get_current_url() != self.origin + '/?desktop=macos':
             return False
         if data.get('action') == 'desktop-ready':
+            if set(data) != {'action'}:
+                return False
             self.ready = True
         elif data.get('action') == 'exit-response':
+            if set(data) != {'action', 'requestId', 'allow'}:
+                return False
             if self.guard.respond(data.get('requestId'), data.get('allow')):
                 self.window.destroy()
+        elif data.get('action') == 'open-web-url':
+            if set(data) != {'action', 'url'}:
+                return False
+            url = validate_web_url(data.get('url'))
+            if url is None:
+                return False
+            try:
+                if self.web_url_launcher(url) is False:
+                    return False
+            except Exception:
+                logging.exception('macOS web URL launch failed')
+                return False
         else:
             return False
         return True
