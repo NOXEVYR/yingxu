@@ -313,6 +313,7 @@ namespace YingXu.Desktop
         private readonly OpenInbox inbox;
         private readonly Queue<string[]> pendingFiles = new Queue<string[]>();
         private readonly HashSet<string[]> workspaceRequests = new HashSet<string[]>();
+        private readonly Dictionary<string[],VideoPlayback> readerPlayback = new Dictionary<string[],VideoPlayback>();
         private bool pageReady;
         private bool closeToTray = true;
         private bool exitApproved;
@@ -332,6 +333,10 @@ namespace YingXu.Desktop
         private bool captureRecording;
         private int settingsRevision;
         private bool showAfterCapture;
+        private bool playerFullScreen;
+        private Rectangle playerRestoreBounds;
+        private FormWindowState playerRestoreState;
+        private Size playerMinimumSize;
 
         internal StudioWindow(bool initialize = true, Func<bool> failedExitConfirmation = null, bool routed = false)
         {
@@ -495,6 +500,24 @@ namespace YingXu.Desktop
                 registered=captureHotkey.Registered,recording=captureRecording,error=error});
             if(error!=null) CaptureNotice(error,true);
         }
+        private void SetPlayerFullScreen(bool enabled)
+        {
+            if(playerFullScreen==enabled || IsDisposed)return;
+            SuspendLayout();
+            if(enabled) {
+                playerRestoreState=WindowState;playerRestoreBounds=WindowState==FormWindowState.Normal?Bounds:RestoreBounds;playerMinimumSize=MinimumSize;
+                Rectangle monitor=Screen.FromHandle(Handle).Bounds;
+                playerFullScreen=true;MinimumSize=Size.Empty;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.None;
+                foreach(Control child in Controls)if(child is StatusStrip)child.Hide();
+                Bounds=monitor;
+            } else {
+                playerFullScreen=false;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=playerMinimumSize;Bounds=playerRestoreBounds;
+                foreach(Control child in Controls)if(child is StatusStrip)child.Show();
+                WindowState=playerRestoreState==FormWindowState.Maximized?FormWindowState.Maximized:FormWindowState.Normal;
+            }
+            ResumeLayout(true);
+        }
+
         private void UpdateZoomStatus()
         {
             if(web!=null&&!web.IsDisposed&&web.CoreWebView2!=null)
@@ -574,18 +597,19 @@ namespace YingXu.Desktop
                     {
                         object entries = await Task.Run(() => DesktopApi.OpenFiles(paths));
                         if (!pageReady) { pendingFiles.Enqueue(paths); if(workspace)workspaceRequests.Add(paths); break; }
-                        Post(new { action = "external-open", entries = entries, workspace = workspace });
+                        VideoPlayback playback;readerPlayback.TryGetValue(paths,out playback);readerPlayback.Remove(paths);
+                        Post(new { action = "external-open", entries = entries, workspace = workspace, playback=playback });
                     }
-                    catch (Exception error) { Notice("文件未能打开：" + error.Message,true); }
+                    catch (Exception error) { readerPlayback.Remove(paths);Notice("文件未能打开：" + error.Message,true); }
                 }
             }
             finally { openingFiles = false; }
         }
 
-        internal void OpenFromReader(string[] paths,bool fullWorkspace = true)
+        internal void OpenFromReader(string[] paths,bool fullWorkspace = true,VideoPlayback playback=null)
         {
             BringToUser();
-            if (paths.Length != 0) { pendingFiles.Enqueue(paths); if(fullWorkspace)workspaceRequests.Add(paths); }
+            if (paths.Length != 0) { pendingFiles.Enqueue(paths); if(fullWorkspace)workspaceRequests.Add(paths); if(playback!=null && paths.Length==1)readerPlayback[paths]=playback; }
             DrainFiles();
         }
 
@@ -846,6 +870,7 @@ namespace YingXu.Desktop
             };
             var options = new CoreWebView2EnvironmentOptions();
             options.Language = "zh-CN";
+            options.AdditionalBrowserArguments="--autoplay-policy=no-user-gesture-required";
             string bundledBrowser = Program.Isolated!=null ? Program.Isolated.Browser : Hub.BundledBrowserFolder();
             if(Program.Isolated!=null && !File.Exists(Path.Combine(bundledBrowser,"msedgewebview2.exe")))throw new InvalidDataException("browser_missing");
             if(Program.Isolated!=null)options.AdditionalBrowserArguments="--disable-background-networking --disable-component-update --disable-sync --no-proxy-server --no-first-run --disable-domain-reliability --disable-client-side-phishing-detection";
@@ -879,6 +904,7 @@ namespace YingXu.Desktop
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.WebMessageReceived += ReceiveDragRequest;
+            core.ContainsFullScreenElementChanged+=delegate { SetPlayerFullScreen(core.ContainsFullScreenElement); };
             if(Program.Isolated==null)await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup = true; window.yingxuDesktopDrag = true; window.yingxuDesktopDropPaths = true; window.yingxuDesktopFocus = true; window.yingxuDesktopOpenFolder = true; window.yingxuDesktopOpenWebUrl = true; window.yingxuCaptureHotkeyRecorder = true; window.yingxuDesktopIncrementalUpdate = true;");
             else {
                 await core.AddScriptToExecuteOnDocumentCreatedAsync("window.yingxuNativeStartup=true;window.yingxuDesktopDrag=false;window.yingxuDesktopDropPaths=false;window.yingxuDesktopFocus=false;window.yingxuDesktopOpenFolder=false;window.yingxuDesktopOpenWebUrl=false;window.yingxuCaptureHotkeyRecorder=false;window.yingxuDesktopIncrementalUpdate=false;");
@@ -1119,9 +1145,9 @@ namespace YingXu.Desktop
             tray.Visible = false; tray.ContextMenuStrip.Dispose(); tray.Dispose();
             try
             {
-                Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                Rectangle bounds = playerFullScreen ? playerRestoreBounds : WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
                 var state = new WindowStateRecord { X = bounds.X, Y = bounds.Y, Width = bounds.Width, Height = bounds.Height,
-                    Maximized = WindowState == FormWindowState.Maximized };
+                    Maximized = (playerFullScreen ? playerRestoreState : WindowState) == FormWindowState.Maximized };
                 File.WriteAllText(Path.Combine(Hub.Cache, "window.json"), new JavaScriptSerializer().Serialize(state), Encoding.UTF8);
             }
             catch { }

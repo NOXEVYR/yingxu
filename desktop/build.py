@@ -117,11 +117,11 @@ def main():
             f"/reference:{folder / 'Microsoft.Web.WebView2.WinForms.dll'}",
             f"/win32manifest:{native_manifest}", f"/win32icon:{DESKTOP / 'brand.ico'}",
             f"/resource:{DESKTOP / 'brand.ico'},brand.ico"]
-        for name in ('quick-reader.html', 'quick-reader.css', 'quick-reader.js', 'markdown-preview.js', 'obsidian-images.js'):
+        for name in ('quick-reader.html', 'quick-reader.css', 'quick-reader.js', 'markdown-preview.js', 'obsidian-images.js', 'quick-video.html', 'quick-video.js', 'video-player.js', 'video-player.css'):
             command.append(f"/resource:{ROOT / 'frontend' / name},{name}")
         for name in members:
             command.append(f"/resource:{folder / name},{name}")
-        compile_native(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs")], check=True)
+        compile_native(command + [str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickWindowChrome.cs"), str(DESKTOP / "QuickVideoResource.cs")], check=True)
         if args.test:
             instance_tests = folder / "single-instance-tests.exe"
             compile_native(common + ["/target:exe", f"/out:{instance_tests}", str(DESKTOP / "Core.cs"),
@@ -130,19 +130,19 @@ def main():
             lifecycle = folder / "lifecycle-tests.exe"
             lifecycle_command = [value for value in command if not value.startswith('/target:') and not value.startswith('/out:')]
             compile_native(lifecycle_command + ["/target:exe", f"/out:{lifecycle}", "/main:YingXu.Desktop.LifecycleTests",
-                str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
+                str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickWindowChrome.cs"), str(DESKTOP / "QuickVideoResource.cs"),
                 str(DESKTOP / "LifecycleTests.cs")], check=True)
             subprocess.run([str(lifecycle),str(ROOT)],check=True,timeout=30)
             update_tests = folder / "incremental-install-tests.exe"
             compile_native(lifecycle_command + ["/target:exe", f"/out:{update_tests}", "/main:YingXu.Desktop.IncrementalInstallTests",
                 str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"),
-                str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"),
+                str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickWindowChrome.cs"), str(DESKTOP / "QuickVideoResource.cs"),
                 str(DESKTOP / "IncrementalInstallTests.cs")], check=True)
             subprocess.run([str(update_tests),str(ROOT)],check=True,timeout=30)
             reader_tests = folder / "quick-reader-tests.exe"
             compile_native(lifecycle_command + ["/target:exe", f"/out:{reader_tests}", "/main:YingXu.Desktop.QuickReaderTests",
                 str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"),
-                str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickReaderTests.cs")], check=True)
+                str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickWindowChrome.cs"), str(DESKTOP / "QuickVideoResource.cs"), str(DESKTOP / "QuickReaderTests.cs")], check=True)
             reader_result = subprocess.run([str(reader_tests), str(ROOT)], capture_output=True, text=True, encoding='utf-8', timeout=90)
             print(reader_result.stdout, end='')
             if reader_result.stderr: print(reader_result.stderr, end='')
@@ -164,7 +164,7 @@ def main():
         if args.isolated_test_units:
             units = folder / "isolated-startup-tests.exe"
             unit_command = ["/target:exe" if item == "/target:winexe" else f"/out:{units}" if item.startswith("/out:") else item for item in command]
-            compile_native(unit_command + ["/main:YingXu.Desktop.IsolatedStartupTests", str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "IsolatedStartupTests.cs")], check=True)
+            compile_native(unit_command + ["/main:YingXu.Desktop.IsolatedStartupTests", str(DESKTOP / "Core.cs"), str(DESKTOP / "IsolatedStartup.cs"), str(DESKTOP / "Integration.cs"), str(DESKTOP / "Capture.cs"), str(DESKTOP / "Program.cs"), str(DESKTOP / "QuickReader.cs"), str(DESKTOP / "QuickWindowChrome.cs"), str(DESKTOP / "QuickVideoResource.cs"), str(DESKTOP / "IsolatedStartupTests.cs")], check=True)
             unit_result = subprocess.run([str(units)], check=True, capture_output=True, text=True, encoding="utf-8", timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             print(unit_result.stdout, end="")
         metadata = require_native_identity(exe, identity)

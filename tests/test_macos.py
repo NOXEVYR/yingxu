@@ -22,7 +22,8 @@ class MacAdaptersTests(unittest.TestCase):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
         events=[]
-        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.video_review=Mock();app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.video_review.close.side_effect=lambda:events.append(('video',{}))
         app.ai_hub_calls.close.side_effect=lambda **kw:events.append(('hub',kw))
         app.ai_calls.close.side_effect=lambda **kw:events.append(('calls',kw)) or {'worker_stopped':True}
         app.mcp_listener.close.side_effect=lambda:events.append(('listener',{}))
@@ -33,12 +34,12 @@ class MacAdaptersTests(unittest.TestCase):
         app.thumbnails.pool.shutdown.side_effect=lambda **kw:events.append(('thumbnails',kw))
         app.context.close.side_effect=lambda:events.append(('context',{})) or True
         app.close();app.close()
-        self.assertEqual(events,[('hub',{'timeout':5}),('calls',{'timeout':5}),('listener',{}),('mcp',{}),('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
+        self.assertEqual(events,[('video',{}),('hub',{'timeout':5}),('calls',{'timeout':5}),('listener',{}),('mcp',{}),('updates',{}),('migration',{}),('jobs',{'wait':True,'cancel_futures':False}),('thumbnails',{'wait':True,'cancel_futures':False}),('context',{})])
 
     def test_close_attempts_remaining_cleanup_when_one_worker_fails(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.video_review=Mock();app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.jobs.pool.shutdown.side_effect=RuntimeError('synthetic worker failure')
         with self.assertRaises(RuntimeError):app.close()
         app.thumbnails.pool.shutdown.assert_called_once()
@@ -51,7 +52,7 @@ class MacAdaptersTests(unittest.TestCase):
     def test_listener_shutdown_failure_still_drains_existing_workers(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.video_review=Mock();app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.mcp_listener.close.side_effect=RuntimeError('synthetic listener failure')
         with self.assertRaises(RuntimeError):app.close()
         for service in (app.mcp,app.update_service,app.migration_jobs,app.context):
@@ -62,7 +63,7 @@ class MacAdaptersTests(unittest.TestCase):
     def test_hub_shutdown_failure_still_drains_direct_and_remaining_workers_once(self):
         app=Application.__new__(Application)
         app._close_lock=threading.Lock();app._closed=False
-        app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
+        app.video_review=Mock();app.ai_hub_calls=Mock();app.ai_calls=Mock();app.mcp_listener=Mock();app.mcp=Mock();app.update_service=Mock();app.migration_jobs=Mock();app.jobs=Mock();app.thumbnails=Mock();app.context=Mock()
         app.ai_hub_calls.close.side_effect=RuntimeError('synthetic hub failure')
         with self.assertRaisesRegex(RuntimeError,'synthetic hub failure'):app.close()
         app.close()

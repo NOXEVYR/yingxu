@@ -299,3 +299,19 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 | POST | `/api/ai-tasks/TID/handoffs/SID/ack` | 空对象，用户确认已交给该会话，不代表 AI 接收或执行 |
 
 MCP 增加 `read_collaboration_task {task_id,run_id?,offset?,limit?}` 和 `read_run_skill {task_id,run_id,collection_id,offset?,limit?}`。前者分页成果摘要，每页最多 48 项，按序列化字节预算缩短页面时 `next_offset` 以实际返回条数前进；输入和技能仅返回短摘要，长目标、验收条件及备注会截断并标记 `text_truncated`。完整记录在本机任务界面查看。收藏身份为 `col_` 加 32 位十六进制，任务/轮次仍为 32 位十六进制。只读且限定授权项目，固定轮次读取不会替换版本、扫描源或推进任何状态，输出省略本机目录与凭据。
+
+
+## Video review candidate (0.4.32 / player.1)
+
+All routes retain localhost Host/Origin checks; POST requires the current X-YingXu-Token. No route accepts a source or destination filesystem path. `source` is `file` or `external`, and `id` is the existing registered 32-hex ID.
+
+- `GET /api/video/review/{source}/{id}`: `{revision,review,source_changed}`. Review fields: markers (`time` seconds and `note` text), nullable `in`, `out`, `a`, `b`. This is a sidecar, never a write to media.
+- `POST /api/video/review/{source}/{id}`: `{revision,review}`; stale revisions return 409. At most 500 marks, 500 characters each; finite timestamps in 0–86400 seconds.
+- `POST /api/video/exports`: `{source,id,start,end,mode}`; mode `copy` (keyframe-constrained MKV) or `encode` (time-domain H.264/AAC MP4). Returns 202 and job status. Exports first video and first optional audio only.
+- `GET /api/video/exports?source=...&id=...`: recent job statuses for this source.
+- `GET /api/video/exports/{job}`: `id,state,error,mode,start,end,download_url`; states queued/running/cancelling/cancelled/done/error.
+- `POST /api/video/exports/{job}/cancel`: empty body. Terminal completion can win the race. Cancelled is published only after task-owned temporary cleanup.
+- `GET /api/video/exports/{job}/file`: completed artifact only, attachment response with Range support.
+- `POST /api/video/exports/{job}/reveal`: empty body. Reveal the completed artifact in Windows/macOS file manager, unsupported elsewhere. It does not launch a player or arbitrary command.
+
+Completed exports persist in application data with an independent receipt. A source change detected during export rejects the output. Stream-copy start/end may differ from selected times; encoded trimming is not an exact-frame or HDR preservation guarantee. No ffprobe runtime dependency is added.

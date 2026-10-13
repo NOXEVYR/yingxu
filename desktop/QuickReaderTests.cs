@@ -79,7 +79,7 @@ namespace YingXu.Desktop
                 string[] handed=null;
                 using(var window=new QuickReaderWindow(opened,paths=>handed=paths,initialize:false))
                 {
-                    var button=window.Controls.OfType<ToolStrip>().Single().Items.OfType<ToolStripButton>().Single(item=>item.Text.StartsWith("在映序"));
+                    var button=window.StudioButton;
                     button.PerformClick();
                     Check(handed!=null&&handed.Length==1&&handed[0]==canonical,"junction reader workspace handoff uses canonical file");
                 }
@@ -131,10 +131,40 @@ namespace YingXu.Desktop
                 Console.WriteLine("ZOOM_FIXTURE_CLEANUP_AFTER_EXIT="+temporary);
             }
         }
+        private static void VideoFrameAndRangeTests(string temporary)
+        {
+            long start,end;
+            Check(QuickVideoResource.Range("bytes=2-5",10,out start,out end)&&start==2&&end==5,"bounded media Range");
+            Check(QuickVideoResource.Range("bytes=-3",10,out start,out end)&&start==7&&end==9,"suffix media Range");
+            Check(QuickVideoResource.Range("bytes=8-",10,out start,out end)&&start==8&&end==9,"open media Range");
+            foreach(string value in new[]{"bytes=-","bytes=-0","bytes=10-","bytes=5-2","bytes=0-1,4-5","bytes=999999999999999999999-"})
+                Check(!QuickVideoResource.Range(value,10,out start,out end),"invalid media Range rejected "+value);
+            foreach(string ext in new[]{".mp4",".m4v",".mov",".webm",".mkv",".avi"})Check(QuickVideoResource.Supports("synthetic"+ext),"video quick routing "+ext);
+            string file=Path.Combine(temporary,"range-fixture.mp4");File.WriteAllBytes(file,new byte[]{0,1,2,3,4,5,6,7,8,9});
+            using(var source=new QuickVideoFile(file))
+            using(var slice=new QuickVideoStream(source,2,5,()=>false)) {
+                var buffer=new byte[10];Check(slice.Read(buffer,0,10)==4 && buffer[0]==2 && buffer[3]==5,"response stream stays inside range");
+                Check(slice.Read(buffer,0,10)==0,"response stream ends at selected byte");slice.Seek(-1,SeekOrigin.End);
+                Check(slice.Read(buffer,0,1)==1&&buffer[0]==5,"range stream relative seek");
+            }
+            using(var window=new QuickReaderWindow(file,paths=>{},initialize:false)) {
+                window.Show();Application.DoEvents();var bounds=window.Bounds;
+                var caption=window.StudioButton.Parent;
+                Check(caption.Top==0 && caption.Visible,"workspace entry is in the top caption row");
+                window.SetPlayerFullScreen(true);Application.DoEvents();
+                Check(window.FormBorderStyle==FormBorderStyle.None && !caption.Visible,"native fullscreen removes frame and caption controls");
+                window.SetPlayerFullScreen(false);Application.DoEvents();
+                Check(window.Bounds==bounds && caption.Visible,"native fullscreen restores previous normal bounds");
+                window.WindowState=FormWindowState.Maximized;window.SetPlayerFullScreen(true);window.SetPlayerFullScreen(false);Application.DoEvents();
+                Check(window.WindowState==FormWindowState.Maximized,"native fullscreen restores maximized state");window.Close();
+            }
+        }
+
         private static void Run(string temporary)
         {
             CoreWebView2Environment.SetLoaderDllFolderPath(Program.LoaderFolder);
             JunctionPaths(temporary);
+            VideoFrameAndRangeTests(temporary);
             string file=Path.Combine(temporary,"中文 阅览.md");
             string original="# 中文标题\r\n\r\n正文 **加粗**\r\n\r\n<script>window.injected=true</script>\r\n![remote](https://example.invalid/image.png)\r\n";
             foreach(var encoding in new Encoding[] { new UTF8Encoding(true),new UnicodeEncoding(false,true),new UnicodeEncoding(true,true),Encoding.GetEncoding(54936) })
@@ -187,8 +217,8 @@ namespace YingXu.Desktop
                 Console.WriteLine("ZOOM "+web.ZoomFactor+" "+((ToolStripButton)Field(window,"zoom")).Text);
                 Check(Math.Abs(web.ZoomFactor-1.5)<0.01 && ((ToolStripButton)Field(window,"zoom")).Text=="150%","zoom changes text scale and indicator");
                 Check(window.MaximizeBox && window.FormBorderStyle==FormBorderStyle.Sizable,"reader has native resize and maximize controls");
-                var button=window.Controls.OfType<ToolStrip>().Single().Items.OfType<ToolStripButton>().Single(item=>item.Text.StartsWith("在映序"));
-                Check(button.Alignment==ToolStripItemAlignment.Right,"workspace button sits at the upper right");
+                var button=window.StudioButton;
+                Check(button.Parent is Panel && button.Right < button.Parent.Width,"workspace button is in the caption left of window controls");
                 button.PerformClick();
                 Check(handed!=null && handed.Length==1 && handed[0]==file,"workspace handoff keeps original file path");
                 Check(!File.Exists(Path.Combine(Hub.Data,"server.pid.json")) && !Directory.Exists(Path.Combine(temporary,"projects")),"reader never starts project backend or scans projects");

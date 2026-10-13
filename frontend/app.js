@@ -704,12 +704,22 @@ async function runMenu(command,context) {
     if (command === 'trash-project') return trashProject(id); if (command === 'trash-folder') return trashFolder(id); if (command === 'trash-skill') return trashSkill(id);
   } catch(error) { report(error); }
 }
+async function guardVideoReview(tab) {
+  if (tab.videoReviewSaving) { toast('审片记录正在保存，请稍后继续。','info'); return false; }
+  if (!tab.videoReviewDirty) return true;
+  const choice=await choose('审片记录尚未保存',`先处理「${tab.item.name}」的标记与入出点。`,[{key:'cancel',label:'继续审片',style:'ghost'},{key:'discard',label:'放弃记录修改',style:'secondary'},{key:'save',label:'保存记录',style:'primary'}]);
+  if(!tabStillOpen(tab)||!choice||choice==='cancel'||tab.videoReviewSaving)return false;
+  if(choice==='save' && !await tab.saveVideoReview?.())return false;
+  if(choice==='discard')tab.discardVideoReview?.();
+  return !tab.videoReviewDirty && !tab.videoReviewSaving;
+}
 async function prepareTabs(tabs, {exiting = false} = {}) {
   const discardedCanvases = new Set(); let prepared = false;
   try {
-    if (tabs.some(tab => !tabStillOpen(tab) || tab.loading || tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) return false;
+    if (tabs.some(tab => !tabStillOpen(tab) || tab.loading || tab.saving || tab.propertiesSaving || tab.videoReviewSaving || !markdownInputReady(tab))) return false;
     if (!exiting && tabs.some(tab => (tab.error || tab.unappliedDraft) && state.drafts[tab.key])) { toast('文件尚未恢复草稿，请重新载入后再整理。','info'); return false; }
     for (const tab of tabs) {
+      if (!await guardVideoReview(tab)) return false;
       if (!await guardProperties(tab)) return false;
       if (!tabStillOpen(tab) || tab.loading) return false;
       if (tab.dirty) {
@@ -726,7 +736,7 @@ async function prepareTabs(tabs, {exiting = false} = {}) {
       }
     }
     persistDrafts(true); renderTabs();
-    if (tabs.some(tab => !tabStillOpen(tab) || tab.loading || !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving)) return false;
+    if (tabs.some(tab => !tabStillOpen(tab) || tab.loading || !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving)) return false;
     if (!exiting && tabs.includes(activeTab())) { renderEditorBody(activeTab()); renderEditorStatus(activeTab()); }
     prepared = true; return true;
   } finally {
@@ -737,7 +747,7 @@ async function prepareTabs(tabs, {exiting = false} = {}) {
 }
 function fileTabs(ids) { const keys = new Set(ids.map(String)); return state.tabs.filter(tab => tab.source === 'file' && keys.has(String(tab.id))); }
 function removeOpenTabs(tabs) {
-  const removable = new Set(tabs.filter(tab => tabStillOpen(tab) && !tab.loading && !tab.dirty && !tab.propertiesDirty && !tab.saving && !tab.propertiesSaving && !state.drafts[tab.key]));
+  const removable = new Set(tabs.filter(tab => tabStillOpen(tab) && !tab.loading && !tab.dirty && !tab.propertiesDirty && !tab.saving && !tab.propertiesSaving && !tab.videoReviewDirty && !tab.videoReviewSaving && !state.drafts[tab.key]));
   if (removable.size < tabs.length) toast('仍有载入中或新修改的标签，草稿已保留，请核对。','info');
   const removedActive = removable.has(activeTab());
   state.tabs = state.tabs.filter(tab => !removable.has(tab));
@@ -808,7 +818,7 @@ async function performMove(ids,category,folderId,targetProjectId = null) {
       result = await api('/api/move',{method:'POST',body:{...body,conflict}});
     }
     if (crossProject) {
-      const changed = tabs.filter(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.markdownEditor?.isComposing());
+      const changed = tabs.filter(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving || tab.markdownEditor?.isComposing());
       removeOpenTabs(tabs.filter(tab => !changed.includes(tab)));
       if (changed.length) toast('文件已移动，稍后输入的草稿仍保留在标签中，请核对后保存。','info',9000);
     }
@@ -871,7 +881,7 @@ async function trashProjectCategory(id) {
     });
     if (recycleDisk === null) return false;
     // Recheck without discarding newly entered drafts after confirmation.
-    if (captureUI?.isBusy() || tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab))) throw new Error('文稿还有修改，请处理后重新删除。');
+    if (captureUI?.isBusy() || tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving || !markdownInputReady(tab))) throw new Error('文稿还有修改，请处理后重新删除。');
     const result = await api(endpoint,{method:'POST',body:{token:plan.token}});
     committed = true;
     removeOpenTabs(tabs);
@@ -1150,6 +1160,7 @@ async function openXmindLink(tab,mount,href) {
 }
 async function closeTab(key) {
   const tab = state.tabs.find(value => value.key === key); if (!tab) return;
+  if (!await guardVideoReview(tab)) return;
   if (!await guardProperties(tab)) return;
   if (!tabStillOpen(tab)) return;
   let discarded = false;
@@ -1158,14 +1169,14 @@ async function closeTab(key) {
     if (!tabStillOpen(tab) || !choice || choice === 'cancel') return; if (choice === 'save' && !await saveTab(tab)) return;
     if (!tabStillOpen(tab)) return; discarded = choice === 'discard';
   }
-  if (!markdownInputReady(tab) || tab.propertiesDirty || tab.propertiesSaving || tab.saving || (tab.dirty && !discarded)) return;
+  if (!markdownInputReady(tab) || tab.propertiesDirty || tab.propertiesSaving || tab.saving || tab.videoReviewDirty || tab.videoReviewSaving || (tab.dirty && !discarded)) return;
   const index = state.tabs.indexOf(tab); if (index < 0) return; state.tabs.splice(index,1);
   if (discarded) delete state.drafts[key];
   if (state.activeKey === key) state.activeKey = state.tabs[Math.min(index,state.tabs.length-1)]?.key || null;
   persistDrafts(true); renderWorkspace();
 }
 function renderTabs() {
-  $('#editorTabs').innerHTML = state.tabs.map(tab => `<div class="editor-tab ${tab.key === state.activeKey ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${tab.key === state.activeKey}" data-tab="${escapeHtml(tab.key)}">${icon(kindIcons[tab.item.kind])}<span class="editor-tab-name" title="${escapeHtml(tab.item.name)}">${escapeHtml(tab.item.name)}</span>${tab.dirty || tab.propertiesDirty ? '<span class="dirty-dot" title="文稿或制作信息未保存"></span>' : ''}<button class="tab-close" data-close-tab="${escapeHtml(tab.key)}" aria-label="关闭 ${escapeHtml(tab.item.name)}">${icon('close')}</button></div>`).join('');
+  $('#editorTabs').innerHTML = state.tabs.map(tab => `<div class="editor-tab ${tab.key === state.activeKey ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${tab.key === state.activeKey}" data-tab="${escapeHtml(tab.key)}">${icon(kindIcons[tab.item.kind])}<span class="editor-tab-name" title="${escapeHtml(tab.item.name)}">${escapeHtml(tab.item.name)}</span>${tab.dirty || tab.propertiesDirty || tab.videoReviewDirty ? '<span class="dirty-dot" title="文稿或制作信息未保存"></span>' : ''}<button class="tab-close" data-close-tab="${escapeHtml(tab.key)}" aria-label="关闭 ${escapeHtml(tab.item.name)}">${icon('close')}</button></div>`).join('');
 }
 function unmountXmindEditor() {
   if (!activeXmindEditorTab) return;
@@ -1217,12 +1228,17 @@ async function returnToResourceList(key = state.activeKey) {
   renderWorkspace();
   $('#resourceViewport').focus();
 }
+let workspaceVideo = null;
+let workspaceVideoReview = null;
 let imageZoomObserver = null;
 let imagePreviewCleanup = null;
 function stopPreviewMedia(release = false, background = false) {
+  const managedVideo=release?workspaceVideo?.video:null;
+  if (release && workspaceVideo) { workspaceVideoReview?.destroy(); workspaceVideoReview=null; workspaceVideo.destroy(); workspaceVideo=null; }
   // Minimizing/hiding is not a request to stop listening. Video still pauses;
   // closing a tab, navigating away or exiting releases both media types.
   for (const media of $$(background ? '#editorContent video' : '#editorContent video,#editorContent audio')) {
+    if(media===managedVideo)continue;
     try { media.pause(); } catch (_) { }
     if (release) {
       media.removeAttribute('autoplay'); media.removeAttribute('src');
@@ -1372,6 +1388,8 @@ function renderEditorBody(tab) {
   const showingCanvas=tab.item.kind==='excalidraw' && !tab.loading && !tab.error;
   if($('#editorCanvasLayer'))$('#editorCanvasLayer').hidden=!showingCanvas;$('#editorContent').hidden=showingCanvas;
   stopImageZoomTracking();
+  const playingVideo = $('#editorContent video');
+  if (tab.item.kind === 'video' && !tab.loading && !tab.error && playingVideo?.dataset.tabKey === tab.key && playingVideo.dataset.mediaPath === String(tab.item.path || '') && playingVideo.dataset.mediaUrl === String(tab.item.media_url || `/api/media/${encodeURIComponent(tab.item.id)}`)) { playingVideo.setAttribute('aria-label',tab.item.name); return; }
   const playingAudio = $('#editorContent audio');
   if (tab.item.kind === 'audio' && !tab.loading && !tab.error && playingAudio?.dataset.tabKey === tab.key && playingAudio.dataset.mediaPath === String(tab.item.path || '') && playingAudio.dataset.queue === JSON.stringify(tab.audioQueue)) { $('.audio-stage h3').textContent = tab.item.name; playingAudio.setAttribute('aria-label',tab.item.name); return; }
   stopPreviewMedia(true);
@@ -1420,7 +1438,12 @@ function renderEditorBody(tab) {
       root.innerHTML = `<div class="html-workspace">${notice}<iframe class="html-preview-frame" sandbox="" referrerpolicy="no-referrer" title="${escapeHtml(item.name)} 静态预览" srcdoc="${escapeHtml(safe)}"></iframe></div>`;
     }
   } else if (['image','svg'].includes(item.kind)) root.innerHTML = `<div class="media-stage ${item.kind === 'svg' ? 'svg-stage' : ''}"><img id="mainImage" src="${escapeHtml(item.kind === 'svg' ? tab.content?.preview_url || '' : item.media_url || `/api/media/${encodeURIComponent(item.id)}`)}" alt="${escapeHtml(item.name)}" decoding="async">${item.kind === 'svg' ? '<span class="svg-preview-notice">SVG 静态预览 · 原文件保持不变</span>' : ''}</div>`;
-  else if (item.kind === 'video') root.innerHTML = `<div class="media-stage"><video controls ${preference('autoplay_media') ? 'autoplay' : ''} preload="metadata" playsinline src="${escapeHtml(item.media_url || `/api/media/${encodeURIComponent(item.id)}`)}" aria-label="${escapeHtml(item.name)}"></video></div>`;
+  else if (item.kind === 'video') {
+    if (!window.YingXuVideo) { root.textContent='视频组件未载入，请重新打开。'; return; }
+    workspaceVideo=window.YingXuVideo.mount(root,{name:item.name,src:item.media_url || `/api/media/${encodeURIComponent(item.id)}`,autoplay:preference('autoplay_media')});
+    workspaceVideo.video.dataset.tabKey=tab.key;workspaceVideo.video.dataset.mediaPath=String(item.path || '');workspaceVideo.video.dataset.mediaUrl=String(item.media_url || `/api/media/${encodeURIComponent(item.id)}`);
+    workspaceVideoReview=window.YingXuVideoReview?.mount(workspaceVideo,{tab,api,onDirty:()=>{renderTabs();}});
+  }
   else if (item.kind === 'audio') { renderAudioPlayer(tab,root); const audio = $('audio',root); audio.dataset.mediaPath = String(item.path || ''); audio.dataset.queue = JSON.stringify(tab.audioQueue); }
   else if (item.kind === 'pdf') root.innerHTML = `<div class="media-stage pdf-stage"><iframe title="${escapeHtml(item.name)} PDF 预览" src="${escapeHtml(item.media_url || `/api/media/${encodeURIComponent(item.id)}`)}"></iframe></div>`;
   else root.innerHTML = emptyHtml(item.kind === 'model' ? '3D 模型已归入项目' : '文件已归入项目',item.kind === 'model' ? '可管理分类、制作状态与镜头关联。打开本机的 3D 工具继续编辑，渲染的白模视频可以在这里直接播放。' : '可管理分类、标签与关联，使用本机应用查看这个文件。',kindIcons[item.kind],'用本机应用打开','open-native');
@@ -1792,7 +1815,7 @@ function workflowController() {
   if (!state.bootstrap?.capabilities?.skill_collections || !window.YingXuWorkflow) return null;
   return workflowLibrary ||= window.YingXuWorkflow.create({api,escapeHtml,icon,state,showDialog,toast,report,copyText,formatSize,storage,
     focusLayout:focusWorkbench,onNavigationChange:()=>{if(state.section === 'skills')renderNavigation();},
-    hasPendingEdits:()=>{state.tabs.forEach(flushCanvas);return state.migrationBusy || captureUI?.isBusy() || state.tabs.some(tab=>tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab));},
+    hasPendingEdits:()=>{state.tabs.forEach(flushCanvas);return state.migrationBusy || captureUI?.isBusy() || state.tabs.some(tab=>tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving || !markdownInputReady(tab));},
     sourcesHtml:skillSourcesHtml,matchesCollectionSource:collectionMatchesSkillSource,setSource:value=>setSkillSourceFilter('directory',value),render:renderSkills,reloadSkills:loadSkills,openSkill,setQuery:setSkillQuery,cancelQuery:()=>clearTimeout(searchTimer),
     hasSourceFilter:()=>!!(skillSourceState.group || skillSourceState.directory),
     sourceSummary:()=>skillSourceState.sources.find(x=>x.id===skillSourceState.directory)?.label || skillSourceState.groups.find(x=>x.id===skillSourceState.group)?.label || '全部来源',
@@ -1832,7 +1855,7 @@ function contextSummaryHtml(context,counts) {
 }
 function collaborationHasPendingEdits() {
   state.tabs.forEach(flushCanvas);
-  return !!(state.migrationBusy || state.uploading || state.moveBusy || state.aiCollaborationBusy || state.aiToolCallBusy || captureUI?.isBusy() || state.tabs.some(tab=>tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || !markdownInputReady(tab)));
+  return !!(state.migrationBusy || state.uploading || state.moveBusy || state.aiCollaborationBusy || state.aiToolCallBusy || captureUI?.isBusy() || state.tabs.some(tab=>tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving || !markdownInputReady(tab)));
 }
 function contextToolHandoffHtml() {
   const context=state.context || {},counts=currentProject()?.counts || {};
@@ -2046,7 +2069,7 @@ function wireEvents() {
     if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="button"],[role="tab"]')) { event.preventDefault(); event.target.click(); }
   });
   window.addEventListener('resize',hideMenu); $('#resourceViewport').addEventListener('scroll',hideMenu,{passive:true});
-  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy || state.migrationBusy || state.aiCollaborationBusy || state.aiToolCallBusy) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload',event => { for(const tab of canvasTabs)if(!tab.canvasEditor?.isComposing())flushCanvas(tab);persistDrafts(true); if (state.tabs.some(tab => tab.dirty || tab.propertiesDirty || tab.videoReviewDirty || tab.videoReviewSaving || tab.markdownEditor?.isComposing() || tab.docxEditor?.isComposing() || tab.canvasEditor?.isComposing() || tab.textComposing) || documentLinkBusy || skillSourceState.busy || state.migrationBusy || state.aiCollaborationBusy || state.aiToolCallBusy) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('pagehide',() => { stopPreviewMedia(); persistDrafts(true); });
   document.addEventListener('visibilitychange',() => { if (document.hidden) stopPreviewMedia(false,true); else syncProjectFiles().catch(report); });
   window.addEventListener('focus',() => syncProjectFiles().catch(report));
@@ -2853,7 +2876,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.31-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.31 · ${escapeHtml(state.bootstrap?.version === '0.4.31' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.32-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.32 · ${escapeHtml(state.bootstrap?.version === '0.4.32' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     if (captureHotkeyUI?.isRecording()) throw new Error('请先完成快捷键录入，或按 Esc 取消录入。');
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);
@@ -2897,25 +2920,32 @@ async function handleDesktopMessage(data) {
   if (['capture-context-request','capture-result'].includes(data?.action)) { await captureController()?.handle(data); return; }
   if (data?.action === 'open-settings') return settingsDialog();
   if (data?.action === 'desktop-notice') return toast(String(data.message || '操作已完成。'),data.error ? 'error' : 'info',6500);
-  if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : [],data.workspace===true);
+  if (data?.action === 'external-open') return queueExternalFiles(Array.isArray(data.entries) ? data.entries : [],data.workspace===true,data.playback);
   if (data?.action === 'prepare-exit') {
     let allow = false;
-    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.aiCollaborationBusy && !state.aiToolCallBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.moveBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; if(state.bootstrap?.capabilities?.ai_tool_calls){const calls=await api('/api/ai-calls/status');if(typeof calls?.local_busy!=='boolean' || !Number.isInteger(calls.local_queued) || calls.local_queued<0){toast('暂时无法核对工具请求，请稍后重试退出。','info');return;}if(calls.local_busy || calls.local_queued){toast('工具请求仍在提交或核对，请稍后退出。','info');return;}} allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving); persistDrafts(true); } }
+    try { if (!$('#appDialog').open && !globalSearchIsOpen() && !groupsIsOpen() && !captureUI?.isBusy() && !documentLinkBusy && !state.aiCollaborationBusy && !state.aiToolCallBusy && !state.globalOpening && !state.modalBusy && !state.trashBusy && !state.moveBusy && !state.uploading && !state.exitBusy && !skillSourceState.busy) { state.exitBusy = true; if(state.bootstrap?.capabilities?.ai_tool_calls){const calls=await api('/api/ai-calls/status');if(typeof calls?.local_busy!=='boolean' || !Number.isInteger(calls.local_queued) || calls.local_queued<0){toast('暂时无法核对工具请求，请稍后重试退出。','info');return;}if(calls.local_busy || calls.local_queued){toast('工具请求仍在提交或核对，请稍后退出。','info');return;}} allow = await prepareTabs([...state.tabs],{exiting:true}); allow = allow && !state.tabs.some(tab => !markdownInputReady(tab) || tab.dirty || tab.propertiesDirty || tab.saving || tab.propertiesSaving || tab.videoReviewDirty || tab.videoReviewSaving); persistDrafts(true); } }
     catch(error) { report(error); }
     finally { state.exitBusy = false; window.chrome?.webview?.postMessage({action:'exit-response',requestId:data.requestId,allow}); }
     if (!allow) toast('退出已取消，请先完成当前操作或保存文稿。','info');
   }
 }
-async function queueExternalFiles(entries, workspace = false) {
+async function queueExternalFiles(entries, workspace = false, playback = null) {
   state.externalQueue ||= [];
   if (state.externalQueue.length + entries.length > 256) { toast('等待打开的文件过多，请先处理当前窗口。','error'); return; }
-  state.externalQueue.push(...entries.slice(0,32).map(entry => ({id:entry.id,workspace})));
+  state.externalQueue.push(...entries.slice(0,32).map((entry,index) => ({id:entry.id,workspace,playback:index===0?playback:null})));
   if (state.externalDraining) return state.externalDraining;
   state.externalDraining = (async () => {
     while (state.externalQueue.length) {
       while ($('#appDialog').open || globalSearchIsOpen() || groupsIsOpen() || captureUI?.isBusy() || state.globalOpening || state.modalBusy || state.exitBusy || activeTab()?.textComposing || activeTab()?.markdownEditor?.isComposing() || activeTab()?.docxEditor?.isComposing() || activeTab()?.canvasEditor?.isComposing()) await new Promise(resolve => setTimeout(resolve,150));
       const request = state.externalQueue.shift();
-      try { await openExternal(request.id,{workspace:request.workspace}); } catch(error) { report(error); }
+      try {
+        await openExternal(request.id,{workspace:request.workspace});
+        const resume=request.playback,video=$('#editorContent video');
+        if(resume && activeTab()?.key===`external:${request.id}` && video && Number.isFinite(resume.time) && resume.time>=0) {
+          const restore=()=>{if(!video.isConnected || activeTab()?.key!==`external:${request.id}`)return;video.currentTime=Math.min(resume.time,Number.isFinite(video.duration)?video.duration:resume.time);if(Number.isFinite(resume.volume))video.volume=Math.max(0,Math.min(1,resume.volume));video.muted=resume.muted===true;if(Number.isFinite(resume.rate)&&resume.rate>=.25&&resume.rate<=3)video.playbackRate=resume.rate;video.loop=resume.loop===true;if(resume.playing===true)video.play().catch(()=>{});else video.pause();};
+          if(video.readyState>=2)restore();else video.addEventListener('loadeddata',restore,{once:true});
+        }
+      } catch(error) { report(error); }
     }
   })();
   try { await state.externalDraining; } finally { state.externalDraining = null; }

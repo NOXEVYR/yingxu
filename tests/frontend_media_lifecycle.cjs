@@ -84,7 +84,7 @@ test('real Chromium releases closed/switched media and pauses native/page visibi
         await new Promise(resolve=>setTimeout(resolve,20));
       }});}catch(error){throw new Error(String(error)+'; actual media state: '+JSON.stringify(mediaState(node)));}
     };
-    const makeTab=(id,kind='audio')=>({key:'external:'+id,id,source:'external',item:{id,name:'合成媒体',kind,size:480044,media_url:'silent.wav'},mode:'preview',dirty:false,detailReady:true});
+    const makeTab=(id,kind='audio')=>({key:'external:'+id,id,source:'external',item:{id,name:'合成媒体',kind,size:480044,media_url:kind==='video'?'synthetic.mp4':'silent.wav'},mode:'preview',dirty:false,detailReady:true});
     let playback=0;
     const play=async node=>{node.muted=true;await bounded('playback '+(++playback),()=>node.play());check('synthetic media actually starts',!node.paused&&node.readyState>=2);};
     let persisted=0;persistDrafts=()=>{persisted++;};wireEvents();
@@ -125,8 +125,8 @@ test('real Chromium releases closed/switched media and pauses native/page visibi
     const videoTab=makeTab('video','video');state.tabs=[videoTab];state.activeKey=videoTab.key;renderWorkspace();
     const oldVideo=$('#editorContent video');let videoPauses=0;
     const nativeVideoPause=oldVideo.pause.bind(oldVideo);oldVideo.pause=()=>{videoPauses++;nativeVideoPause();};
-    check('video fixture uses actual media element and source',oldVideo instanceof HTMLVideoElement&&oldVideo.getAttribute('src')==='silent.wav');
-    await play(oldVideo);await handleDesktopMessage({action:'pause-media'});check('native hide still pauses video',oldVideo.paused);videoPauses=0;
+    check('video fixture uses actual media element and source',oldVideo instanceof HTMLVideoElement&&oldVideo.getAttribute('src')==='synthetic.mp4');
+    await play(oldVideo);check('video has decoded real picture',oldVideo.videoWidth===160&&oldVideo.videoHeight===90);await handleDesktopMessage({action:'pause-media'});check('native hide still pauses video',oldVideo.paused);videoPauses=0;
     const next=makeTab('next');state.tabs.push(next);state.activeKey=next.key;renderWorkspace();await waitForMedia('switched video release',oldVideo,()=>oldVideo.paused&&!oldVideo.hasAttribute('src')&&oldVideo.readyState===0&&oldVideo.networkState===0);
     check('switching tab pauses and releases old video element',videoPauses===1&&oldVideo.paused&&!oldVideo.hasAttribute('src')&&oldVideo.readyState===0&&oldVideo.networkState===0);
     media=$('#editorContent audio');await play(media);next.loading=true;renderEditorBody(next);await waitForMedia('replacement audio release',media,()=>media.paused&&!media.hasAttribute('src')&&media.readyState===0);
@@ -139,9 +139,11 @@ test('real Chromium releases closed/switched media and pauses native/page visibi
   })().catch(error=>report('result',{error:String(error),stack:error.stack,stage}));
   })();`;
   fs.writeFileSync(path.join(temporary,'runner.js'),runner);
-  const html=fs.readFileSync(path.join(__dirname,'../frontend/index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'').replace('</body>','<pre id="result"></pre><script src="app.js"></script><script src="runner.js"></script></body>');
+  const html=fs.readFileSync(path.join(__dirname,'../frontend/index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'').replace('</body>','<pre id="result"></pre><script src="video-player.js"></script><script src="app.js"></script><script src="runner.js"></script></body>');
   fs.writeFileSync(path.join(temporary,'fixture.html'),html);
   const fixtures=new Map([['/fixture.html',['text/html; charset=utf-8',Buffer.from(html)]],['/app.js',['text/javascript; charset=utf-8',Buffer.from(source)]],['/runner.js',['text/javascript; charset=utf-8',Buffer.from(runner)]],['/silent.wav',['audio/wav',wav]]]);
+  fixtures.set('/video-player.js',['text/javascript; charset=utf-8',fs.readFileSync(path.join(__dirname,'../frontend/video-player.js'))]);
+  fixtures.set('/synthetic.mp4',['video/mp4',fs.readFileSync(path.join(__dirname,'fixtures/video-cfr.mp4'))]);
   server=http.createServer((request,response)=>{
     if(request.method==='POST'&&['/stage/'+token,'/result/'+token].includes(request.url)){
       let body='';request.setEncoding('utf8');

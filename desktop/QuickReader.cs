@@ -48,12 +48,12 @@ namespace YingXu.Desktop
             var full = new List<string>();
             foreach (string path in paths)
             {
-                if (!QuickReaderDocument.Supports(path)) { full.Add(path); continue; }
+                if (!QuickReaderDocument.Supports(path) && !QuickVideoResource.Supports(path)) { full.Add(path); continue; }
                 QuickReaderWindow reader;
                 if (!readers.TryGetValue(path,out reader))
                 {
                     if (readers.Count >= 32) { MessageBox.Show("最多同时打开 32 个阅览窗口，请先关闭部分窗口。","映序"); continue; }
-                    reader = new QuickReaderWindow(path,OpenStudio);
+                    reader = new QuickReaderWindow(path,OpenStudio,openVideoStudio:OpenVideoStudio);
                     readers.Add(path,reader);
                     reader.FormClosed += delegate { readers.Remove(path); FinishIfEmpty(); };
                     reader.Show();
@@ -66,7 +66,9 @@ namespace YingXu.Desktop
 
         internal void OpenStudio(string[] paths) { OpenWorkspace(paths,true); }
 
-        private void OpenWorkspace(string[] paths,bool fullWorkspace)
+        private void OpenVideoStudio(string[] paths,VideoPlayback playback) { OpenWorkspace(paths,true,playback); }
+
+        private void OpenWorkspace(string[] paths,bool fullWorkspace,VideoPlayback playback=null)
         {
             if (studio == null || studio.IsDisposed)
             {
@@ -74,7 +76,7 @@ namespace YingXu.Desktop
                 studio.FormClosed += delegate { studio = null; FinishIfEmpty(); };
                 studio.Show();
             }
-            studio.OpenFromReader(paths,fullWorkspace);
+            studio.OpenFromReader(paths,fullWorkspace,playback);
         }
 
         private void FinishIfEmpty()
@@ -90,6 +92,11 @@ namespace YingXu.Desktop
             dispatcher.Dispose();
             base.ExitThreadCore();
         }
+    }
+
+    internal sealed class VideoPlayback
+    {
+        public double time; public bool playing; public double volume; public bool muted; public double rate; public bool loop;
     }
 
     internal static class QuickReaderDocument
@@ -144,7 +151,7 @@ namespace YingXu.Desktop
             return text;
         }
 
-        private static string Resource(string name)
+        internal static string Resource(string name)
         {
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
             using (var reader = new StreamReader(stream,Encoding.UTF8)) return reader.ReadToEnd();
@@ -156,29 +163,33 @@ namespace YingXu.Desktop
         }
     }
 
-    internal sealed class QuickReaderWindow : Form
+    internal sealed class QuickReaderWindow : QuickWindowChrome
     {
         private readonly string path;
+        private readonly bool video;
+        private readonly ToolStrip bar;
         private readonly WebView2 web;
         private readonly Label loading;
-        private bool closed;
+        private volatile bool closed;
+        private QuickVideoFile videoFile;
         private readonly ToolStripButton zoom;
         private readonly System.Diagnostics.Stopwatch startup = System.Diagnostics.Stopwatch.StartNew();
 
-        internal QuickReaderWindow(string file,Action<string[]> openStudio, bool initialize = true)
+        internal QuickReaderWindow(string file,Action<string[]> openStudio, bool initialize = true,Action<string[],VideoPlayback> openVideoStudio=null)
         {
             path = Hub.ResolveOpenedFilePath(file);
-            Text = Path.GetFileName(file) + " · 映序快速阅览";
+            video=QuickVideoResource.Supports(path);
+            Text = Path.GetFileName(file) + (video?" · 映序快速播放":" · 映序快速阅览");
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(520,420);
-            ClientSize = new Size(920,760);
+            ClientSize = video?new Size(1040,640):new Size(920,760);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Microsoft YaHei UI",10F);
             using (var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("brand.ico")) Icon = new Icon(source);
-            web = new WebView2 { Dock=DockStyle.Fill,DefaultBackgroundColor=Color.White };
-            loading = new Label { Dock=DockStyle.Fill,Text="正在打开文本…",TextAlign=ContentAlignment.MiddleCenter };
-            var bar = new ToolStrip { Dock=DockStyle.Top,GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(12,6,12,6),BackColor=Color.White,Font=Font };
+            web = new WebView2 { Dock=DockStyle.Fill,DefaultBackgroundColor=video?Color.Black:Color.White };
+            loading = new Label { Dock=DockStyle.Fill,Text=video?"正在打开视频…":"正在打开文本…",TextAlign=ContentAlignment.MiddleCenter };
+            bar = new ToolStrip { Dock=DockStyle.Top,GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(12,6,12,6),BackColor=Color.White,Font=Font };
             bar.Items.Add(new ToolStripLabel("快速阅览 · 只读"));
             bar.Items.Add(new ToolStripSeparator());
             var smaller = new ToolStripButton("−"); smaller.ToolTipText="缩小文字";
@@ -187,16 +198,24 @@ namespace YingXu.Desktop
             zoom.Click += delegate { if (web.CoreWebView2 != null) { web.ZoomFactor=1; zoom.Text="100%"; } }; bar.Items.Add(zoom);
             var larger = new ToolStripButton("＋"); larger.ToolTipText="放大文字";
             larger.Click += delegate { ChangeZoom(0.1); }; bar.Items.Add(larger);
-            var main = new ToolStripButton("在映序中打开 ↗") { Alignment=ToolStripItemAlignment.Right,DisplayStyle=ToolStripItemDisplayStyle.Text };
-            main.Click += delegate
+            StudioButton.Click += async delegate
             {
-                try { openStudio(new[] { Hub.ResolveOpenedFilePath(path) }); }
+                try {
+                    if(video && web.CoreWebView2!=null) {
+                        string value=await web.CoreWebView2.ExecuteScriptAsync("(()=>{const v=document.querySelector('video');if(!v)return null;const s={time:v.currentTime,playing:!v.paused,volume:v.volume,muted:v.muted,rate:v.playbackRate,loop:v.loop};v.pause();if(document.fullscreenElement)document.exitFullscreen();return s;})()");
+                        SetPlayerFullScreen(false);
+                        var playback=new JavaScriptSerializer().Deserialize<VideoPlayback>(value);
+                        if(openVideoStudio!=null && playback!=null) {openVideoStudio(new[]{Hub.ResolveOpenedFilePath(path)},playback);return;}
+                    }
+                    openStudio(new[] { Hub.ResolveOpenedFilePath(path) });
+                }
                 catch (Exception error) { MessageBox.Show(this,error.Message,"映序",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             };
-            bar.Items.Add(main);
-            Controls.Add(web); Controls.Add(loading); Controls.Add(bar);
+            Controls.Add(web); Controls.Add(loading); if(!video)Controls.Add(bar);
+            FinishCaptionLayout();
+            Resize+=delegate { if(video && WindowState==FormWindowState.Minimized && web.CoreWebView2!=null)web.CoreWebView2.PostWebMessageAsJson("{\"action\":\"pause\"}"); };
             if (initialize) Shown += async delegate { await InitializeAsync(); };
-            FormClosed += delegate { closed=true; web.Dispose(); };
+            FormClosed += delegate { closed=true; web.Dispose(); if(videoFile!=null)videoFile.Dispose(); if(video)bar.Dispose(); };
         }
 
         private void ChangeZoom(double delta)
@@ -204,11 +223,55 @@ namespace YingXu.Desktop
             if (web.CoreWebView2 != null) { web.ZoomFactor=Math.Max(0.5,Math.Min(3,web.ZoomFactor+delta)); zoom.Text=Math.Round(web.ZoomFactor*100)+"%"; }
         }
 
+        private void InitializeVideo(CoreWebView2Environment environment)
+        {
+            var core=web.CoreWebView2;
+            videoFile=new QuickVideoFile(Hub.ResolveOpenedFilePath(path));
+            string pageUri="https://yingxu-reader.invalid/"+Guid.NewGuid().ToString("N")+"/index.html";
+            string mediaUri=new Uri(new Uri(pageUri),"media").AbsoluteUri;
+            string html=QuickReaderDocument.Resource("quick-video.html")
+                .Replace("/*VIDEO_STYLE*/",QuickReaderDocument.Resource("video-player.css"))
+                .Replace("/*VIDEO_SCRIPTS*/",QuickReaderDocument.Resource("video-player.js")+"\n"+QuickReaderDocument.Resource("quick-video.js"));
+            core.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested+=(sender,e)=> {
+                string uri=e.Request.Uri,method=e.Request.Method;
+                if(uri==pageUri && method=="GET") {
+                    e.Response=environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(html)),200,"OK","Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");return;
+                }
+                if(uri!=mediaUri || (method!="GET" && method!="HEAD")) { e.Response=environment.CreateWebResourceResponse(null,403,"Blocked","");return; }
+                try {
+                    long length=videoFile.Length,start,end;
+                    string range=e.Request.Headers.Contains("Range")?e.Request.Headers.GetHeader("Range"):null;
+                    if(!QuickVideoResource.Range(range,length,out start,out end)) {
+                        e.Response=environment.CreateWebResourceResponse(null,416,"Range Not Satisfiable","Content-Range: bytes */"+length+"\r\nContent-Length: 0");return;
+                    }
+                    bool partial=!String.IsNullOrEmpty(range);
+                    string headers="Content-Type: "+QuickVideoResource.Mime(path)+"\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nContent-Length: "+Math.Max(0,end-start+1);
+                    if(partial)headers+="\r\nContent-Range: bytes "+start+"-"+end+"/"+length;
+                    e.Response=environment.CreateWebResourceResponse(method=="HEAD"?null:new QuickVideoStream(videoFile,start,end,()=>closed),partial?206:200,partial?"Partial Content":"OK",headers);
+                } catch(Exception error) { Hub.Log("quick_video_stream "+error.Message);e.Response=environment.CreateWebResourceResponse(null,404,"Unavailable",""); }
+            };
+            core.NavigationStarting+=(sender,e)=>{if(e.Uri!=pageUri)e.Cancel=true;};
+            core.FrameNavigationStarting+=(sender,e)=>{e.Cancel=true;};
+            core.NewWindowRequested+=(sender,e)=>{e.Handled=true;};
+            core.PermissionRequested+=(sender,e)=>{e.State=CoreWebView2PermissionState.Deny;};
+            core.DownloadStarting+=(sender,e)=>{e.Cancel=true;};
+            core.ContainsFullScreenElementChanged+=delegate { SetPlayerFullScreen(core.ContainsFullScreenElement); };
+            core.ProcessFailed+=delegate { if(!closed){SetPlayerFullScreen(false);loading.Text="播放窗口暂时不可用，请重新打开。";loading.Show();loading.BringToFront();} };
+            core.NavigationCompleted+=(sender,e)=> {
+                if(closed)return;
+                if(!e.IsSuccess){loading.Text="视频页面加载失败，请重新打开。";return;}
+                core.PostWebMessageAsJson(new JavaScriptSerializer().Serialize(new {action="open-video",name=Path.GetFileName(path),src=mediaUri}));
+                loading.Hide();web.Focus();
+            };
+            core.Navigate(pageUri);
+        }
+
         internal async Task InitializeAsync()
         {
             try
             {
-                var content = Task.Run(() => QuickReaderDocument.Read(path));
+                var content = Task.Run(() => video?"":QuickReaderDocument.Read(path));
                 // Observe file errors even if browser initialization fails or the window closes.
                 content.ContinueWith(t => { var ignored=t.Exception; },TaskContinuationOptions.OnlyOnFaulted);
                 string folder = Hub.BundledBrowserFolder();
@@ -223,7 +286,7 @@ namespace YingXu.Desktop
                 }
                 if (folder!=null) await Task.Run(() => Hub.PrepareBrowserFolder(folder));
                 if (closed) return;
-                var environment=await CoreWebView2Environment.CreateAsync(folder,Path.Combine(Hub.Cache,"WebView2"),new CoreWebView2EnvironmentOptions { Language="zh-CN" });
+                var environment=await CoreWebView2Environment.CreateAsync(folder,Path.Combine(Hub.Cache,"WebView2"),new CoreWebView2EnvironmentOptions { Language="zh-CN",AdditionalBrowserArguments="--autoplay-policy=no-user-gesture-required" });
                 if (closed) return;
                 await web.EnsureCoreWebView2Async(environment);
                 if (closed) return;
@@ -236,6 +299,7 @@ namespace YingXu.Desktop
                 core.Settings.IsGeneralAutofillEnabled=false;
                 core.Settings.IsStatusBarEnabled=false;
                 core.Settings.AreDefaultContextMenusEnabled=false;
+                if(video) { InitializeVideo(environment); return; }
                 string html=QuickReaderDocument.Html();
                 string pageUri="data:text/html;charset=utf-8;base64,"+Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
                 core.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);

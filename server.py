@@ -100,6 +100,8 @@ class Application:
         self.ai_hub_calls=AIHubCallService(self.store,self.ai_tasks,self.ai_selections,self.ai_hub_sources,self.migration_jobs,self.update_service)
         from yingxu.ai_hub_receipts import AIHubReceipts
         self.ai_hub_receipts=AIHubReceipts(self.store,self.ai_tasks,self.ai_hub_calls)
+        from yingxu.video_review import VideoReview
+        self.video_review=VideoReview(self)
         self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
@@ -108,24 +110,27 @@ class Application:
             if self._closed:return
             self._closed=True
             try:
-                try:
-                    try:self.ai_hub_calls.close(timeout=5)
-                    finally:self.ai_calls.close(timeout=5)
-                finally:
-                    try:self.mcp_listener.close()
-                    finally:self.mcp.close()
+                self.video_review.close()
             finally:
                 try:
-                    try:self.update_service.close()
-                    finally:self.migration_jobs.close()
+                    try:
+                        try:self.ai_hub_calls.close(timeout=5)
+                        finally:self.ai_calls.close(timeout=5)
+                    finally:
+                        try:self.mcp_listener.close()
+                        finally:self.mcp.close()
                 finally:
                     try:
-                        self.jobs.pool.shutdown(wait=True,cancel_futures=False)
+                        try:self.update_service.close()
+                        finally:self.migration_jobs.close()
                     finally:
-                        try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                        try:
+                            self.jobs.pool.shutdown(wait=True,cancel_futures=False)
                         finally:
-                            if not self.context.close():
-                                raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
+                            try:self.thumbnails.pool.shutdown(wait=True,cancel_futures=False)
+                            finally:
+                                if not self.context.close():
+                                    raise RuntimeError('项目交接写入尚未结束，请检查本地日志。')
 
     def bootstrap(self):
         return {'app':'yingxu','version':__version__,'build_revision':__build__,'token':self.token,'settings':self.settings.get(),
@@ -452,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
             try:self.connection.settimeout(previous_timeout)
             except (OSError,ValueError):pass
 
-    def file(self,path,media=False,immutable=False,opened=None):
+    def file(self,path,media=False,immutable=False,opened=None,attachment=False):
         path=Path(path)
         if media and path.suffix.lower()=='.svg':
             from yingxu.svg_content import read_svg_bytes
@@ -479,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
         if media:
             self.send_header('Accept-Ranges','bytes')
             if partial:self.send_header('Content-Range',f'bytes {start}-{end}/{length}')
-        if mime=='application/octet-stream' or (media and path.suffix.lower() in ('.html','.htm')):self.send_header('Content-Disposition','attachment')
+        if attachment or mime=='application/octet-stream' or (media and path.suffix.lower() in ('.html','.htm')):self.send_header('Content-Disposition','attachment')
         self.end_headers()
         if self.command=='HEAD':return
         with (nullcontext(opened) if opened is not None else path.open('rb')) as f:
@@ -736,6 +741,18 @@ class Handler(BaseHTTPRequestHandler):
                     self.check_origin(True)
                     if set(query)-{'ticket'}:raise UserError('更新安装参数无效。')
                     return self.json(self.app.update_service.install_status(query.get('ticket')))
+                review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
+                if review:
+                    if query:raise UserError('审片记录不接受查询参数。')
+                    return self.json(self.app.video_review.get(review[1],review[2]))
+                if path=='/api/video/exports':
+                    if set(query)!={'source','id'}:raise UserError('导出记录仅接受视频来源和 ID。')
+                    return self.json(self.app.video_review.recent(query['source'],query['id']))
+                video_export=re.fullmatch(r'/api/video/exports/([a-f0-9]{32})(/file)?',path)
+                if video_export:
+                    if query:raise UserError('导出任务不接受查询参数。')
+                    if video_export[2]:return self.file(self.app.video_review.output(video_export[1]),media=True,attachment=True)
+                    return self.json(self.app.video_review.status(video_export[1]))
                 if path=='/api/health':return self.json({'app':'yingxu','ok':True,'version':__version__,'build_revision':__build__,'program_id':instance_id(ROOT),'instance_id':instance_id(self.app.store.data_root)})
                 if path=='/api/bootstrap':return self.json(self.app.bootstrap())
                 if path=='/api/settings':return self.json(self.app.settings.get())
@@ -960,6 +977,21 @@ class Handler(BaseHTTPRequestHandler):
                     if data:raise UserError('移除扫描位置不接受额外参数。')
                     return self.json(self.app.skills.update_source(skill_source[1],{},remove=True))
             if self.command=='POST':
+                review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
+                if review:
+                    if query:raise UserError('审片记录不接受查询参数。')
+                    return self.json(self.app.video_review.save(review[1],review[2],data))
+                if path=='/api/video/exports':
+                    if query:raise UserError('导出不接受查询参数。')
+                    return self.json(self.app.video_review.submit(data),202)
+                reveal_export=re.fullmatch(r'/api/video/exports/([a-f0-9]{32})/reveal',path)
+                if reveal_export:
+                    if data or query:raise UserError('查看导出文件不接受额外参数。')
+                    return self.json(self.app.video_review.reveal(reveal_export[1]))
+                cancel_export=re.fullmatch(r'/api/video/exports/([a-f0-9]{32})/cancel',path)
+                if cancel_export:
+                    if data or query:raise UserError('取消导出不接受额外参数。')
+                    return self.json(self.app.video_review.cancel(cancel_export[1]))
                 if path=='/api/skill-sources':
                     if query:raise UserError('扫描位置操作不接受查询参数。')
                     return self.json(self.app.skills.add_source(data),201)
