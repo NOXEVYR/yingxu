@@ -28,6 +28,8 @@ with tempfile.TemporaryDirectory(prefix='yingxu-browser-video-') as temp:
             page.wait_for_function('() => document.querySelector("#editorContent video")?.readyState>=2')
             info=page.evaluate('()=>{window.originalVideo=document.querySelector("#editorContent video");return {w:originalVideo.videoWidth,h:originalVideo.videoHeight,d:originalVideo.duration}}')
             check('real H264 picture decoded',info['w']==640 and info['h']==360,info)
+            # The main workbench can give the player a narrow pane on a wide screen.
+            check('narrow player retains every control within its viewport',page.evaluate('() => {const s=document.querySelector(".video-screen"),old=s.style.width;s.style.width="520px";const box=s.getBoundingClientRect();const ok=[...s.querySelectorAll(".video-buttons button,.video-buttons select,.video-buttons input")].every(n=>{const r=n.getBoundingClientRect();return r.right<=box.right+1&&r.left>=box.left-1});s.style.width=old;return ok;}'))
             page.evaluate('originalVideo.play()');page.wait_for_timeout(450)
             before=page.evaluate('originalVideo.currentTime');page.evaluate('renderEditorBody(activeTab())');after=page.evaluate('({same:originalVideo===document.querySelector("#editorContent video"),t:originalVideo.currentTime,paused:originalVideo.paused})')
             check('same-video rerender preserves decoder and playback',after['same'] and not after['paused'] and after['t']>=before,after)
@@ -70,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='yingxu-browser-video-') as temp:
             page.evaluate('() => {window.reviewTab=activeTab();closeTab(reviewTab.key);}');page.locator('[data-choice=cancel]').click()
             check('single-tab close cancel keeps unsaved review',page.evaluate('tabStillOpen(reviewTab) && reviewTab.videoReviewDirty && reviewTab.videoReviewDraft.markers.length===2'))
             page.evaluate('() => {window.guardTab={key:"guard-only",item:{name:"synthetic later tab",kind:"text"},dirty:true,content:{editable:false}};state.tabs.push(guardTab);window.batchResult=null;prepareTabs([reviewTab,guardTab]).then(value=>window.batchResult=value).catch(error=>{console.error(error);window.batchResult=String(error);});}')
+            page.evaluate('document.querySelector("#appDialog").dispatchEvent(new Event("close"))')
+            check('stale dialog close event leaves current prompt pending',page.evaluate('window.batchResult===null && document.querySelector("#appDialog").open'))
             page.locator('[data-choice=discard]').click();page.locator('[data-choice=cancel]').click();page.wait_for_function('() => window.batchResult===false')
             check('discard then later cancel restores saved visible review',page.evaluate('tabStillOpen(reviewTab) && !reviewTab.videoReviewDirty && reviewTab.videoReviewDraft.markers.length===1 && document.querySelectorAll(".video-markers button").length===2'))
             page.evaluate('state.tabs=state.tabs.filter(tab=>tab!==guardTab)');page.locator('[data-review=mark]').click()

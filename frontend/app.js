@@ -1559,7 +1559,20 @@ function showDialog({title,subtitle='',body='',submit='确定',wide=false,onSubm
   };
   $$('[data-dialog-cancel]').forEach(button => button.addEventListener('click',() => { if (!state.modalBusy) dialog.close(); })); dialog.showModal(); $('#dialogForm').scrollTop = 0; return dialog;
 }
-function choose(title,subtitle,choices) { return new Promise(resolve => { const dialog = showDialog({title,subtitle,actions:choices.map(choice => `<button type="button" class="button button-${choice.style || 'secondary'}" data-choice="${choice.key}">${choice.label}</button>`).join('')}); let resolved = false; $$('[data-choice]',dialog).forEach(button => button.addEventListener('click',() => { resolved = true; dialog.close(); resolve(button.dataset.choice); })); dialog.addEventListener('close',() => { if (!resolved) resolve(null); },{once:true}); }); }
+function choose(title,subtitle,choices) {
+  return new Promise(resolve => {
+    const dialog=showDialog({title,subtitle,actions:choices.map(choice=>`<button type="button" class="button button-${choice.style || 'secondary'}" data-choice="${choice.key}">${choice.label}</button>`).join('')});
+    const sequence=state.modalSequence;let resolved=false;
+    const finish=value=>{if(resolved)return;resolved=true;dialog.removeEventListener('close',closed);resolve(value);};
+    const closed=()=>{
+      // close is queued: an older dialog may emit it after this dialog opens.
+      if(dialog.open && state.modalSequence===sequence)return;
+      finish(null);
+    };
+    $$('[data-choice]',dialog).forEach(button=>button.addEventListener('click',()=>{finish(button.dataset.choice);dialog.close();}));
+    dialog.addEventListener('close',closed);
+  });
+}
 async function newProjectDialog() {
   if (!await guardProperties()) return;
   const folder = sidebarProjectFolder(), folderId = folder === '*' || folder === '' ? null : folder;

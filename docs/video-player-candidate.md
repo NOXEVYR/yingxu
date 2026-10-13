@@ -58,3 +58,11 @@ python3 -B -m unittest discover -s tests -p test_video_review.py -v
 浏览器烟测需已安装的 Playwright 和 Chromium，生成器需 FFmpeg；ffprobe 仅用于测试 PTS 证据。Windows 构建仍按 `desktop/build.py` 使用校验过的固定官方 SDK 和 .NET Framework 编译器，新增资源和 C# 文件已加入所有构建分支。新增原生 Range/窗口恢复测试代码，但未在此 Linux 云环境执行。
 
 保留未测：Windows 真实标题栏命中、拖动、最大化还原、Esc/Alt-F4、不同屏幕 DPI、焦点与多屏切换、硬解和物理音画同步；Windows 原生编译和完整包；macOS 原生快速视频窗口与原生全屏。本候选只验证共享网页在 Linux Chromium 的行为，不把它等同双端原生验收。截图均为合成素材的浏览器画面，不包含原生自定义标题栏。
+
+## 功能图片展示
+
+`tools/video_showcase.py` 使用隔离数据和真实合成视频捕获独立 PNG：快速控制条、控件隐藏的浏览器全屏、主工作台审片、导出成功、导出中/取消完成、未保存记录保护、AVI 格式错误。标题栏位置另为醒目标注的布局示意，不能作为原生运行截图；不使用微型拼图或 PDF 代替直接看图。
+
+导出取消截图使用 CFR 素材的 4K 放大副本，可先用 FFmpeg 的 scale=3840:2160、libx264 ultrafast、threads=2、原音轨 copy 生成 `showcase-4k.mp4`，再执行 `python3 tools/video_showcase.py --media <合成素材目录> --output <新输出目录>`。未上传私人视频或调用付费服务。
+
+补拍发现窄工作台可能挤掉控制按钮，现支持换行并有 520 像素检查。连续确认也暴露了原有复用 dialog 的旧 close 事件影响新提示的问题；选择完成即解除旧监听，并拒绝当前打开提示收到的旧关闭事件。42 项浏览器检查包括强制重现此异步事件顺序。[HTML dialog 关闭事件任务](https://html.spec.whatwg.org/multipage/interactive-elements.html#close-the-dialog)
