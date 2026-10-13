@@ -102,6 +102,8 @@ class Application:
         self.ai_hub_receipts=AIHubReceipts(self.store,self.ai_tasks,self.ai_hub_calls)
         from yingxu.video_review import VideoReview
         self.video_review=VideoReview(self)
+        from yingxu.video_frames import VideoFrames
+        self.video_frames=VideoFrames(self)
         self._skills_startup=self.skills.start_initial_refresh(self.jobs.pool)
 
     def close(self):
@@ -110,7 +112,10 @@ class Application:
             if self._closed:return
             self._closed=True
             try:
-                self.video_review.close()
+                try:
+                    if getattr(self, 'video_frames', None): self.video_frames.close()
+                finally:
+                    self.video_review.close()
             finally:
                 try:
                     try:
@@ -741,6 +746,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.check_origin(True)
                     if set(query)-{'ticket'}:raise UserError('更新安装参数无效。')
                     return self.json(self.app.update_service.install_status(query.get('ticket')))
+                if path=='/api/video/frames/capability':
+                    if query:raise UserError('帧能力查询不接受参数。')
+                    return self.json(self.app.video_frames.capability())
+                frame_job=re.fullmatch(r'/api/video/frames/jobs/([a-f0-9]{32})(/image)?',path)
+                if frame_job:
+                    if query:raise UserError('帧任务查询不接受参数。')
+                    if frame_job[2]:return self.file(self.app.video_frames.image(frame_job[1]),media=True)
+                    return self.json(self.app.video_frames.status(frame_job[1]))
                 review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
                 if review:
                     if query:raise UserError('审片记录不接受查询参数。')
@@ -977,6 +990,17 @@ class Handler(BaseHTTPRequestHandler):
                     if data:raise UserError('移除扫描位置不接受额外参数。')
                     return self.json(self.app.skills.update_source(skill_source[1],{},remove=True))
             if self.command=='POST':
+                if path=='/api/video/frames/index':
+                    if query:raise UserError('帧索引不接受查询参数。')
+                    return self.json(self.app.video_frames.start(data),202)
+                frame_action=re.fullmatch(r'/api/video/frames/(index|jobs)/([a-f0-9]{32})/(frame|cancel)',path)
+                if frame_action:
+                    if query:raise UserError('帧操作不接受查询参数。')
+                    if frame_action[3]=='cancel':
+                        if data:raise UserError('取消帧任务不接受额外参数。')
+                        return self.json(self.app.video_frames.cancel(frame_action[2]))
+                    if frame_action[1]!='index':raise UserError('请指定帧索引会话。')
+                    return self.json(self.app.video_frames.frame(frame_action[2],data),202)
                 review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
                 if review:
                     if query:raise UserError('审片记录不接受查询参数。')

@@ -12,6 +12,16 @@ def ffmpeg_path():
     return str(bundled) if bundled.is_file() else shutil.which('ffmpeg')
 
 
+def ffprobe_path():
+    # Mac's currently pinned wheel has no supported ffprobe deployment.
+    if sys.platform == 'darwin':
+        return None
+    bundled = APP_ROOT / 'runtime' / 'ffmpeg' / 'bin' / 'ffprobe.exe'
+    if sys.platform == 'win32':
+        return str(bundled) if bundled.is_file() else None
+    return shutil.which('ffprobe')  # explicit source-development environment
+
+
 @lru_cache(maxsize=1)
 def image_support():
     try:

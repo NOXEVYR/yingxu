@@ -2,14 +2,14 @@
   'use strict';
   function mount(player,{tab,api,onDirty}) {
     const details=document.createElement('details');details.className='video-review';
-    details.innerHTML=`<summary>审片与粗剪</summary><div class="video-review-content"><output class="review-clock">时间 —</output><button data-review="step-back">−40 ms</button><button data-review="step-forward">+40 ms</button><span>近似时间步进</span><button data-review="a">设 A</button><button data-review="b">设 B</button><button data-review="ab" aria-pressed="false">AB 循环</button><button data-review="in">设入点 I</button><button data-review="out">设出点 O</button><output class="review-range"></output><input class="video-marker-note" aria-label="标记备注" maxlength="500" placeholder="标记备注"><button data-review="mark">添加标记</button><button data-review="save">保存审片记录</button><div class="video-markers"></div><p>时间码为时:分:秒.毫秒；±40 ms 是时间 seek，不是逐帧。浏览器显示时间也不代表帧索引。严格 CFR / VFR 帧定位尚未提供。</p><select class="review-export-mode" aria-label="粗剪导出方式"><option value="encode">精确时间裁切 · 重编码 MP4</option><option value="copy">快速复制 · 关键帧约束 MKV</option></select><button data-review="export">导出入出点片段</button><button data-review="cancel" hidden>取消导出</button><p>保存标记与入出点不会修改视频。导出第一条视频和第一条音轨；不含其他音轨、字幕或附件。快速复制可能带入入点前关键帧内容；精确时间裁切重编码 H.264 / AAC（8-bit SDR），不用于保留 HDR / 高位深母版。</p><p class="review-status" role="status">展开后载入审片记录。</p><div class="video-job" role="status"></div></div>`;
+    details.innerHTML=`<summary>审片与粗剪</summary><div class="video-review-content"><output class="review-clock">时间 —</output><button data-review="step-back">−40 ms</button><button data-review="step-forward">+40 ms</button><span>近似时间步进</span><button data-review="a">设 A</button><button data-review="b">设 B</button><button data-review="ab" aria-pressed="false">AB 循环</button><button data-review="in">设入点 I</button><button data-review="out">设出点 O</button><output class="review-range"></output><input class="video-marker-note" aria-label="标记备注" maxlength="500" placeholder="标记备注"><button data-review="mark">添加标记</button><button data-review="save">保存审片记录</button><div class="video-markers"></div><p>时间码为时:分:秒.毫秒；±40 ms 是时间 seek，不是逐帧。浏览器显示时间也不代表帧索引。下方“暂停帧检查”使用独立解码静帧；与视频时间 seek 分开。</p><select class="review-export-mode" aria-label="粗剪导出方式"><option value="encode">精确时间裁切 · 重编码 MP4</option><option value="copy">快速复制 · 关键帧约束 MKV</option></select><button data-review="export">导出入出点片段</button><button data-review="cancel" hidden>取消导出</button><p>保存标记与入出点不会修改视频。导出第一条视频和第一条音轨；不含其他音轨、字幕或附件。快速复制可能带入入点前关键帧内容；精确时间裁切重编码 H.264 / AAC（8-bit SDR），不用于保留 HDR / 高位深母版。</p><p class="review-status" role="status">展开后载入审片记录。</p><div class="video-job" role="status"></div></div>`;
     player.shell.appendChild(details);
     const $=q=>details.querySelector(q),controller=new AbortController();let loaded=false,loading=false,destroyed=false,pollTimer=0,abEnabled=false;
     const source=tab.source==='external'?'external':'file',url=`/api/video/review/${source}/${encodeURIComponent(tab.id)}`;
     const empty=()=>({markers:[],in:null,out:null,a:null,b:null});
     let review=tab.videoReviewDraft||empty(),revision=tab.videoReviewRevision||'',savedReview=tab.videoReviewSaved||empty();
     const status=text=>{$('.review-status').textContent=text;};
-    const buttons=()=>{for(const node of details.querySelectorAll('button:not([data-review="cancel"]),input,select'))node.disabled=!loaded;};
+    const buttons=()=>{for(const node of details.querySelectorAll('button[data-review]:not([data-review="cancel"]),.video-marker-note,.review-export-mode'))node.disabled=!loaded;};
     function render(){
       $('.review-range').textContent=`入 ${player.time(review.in)} → 出 ${player.time(review.out)} · A ${player.time(review.a)} / B ${player.time(review.b)}`;
       const marks=$('.video-markers');marks.replaceChildren();
@@ -66,8 +66,9 @@
     },{signal:controller.signal});
     const timeUpdate=()=>{$('.review-clock').textContent=`时间 ${player.time(player.video.currentTime)}`;};player.video.addEventListener('timeupdate',timeUpdate,{signal:controller.signal});
     player.screen.addEventListener('keydown',event=>{if(!loaded||!details.open||event.defaultPrevented||event.isComposing||event.ctrlKey||event.metaKey||event.altKey||event.target.closest('input,textarea,select,button,[contenteditable]'))return;const action={i:'in',o:'out'}[event.key.toLowerCase()];if(action){event.preventDefault();event.stopPropagation();$(`[data-review="${action}"]`).click();}},{signal:controller.signal});
+    const frames=window.YingXuVideoFrames?.mount(player,{tab,api,container:$('.video-review-content'),onEnter:()=>{abEnabled=false;player.setAB(null,null);$('[data-review="ab"]').setAttribute('aria-pressed','false');}});
     details.open=!!tab.videoReviewOpen;if(details.open)load();buttons();
-    return {destroy(){destroyed=true;clearTimeout(pollTimer);controller.abort();}};
+    return {destroy(){destroyed=true;clearTimeout(pollTimer);frames?.destroy();controller.abort();}};
   }
   window.YingXuVideoReview={mount};
 })();

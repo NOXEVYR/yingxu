@@ -77,6 +77,8 @@ python tools/verify_release.py releases/YingXu-v0.4.4-Windows-x64.zip
 
 构建下载是开发者明确执行的步骤，普通用户启动时不联网安装依赖。下载来源、许可证和固定运行时更新责任见 [第三方组件说明](THIRD_PARTY_NOTICES.md)。使用指南会显示图片、视频缩略图和桌面拖出能力是否可用。
 
-## 视频播放器源码候选（0.4.32 / player.1）
+## 视频播放器源码候选（0.4.33 / frames.1）
 
 新增 Windows 独立视频快速模式、共用标题栏入口、宿主全屏和工作台审片/非破坏单区间导出。该候选尚未生成或验收 Windows 原生安装包，不改变上述已发布下载。运行、构建与实际验证边界见 [视频播放器候选说明](docs/video-player-candidate.md)。
+
+主工作台另提供可取消的暂停帧检查（源开发环境需已有同版本 FFmpeg、ffprobe 与 Pillow）。按真实展示序号解码静帧，保留整数 PTS 和时间基，普通浏览器 seek 仍是近似定位。Windows 锁定工具档案下载遭代理 403，未核验其中 ffprobe；Windows/Mac 此能力明确关闭。没有按帧范围导出，也未更换媒体引擎。

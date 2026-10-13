@@ -301,7 +301,7 @@ SVG内容notice包含本次静态预览省略的装饰效果提示；内容与�
 MCP 增加 `read_collaboration_task {task_id,run_id?,offset?,limit?}` 和 `read_run_skill {task_id,run_id,collection_id,offset?,limit?}`。前者分页成果摘要，每页最多 48 项，按序列化字节预算缩短页面时 `next_offset` 以实际返回条数前进；输入和技能仅返回短摘要，长目标、验收条件及备注会截断并标记 `text_truncated`。完整记录在本机任务界面查看。收藏身份为 `col_` 加 32 位十六进制，任务/轮次仍为 32 位十六进制。只读且限定授权项目，固定轮次读取不会替换版本、扫描源或推进任何状态，输出省略本机目录与凭据。
 
 
-## Video review candidate (0.4.32 / player.1)
+## Video review candidate (0.4.33 / frames.1)
 
 All routes retain localhost Host/Origin checks; POST requires the current X-YingXu-Token. No route accepts a source or destination filesystem path. `source` is `file` or `external`, and `id` is the existing registered 32-hex ID.
 
@@ -314,4 +314,17 @@ All routes retain localhost Host/Origin checks; POST requires the current X-Ying
 - `GET /api/video/exports/{job}/file`: completed artifact only, attachment response with Range support.
 - `POST /api/video/exports/{job}/reveal`: empty body. Reveal the completed artifact in Windows/macOS file manager, unsupported elsewhere. It does not launch a player or arbitrary command.
 
-Completed exports persist in application data with an independent receipt. A source change detected during export rejects the output. Stream-copy start/end may differ from selected times; encoded trimming is not an exact-frame or HDR preservation guarantee. No ffprobe runtime dependency is added.
+Completed exports persist in application data with an independent receipt. A source change detected during export rejects the output. Stream-copy start/end may differ from selected times; encoded trimming is not an exact-frame or HDR preservation guarantee.
+
+### Decoded paused-frame inspection
+
+Same Host/Origin/token and registered-source boundaries apply. Currently enabled only in source-development environments with matching FFmpeg/ffprobe and Pillow. Windows and macOS return an explicit unavailable capability until controlled runtime tools are verified; no runtime lock or installer payload has been changed.
+
+- `GET /api/video/frames/capability`: `{available,reason}`.
+- `POST /api/video/frames/index`: exactly `{source,id}`; returns 202 with index job/session ID. Full-source SHA-256 and stat identity are checked before and after sequential decoded-frame indexing. SQLite rows preserve zero-based display ordinal, integer original PTS, optional best-effort PTS, duration and keyframe. Duplicate PTS never collapse rows.
+- `GET /api/video/frames/jobs/{id}`: `{id,session,kind,state,phase,frames,bytes,elapsed,error}` plus final result. Index `ready` adds count, rational time_base, first_pts, source_sha256, stream and tool_version. Numeric PTS values are JSON strings to avoid JavaScript precision loss. Missing original PTS stays null and is explicitly distinguished from best-effort PTS.
+- `POST /api/video/frames/index/{id}/frame`: exactly `{ordinal:integer}`. Returns 202 frame job. Prefix-decodes the requested and two adjacent frames without seek; PNG output timestamps are rebased after selection solely to handle duplicate input PTS. The original index is unchanged. The result adds ordinal, pts, best_effort_pts, time_base, source_sha256, image_sha256, image_url and resume_seconds_approximate. Approximate browser resume subtracts the first displayed PTS; it is not exact-frame playback.
+- `GET /api/video/frames/jobs/{id}/image`: task PNG only. Changed source/session yields 409; evicted cache yields 410. Browser can re-request the ordinal.
+- `POST /api/video/frames/{index|jobs}/{id}/cancel`: empty object. Index cancellation terminates its children and removes only journaled task files; individual frame cancellation leaves its index usable.
+
+Single worker, four active jobs, eight sessions, 64 job records, 2,000,000 indexed frames, 256 MiB per index/output, 64 MiB / 128-image PNG LRU, 512 MiB managed disk budget and 128 MiB free-space reserve. Index timeout one hour; extraction timeout three minutes. Prefix decode and full-file integrity checks may be slow for long media. SDR square-pixel images up to 16,777,216 pixels; HDR and non-square pixels explicitly rejected. Caches are disposable, not persistent project state. A source change invalidates its index; sessions are cleaned on close/restart, preserving unknown files. These APIs neither modify originals nor export frame ranges.

@@ -17,6 +17,9 @@ def generate(destination):
         ['-i',str(destination/'cfr.mp4'),'-vf',"select='if(lt(t,4),1,not(mod(n,3)))',drawtext=font='sans':text='VFR PTS %{pts\\:hms}':fontcolor=white:fontsize=19:x=20:y=62:box=1:boxcolor=black",'-fps_mode','vfr','-c:v','libx264','-preset','fast','-crf','18','-g','48','-c:a','copy',str(destination/'vfr.mp4')],
         ['-i',str(destination/'cfr.mp4'),'-t','3','-c:v','libvpx-vp9','-deadline','realtime','-cpu-used','8','-c:a','libopus',str(destination/'vp9.webm')],
         ['-i',str(destination/'cfr.mp4'),'-t','2','-c:v','mpeg4','-c:a','pcm_s16le',str(destination/'mpeg4.avi')],
+        ['-itsoffset','1.375','-i',str(destination/'cfr.mp4'),'-c','copy','-copyts',str(destination/'offset.mp4')],
+        ['-display_rotation:v:0','90','-i',str(destination/'cfr.mp4'),'-c','copy',str(destination/'rotated.mp4')],
+        ['-i',str(destination/'cfr.mp4'),'-an','-vf','setpts=floor(N/2)*2/(24*TB)','-frames:v','16','-fps_mode','passthrough','-c:v','ffv1',str(destination/'duplicate-pts.mkv')],
     ]
     for command in commands:subprocess.run([ffmpeg,'-hide_banner','-loglevel','error','-n',*command],check=True,timeout=90)
     probe=shutil.which('ffprobe')

@@ -1,4 +1,4 @@
-# 0.4.32 / player.1 云端源码候选
+# 0.4.33 / frames.1 云端源码候选
 
 本候选基于 main `fc505375ea04128a79f5efd9be3a9ea383dc6186`，保留 Windows 正式 0.4.31 构建源 `8d758c325136bb447f6fb63701fed80b7ea5986a` 之后的所有上游改动。没有发布、推送、安装或修改系统关联。此文件描述可供独立审查的源码；没有 Windows 安装包。
 
@@ -31,7 +31,13 @@ WebView2 的 `ContainsFullScreenElementChanged` 同步切换 WinForms 窗口：�
 
 ±40 ms 明确叫“近似时间步进”，不是逐帧。真实合成 CFR 有 192 帧（24 fps）；VFR 有 128 帧，后半段帧间隔是 125 ms。固定 `currentTime ± 1/fps` 无法对后者实现逐帧。`requestVideoFrameCallback` 可以报告提交显示的媒体 PTS，但不是源帧索引，也不保证浏览器 seek 选中任意指定帧。[HTML 标准接口说明](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback)
 
-严格前后帧步进、任意 VFR 帧号定位、PTS 索引持久化、按源帧边界的导出尚未实现。下一阶段需锁定源文件身份、构造实际 PTS/关键帧索引，并验证解码帧和显示帧一致；不能仅换 UI 名称。现有运行时打包主动移除 ffprobe，本候选没有把云端测试用 ffprobe 变为产品依赖，也没有扩大运行时许可证/包范围。
+主工作台增加独立“暂停帧检查”。它按需顺序解码全片，建立展示序号 → 原始整数 PTS / 时间基 / 关键帧的 SQLite 索引，重复 PTS 保留为不同序号；PTS 缺失会明确显示 best-effort 值，绝不按平均 FPS 编造。前后帧、输入帧号定位显示独立 PNG；普通视频保持暂停，返回时明确提示近似时间定位。进入检查从第 0 帧开始，不假定浏览器当前时间等于某个精确帧号。快速窗口没有加入这些工具。
+
+每个索引固定已登记源 ID、规范路径、文件身份和 SHA-256；索引和抽帧前后校验原片，缓存命中也先核验内容。抽帧从起点解码至目标及邻帧，不使用关键帧 seek。为容纳重复源 PTS，只在选出图片之后为 PNG 输出器赋递增时间戳；索引里的原始 PTS 不变。使用与 ffprobe 同版本的 FFmpeg，检查期间工具变化使索引失效。[FFmpeg select 与帧序号](https://ffmpeg.org/ffmpeg-filters.html#select_002c-aselect)、[setpts 输出时间戳](https://ffmpeg.org/ffmpeg-filters.html#setpts_002c-asetpts)、[旋转元数据](https://ffmpeg.org/ffmpeg.html#Video-Options)。
+
+索引显示真实累计帧数、阶段、校验字节和经过时间，可取消。单工作线程，最多四个在途任务、八个会话、64 条任务状态；索引最多两百万帧/256 MiB，PNG 邻帧缓存全局 64 MiB / 128 张，任务磁盘总量 512 MiB，保留 128 MiB 可用空间。索引一小时、抽帧三分钟上限。源变化、关闭/切换、取消时清理仅属于本任务的文件；崩溃恢复仅删除自有清单登记文件，未知文件保留。缓存不是永久项目文件。长片每次全文件校验和前缀解码可能较慢，本阶段不保证实时逐帧；HDR、非方形像素或超 1677 万像素明确拒绝。
+
+实际启用范围是带已有同版本 FFmpeg/ffprobe 与 Pillow 的云端源码环境。Windows 只尝试现有 runtime-lock 的同一官方 FFmpeg 档案，但代理返回 Tunnel 403，未能核验其中 ffprobe 及许可证。因此没有改变运行时打包/锁文件，也没有使用任意本机工具替代；Windows 暂停帧检查明确关闭。Mac 现有锁定包不包含 ffprobe，也保持关闭。普通快速播放和审片仍保留。按源帧范围导出、持久帧索引、长片随机访问优化和严格帧音频裁切尚未实现。
 
 当前保留 WebView2：常见 H.264/AAC、VP9/Opus 在云端 Chromium 实测可播；AVI 中的 MPEG-4 明确失败，故尚不能声称替代所有格式播放器。若后续目标包括更广泛的专业格式、逐帧或 HDR，需评估 libav/专用解码显示路径或媒体引擎，并用真实 PTS/帧图像验证。mpv 自身也说明部分 VFR 的 seek 型帧步进存在边界，换引擎本身不能作为帧准确证明。[mpv frame-step](https://mpv.io/manual/stable/#command-interface-frame-step)
 
@@ -52,10 +58,11 @@ python3 -B server.py --port 18791 --data /tmp/yingxu-player-data --projects-root
 ```sh
 python3 tools/make_video_fixtures.py /tmp/yingxu-video-fixtures
 python3 tools/video_smoke.py --media /tmp/yingxu-video-fixtures --evidence /tmp/yingxu-video-evidence --browser /usr/bin/chromium
-python3 -B -m unittest discover -s tests -p test_video_review.py -v
+python3 -B -m unittest discover -s tests -p "test_video_*.py" -v
+python3 tools/video_frames_smoke.py --media /tmp/yingxu-video-fixtures --evidence /tmp/yingxu-frame-evidence
 ```
 
-浏览器烟测需已安装的 Playwright 和 Chromium，生成器需 FFmpeg；ffprobe 仅用于测试 PTS 证据。Windows 构建仍按 `desktop/build.py` 使用校验过的固定官方 SDK 和 .NET Framework 编译器，新增资源和 C# 文件已加入所有构建分支。新增原生 Range/窗口恢复测试代码，但未在此 Linux 云环境执行。
+浏览器烟测需已安装的 Playwright 和 Chromium，生成器需 FFmpeg；ffprobe 在源码开发环境用于真实暂停帧索引，并用于测试 PTS 证据；打包平台能力受上述限制。Windows 构建仍按 `desktop/build.py` 使用校验过的固定官方 SDK 和 .NET Framework 编译器，新增资源和 C# 文件已加入所有构建分支。新增原生 Range/窗口恢复测试代码，但未在此 Linux 云环境执行。
 
 保留未测：Windows 真实标题栏命中、拖动、最大化还原、Esc/Alt-F4、不同屏幕 DPI、焦点与多屏切换、硬解和物理音画同步；Windows 原生编译和完整包；macOS 原生快速视频窗口与原生全屏。本候选只验证共享网页在 Linux Chromium 的行为，不把它等同双端原生验收。截图均为合成素材的浏览器画面，不包含原生自定义标题栏。
 
