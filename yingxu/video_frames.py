@@ -145,6 +145,17 @@ class VideoFrames:
         return value
 
     def _process(self, job, session, command, *, limit=MAX_INDEX, consume=None):
+        # A single worker is not a CPU bound when the codecs/filtergraph auto-
+        # spawn one thread per host core. Apply limits before input so decoder
+        # threads are bounded separately from the existing encoder option.
+        command = list(command)
+        executable = str(Path(command[0]).resolve())
+        tools = session.get('tools', {})
+        if '-version' not in command:
+            if executable == tools.get('ffmpeg', {}).get('path'):
+                command[1:1] = ['-threads', '1', '-filter_threads', '1', '-filter_complex_threads', '1']
+            elif executable == tools.get('ffprobe', {}).get('path'):
+                command[1:1] = ['-threads', '1']
         out = self._own(session, job['id'] + '.out')
         log = self._own(session, job['id'] + '.log')
         process = None
@@ -268,6 +279,7 @@ class VideoFrames:
             if job['state'] in ('ready', 'done') and job['kind'] != 'export':
                 self._session(job['session'])
             result = {k: job[k] for k in ('id', 'session', 'kind', 'state', 'phase', 'frames', 'bytes', 'error')}
+            result['verified_frames'] = job.get('verified_frames', 0)
             result['elapsed'] = round(time.monotonic() - job['queued_at'], 1)
             result.update(job.get('result', {}))
             return result
@@ -390,6 +402,7 @@ class VideoFrames:
                     if number >= job['frames']: raise UserError('两次解码帧数不一致。', 422)
                     db.execute('UPDATE frames SET rgb_sha256=? WHERE ordinal=?', (parts[-1], number))
                     number += 1
+                    job['verified_frames'] = number
                     if number % 1000 == 0: db.commit()
             self._process(job, session, [session['tools']['ffmpeg']['path'], '-nostdin', '-v', 'error', '-xerror',
                 '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi',

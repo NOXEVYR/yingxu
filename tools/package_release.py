@@ -29,7 +29,7 @@ FIXED = (
     'frontend/live-markdown-source.mjs', 'frontend/live-markdown.LICENSE.txt', 'frontend/live-markdown.manifest.json',
     'desktop/make_icon.py', 'desktop/brand.svg', 'desktop/brand.ico', 'desktop/brand.icns',
     'desktop/app.manifest', 'desktop/WebView2-LICENSE.txt',
-    'tools/video_smoke.py', 'tools/video_frames_smoke.py', 'tools/video_frames_benchmark.py', 'tools/video_showcase.py', 'tools/make_video_fixtures.py', 'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
+    'tools/video_smoke.py', 'tools/video_frames_smoke.py', 'tools/video_frames_benchmark.py', 'tools/video_frames_background_smoke.py', 'tools/video_showcase.py', 'tools/make_video_fixtures.py', 'tools/benchmark.py', 'tools/package_release.py', 'tools/verify_release.py',
     'tools/prepare_runtime.py', 'tools/runtime-lock.json', 'tools/build_identity.py', 'THIRD_PARTY_NOTICES.md',
     'docs/stability-audit-2026-09-27.md', 'docs/skill-workflow.md', 'docs/ai-collaboration.md',
     'docs/video-player-candidate.md', 'docs/xmind.md', 'docs/release-0.4.29.md', 'docs/release-0.4.30.md', 'docs/release-0.4.31.md', 'tests/fixtures/xmind-workspace-runner.js', 'tests/fixtures/video-cfr.mp4',

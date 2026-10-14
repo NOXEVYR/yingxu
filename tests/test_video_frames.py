@@ -61,7 +61,9 @@ class VideoFrameTests(unittest.TestCase):
 
     def index(self, name='cfr.mp4'):
         value = self.service.start({'source':'external','id':self.open(name)})
-        return self.wait(value['id'], 'ready')
+        ready = self.wait(value['id'], 'ready')
+        self.assertEqual(ready['verified_frames'], ready['count'])
+        return ready
 
     def frame(self, sid, ordinal):
         value = self.service.frame(sid, {'ordinal':ordinal})

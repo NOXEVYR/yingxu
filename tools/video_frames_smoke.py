@@ -44,14 +44,29 @@ def main():
                     if not page.locator('.video-review').evaluate('(n)=>n.open'):page.locator('.video-review summary').click()
                     page.wait_for_function('() => !document.querySelector("[data-review=mark]").disabled')
                 def start():
-                    page.locator('[data-frame=start]').click()
+                    if not page.locator('[data-frame=start]').is_disabled():page.locator('[data-frame=start]').click()
+                    page.wait_for_function('() => !document.querySelector("[data-frame=enter]").disabled',timeout=30000)
+                    page.locator('[data-frame=enter]').click()
                     page.wait_for_function('() => document.querySelector(".frame-overlay:not([hidden])") && !document.querySelector("[data-frame=locate]").disabled',timeout=30000)
                 def locate(n):
                     page.locator('.frame-actions input').fill(str(n));page.locator('[data-frame=locate]').click()
                     page.wait_for_function('(n)=>document.querySelector(".frame-overlay-label")?.textContent.startsWith("解码静帧 "+n+" /") && !document.querySelector("[data-frame=locate]").disabled',arg=n,timeout=30000)
                 def ordinal(n):
                     page.wait_for_function('(n)=>document.querySelector(".frame-overlay-label")?.textContent.startsWith("解码静帧 "+n+" /") && !document.querySelector("[data-frame=locate]").disabled',arg=n)
-                open_video('vfr.mp4');page.evaluate('window.keptVideo=document.querySelector("video")');start();locate(96)
+                open_video('vfr.mp4');page.evaluate('window.keptVideo=document.querySelector("video")')
+                page.locator('[data-frame=start]').click()
+                page.wait_for_function('() => !document.querySelector("[data-frame=enter]").disabled',timeout=30000)
+                # Artificial gate for lifecycle only, never a performance measure.
+                original_extract=app.video_frames._extract;entered_extract=threading.Event();release_extract=threading.Event()
+                def held_extract(job,session):
+                    entered_extract.set();release_extract.wait(8);original_extract(job,session)
+                with patch.object(app.video_frames,'_extract',side_effect=held_extract):
+                    page.locator('[data-frame=enter]').click();check('explicit inspection worker entered test gate',entered_extract.wait(3))
+                    check('seek controls hidden before first decoded image arrives',page.locator('.video-controls').evaluate('(n)=>getComputedStyle(n).visibility==="hidden"'))
+                    before=page.evaluate('keptVideo.currentTime');page.locator('.video-screen').focus();page.keyboard.press('ArrowRight')
+                    check('seek hotkeys locked while first frame is pending',page.evaluate('(before)=>keptVideo.paused && keptVideo.currentTime===before',before))
+                    release_extract.set();ordinal(0)
+                locate(96)
                 check('VFR real ordinal and PTS shown','原始 PTS 49152 × 1/12288' in page.locator('.frame-overlay-label').inner_text())
                 page.locator('[data-frame=next]').click();ordinal(97)
                 check('VFR next uses actual 125ms PTS delta','原始 PTS 50688' in page.locator('.frame-overlay-label').inner_text())
@@ -69,8 +84,19 @@ def main():
                 locate(93);page.locator('[data-frame=set-first]').click();locate(97)
                 page.locator('[data-frame=set-last]').click()
                 check('strict range explicitly inclusive and silent','两端包含' in page.locator('.frame-range').inner_text() and '不含音频' in page.locator('[data-frame=export]').inner_text())
-                page.locator('[data-frame=export]').click()
-                page.wait_for_function('() => document.querySelector(".frame-export-result a")',timeout=30000)
+                original_export=app.video_frames._export;entered_export=threading.Event();release_export=threading.Event();export_jobs=[]
+                def held_export(job,session):
+                    export_jobs.append(job);entered_export.set();release_export.wait(8);original_export(job,session)
+                with patch.object(app.video_frames,'_export',side_effect=held_export):
+                    page.locator('[data-frame=export]').click();check('export worker entered lifecycle test gate',entered_export.wait(3))
+                    page.locator('[data-frame=resume]').click()
+                    check('return during export resumes ordinary playback',page.evaluate('!keptVideo.paused') and not page.locator('.frame-overlay').is_visible())
+                    check('return during export does not cancel task',not export_jobs[0]['cancel'].is_set())
+                    release_export.set()
+                    page.wait_for_function('() => document.querySelector(".frame-export-result a")',timeout=30000)
+                    check('export completes and publishes after returning to playback',export_jobs[0]['state']=='done' and app.video_review.output(export_jobs[0]['id']).is_file())
+                page.screenshot(path=str(output/'16-export-complete-playing.png'),full_page=True)
+                locate(97)
                 check('strict VFR export reports real verified NUT','NUT' in page.locator('.frame-export-result').inner_text())
                 with page.expect_download() as download:
                     page.locator('.frame-export-result a').first.click()
@@ -84,6 +110,7 @@ def main():
                 check('decoded still supports browser fullscreen exit',page.locator('.frame-overlay').is_visible())
                 page.locator('.frame-overlay>button').click();page.wait_for_timeout(150)
                 check('return explicitly says approximate and remains paused','近似定位' in page.locator('.frame-status').inner_text() and page.evaluate('keptVideo.paused && Math.abs(keptVideo.currentTime-4.125)<.05'))
+                check('return preserves ready index for repeated inspection',len(app.video_frames.sessions)==1 and not page.locator('[data-frame=enter]').is_disabled())
                 start();page.locator('[data-frame=resume]').click();page.wait_for_timeout(150)
                 check('explicit resume continues browser playback',page.evaluate('!keptVideo.paused'))
                 open_video('duplicate-pts.mkv');start();locate(2)
