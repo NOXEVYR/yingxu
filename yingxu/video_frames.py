@@ -25,6 +25,7 @@ MAX_INDEX = 256 * 1024**2
 MAX_CACHE = 64 * 1024**2
 MAX_CACHE_ENTRIES = 128
 MAX_PIXELS = 16_777_216
+PREFETCH_FRAMES = 12
 
 
 class Cancelled(Exception):
@@ -97,29 +98,50 @@ class VideoFrames:
             self._journal(session)
 
     def _check(self, job, session):
-        if self.closed or job['cancel'].is_set() or session['cancel'].is_set():
+        if self.closed or job['cancel'].is_set() or session['cancel'].is_set() or session['invalid']:
             raise Cancelled()
-        if time.monotonic() - job['started'] > (3600 if job['kind'] == 'index' else 180):
+        now = time.monotonic()
+        if now - job.get('source_checked_at', 0) >= .5:
+            self._source(session)
+            job['source_checked_at'] = now
+        if now - job['started'] > (3600 if job['kind'] in ('index', 'export') else 180):
             raise UserError('帧检查达到时间上限，已停止；可取消后重新选择。', 408)
 
     def _source(self, session):
-        path = self.app.video_review.source(session['source'], session['item'])
-        if path != session['path'] or fingerprint(path) != session['fingerprint']:
+        try:
+            path = self.app.video_review.source(session['source'], session['item'])
+            changed = (path != session['path'] or fingerprint(path) != session['fingerprint'] or
+                (session.get('hash_signature') and path.stat().st_ctime_ns != session['hash_signature'][-1]))
+        except (OSError, UserError):
+            session['invalid'] = True
+            raise UserError('源视频已移除或不可访问，帧检查已失效。', 409) from None
+        if changed:
             session['invalid'] = True
             raise UserError('源视频已改变，旧帧索引已失效，请重新建立索引。', 409)
         return path
 
     def _hash(self, job, session):
-        path = self._source(session); digest = hashlib.sha256()
+        path = self._source(session)
+        # Linux ctime cannot be restored with utime. Reuse a hash only while the
+        # inode, size, mtime AND ctime remain unchanged; platform gate is explicit.
+        signature = fingerprint(path) + [path.stat().st_ctime_ns]
+        if session.get('hash_signature') == signature:
+            self._check(job, session)
+            return session['sha256']
+        digest = hashlib.sha256()
         job['phase'] = '校验源文件'; job['bytes'] = 0
         with path.open('rb') as stream:
             while block := stream.read(1024 * 1024):
                 self._check(job, session); digest.update(block); job['bytes'] += len(block)
         self._source(session)
+        if fingerprint(path) + [path.stat().st_ctime_ns] != signature:
+            session['invalid'] = True
+            raise UserError('源视频在校验中改变，请重新建立索引。', 409)
         value = digest.hexdigest()
         if session.get('sha256') and session['sha256'] != value:
             session['invalid'] = True
             raise UserError('源视频内容已改变，旧帧索引已失效。', 409)
+        session['hash_signature'] = signature
         return value
 
     def _process(self, job, session, command, *, limit=MAX_INDEX, consume=None):
@@ -139,6 +161,9 @@ class VideoFrames:
                         with self.lock:
                             disk = sum((s['directory']/n).stat().st_size for s in self.sessions.values()
                                 for n in s['owned'] if (s['directory']/n).is_file())
+                        extra = job.get('partial')
+                        if extra and extra.exists() and extra.stat().st_size > 32*1024**3:
+                            raise UserError('严格导出超过 32 GiB 限制，已停止。', 413)
                         if disk > 512*1024**2 or shutil.disk_usage(self.root).free < 128*1024**2:
                             raise UserError('帧缓存达到磁盘容量限制，已停止。', 413)
                         if consume:
@@ -180,17 +205,19 @@ class VideoFrames:
             self.sessions[sid] = session; self._journal(session)
             return self._enqueue(session, 'index', jid=sid)
 
-    def _enqueue(self, session, kind, *, jid=None, ordinal=None):
+    def _enqueue(self, session, kind, *, jid=None, ordinal=None, fields=None):
         if sum(j['state'] in ACTIVE for j in self.jobs.values()) >= 4:
             raise UserError('帧检查队列已满。', 409)
         if len(self.jobs) >= 64:
             for key in list(self.jobs):
-                if self.jobs[key]['state'] not in ACTIVE and (self.jobs[key]['kind'] == 'frame' or self.jobs[key]['session'] not in self.sessions):
+                if self.jobs[key]['state'] not in ACTIVE and (self.jobs[key]['kind'] != 'index' or self.jobs[key]['session'] not in self.sessions):
                     del self.jobs[key]; break
+            if len(self.jobs) >= 64: raise UserError('帧任务历史已满，请先关闭检查会话。', 409)
         jid = jid or uid()
         job = {'id': jid, 'session': session['id'], 'kind': kind, 'ordinal': ordinal, 'state': 'queued',
-            'phase': '等待处理', 'frames': 0, 'bytes': 0, 'created': time.monotonic(), 'started': time.monotonic(),
+            'phase': '等待处理', 'frames': 0, 'bytes': 0, 'created': time.time(), 'queued_at': time.monotonic(), 'started': time.monotonic(),
             'cancel': threading.Event(), 'error': None}
+        job.update(fields or {})
         self.jobs[jid] = job; self.pool.submit(self._run, job, session)
         return self.status(jid)
 
@@ -198,7 +225,12 @@ class VideoFrames:
         session = self.sessions.get(sid)
         if not session or session['cancel'].is_set() or session['invalid']:
             raise UserError('帧检查会话已取消或失效，请重新建立索引。', 409)
-        self._source(session)
+        try:
+            self._source(session)
+        except UserError:
+            session['cancel'].set()
+            if not any(j['session']==sid and j['state'] in ACTIVE for j in self.jobs.values()): self._cleanup(session)
+            raise
         return session
 
     def frame(self, sid, data):
@@ -210,14 +242,33 @@ class VideoFrames:
             if not 0 <= data['ordinal'] < session['count']: raise UserError('帧序号超出范围。')
             return self._enqueue(session, 'frame', ordinal=data['ordinal'])
 
+    def export(self, sid, data):
+        if not isinstance(data, dict) or set(data) != {'first', 'last', 'audio'} or data['audio'] != 'none':
+            raise UserError('严格帧导出需明确指定首尾帧；本阶段仅支持不含音频。')
+        with self.lock:
+            session = self._session(sid)
+            first, last = data['first'], data['last']
+            if self.jobs[sid]['state'] != 'ready': raise UserError('索引尚未完成。', 409)
+            if type(first) is not int or type(last) is not int or not 0 <= first <= last < session['count']:
+                raise UserError('请指定有效首尾帧；两端均包含。')
+            if last-first+1 > 10000: raise UserError('单次严格导出最多 10000 帧。', 413)
+            return self._enqueue(session, 'export', fields={'first': first, 'last': last})
+
+    def export_manifest(self, jid):
+        review = self.app.video_review
+        review.output(jid)
+        with review.lock:
+            if review.jobs[jid]['mode'] != 'frames': raise UserError('此导出没有帧清单。', 404)
+            return clean_path(review.jobs[jid]['directory'] / 'frames.json')
+
     def status(self, jid):
         with self.lock:
             job = self.jobs.get(jid)
             if not job: raise UserError('未找到帧检查任务。', 404)
-            if job['state'] in ('ready', 'done'):
+            if job['state'] in ('ready', 'done') and job['kind'] != 'export':
                 self._session(job['session'])
             result = {k: job[k] for k in ('id', 'session', 'kind', 'state', 'phase', 'frames', 'bytes', 'error')}
-            result['elapsed'] = round(time.monotonic() - job['created'], 1)
+            result['elapsed'] = round(time.monotonic() - job['queued_at'], 1)
             result.update(job.get('result', {}))
             return result
 
@@ -310,11 +361,92 @@ class VideoFrames:
             connection.commit()
             if not job['frames']: raise UserError('没有得到可用解码帧。', 422)
             first = connection.execute('SELECT pts,best_pts FROM frames ORDER BY ordinal LIMIT 1').fetchone()
+        self._pixel_index(job, session)
         self._hash(job, session)
         session['count'] = job['frames']; session['first_pts'] = first[0] if first[0] is not None else first[1]
         job['result'] = {'count': session['count'], 'time_base': str(tb), 'source_sha256': session['sha256'],
             'first_pts': str(session['first_pts']) if session['first_pts'] is not None else None,
             'stream': stream, 'tool_version': session['tool_version'], 'mode': 'decoded-still-frames'}
+
+    def _pixel_index(self, job, session):
+        """A whole-stream RGB oracle allows seek optimization to fail closed."""
+        job['phase'] = '顺序解码校验像素（供后续快速定位核对）'
+        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+            db.execute('ALTER TABLE frames ADD COLUMN rgb_sha256 TEXT')
+            number = 0
+            def consume(reader, final):
+                nonlocal number
+                while True:
+                    self._check(job, session)
+                    at = reader.tell(); line = reader.readline(4097)
+                    if not line: break
+                    if len(line) > 4096: raise UserError('像素校验行超限。', 413)
+                    if not line.endswith(b'\n') and not final: reader.seek(at); break
+                    text = line.decode('ascii').strip()
+                    if not text or text.startswith('#'): continue
+                    parts = [part.strip() for part in text.split(',')]
+                    if len(parts) != 6 or not re.fullmatch('[a-f0-9]{64}', parts[-1]):
+                        raise UserError('无法验证完整解码像素索引。', 422)
+                    if number >= job['frames']: raise UserError('两次解码帧数不一致。', 422)
+                    db.execute('UPDATE frames SET rgb_sha256=? WHERE ordinal=?', (parts[-1], number))
+                    number += 1
+                    if number % 1000 == 0: db.commit()
+            self._process(job, session, [session['tools']['ffmpeg']['path'], '-nostdin', '-v', 'error', '-xerror',
+                '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi',
+                '-err_detect', 'explode', '-i', str(session['path']), '-map', '0:v:0', '-an',
+                '-vf', 'format=rgb24,setpts=N', '-fps_mode', 'passthrough', '-c:v', 'rawvideo',
+                '-threads', '1', '-f', 'framehash', '-hash', 'sha256', 'pipe:1'], consume=consume)
+            if number != job['frames']: raise UserError('两次解码帧数不一致。', 422)
+            # Non-monotone/missing/duplicate PTS retain ordinal prefix decoding.
+            session['seek_safe'] = not db.execute('SELECT 1 FROM frames a LEFT JOIN frames b ON b.ordinal=a.ordinal-1 '
+                'WHERE a.pts IS NULL OR (a.ordinal>0 AND a.pts<=b.pts) LIMIT 1').fetchone()
+            db.execute('CREATE INDEX keyframes ON frames(key_frame,ordinal)')
+            db.commit()
+            if (session['directory'] / 'index.sqlite').stat().st_size > MAX_INDEX:
+                raise UserError('帧索引超过容量限制。', 413)
+
+    def _decode_window(self, job, session, first, last):
+        from PIL import Image
+        names = [f'frame-{n}.png' for n in range(first, last+1)]
+        job['created_frames'] = names
+        for name in names: self._own(session, name)
+        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+            hashes = dict(db.execute('SELECT ordinal,rgb_sha256 FROM frames WHERE ordinal BETWEEN ? AND ?', (first,last)))
+            anchor = db.execute('SELECT ordinal,pts FROM frames WHERE key_frame=1 AND ordinal<=? ORDER BY ordinal DESC LIMIT 1', (first,)).fetchone()
+        accelerated = bool(session['seek_safe'] and anchor and anchor[0] > 0)
+        for attempt in range(2 if accelerated else 1):
+            seek = accelerated and attempt == 0
+            offset = anchor[0] if seek else 0
+            command = [session['tools']['ffmpeg']['path'], '-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror', '-y',
+                '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi', '-err_detect', 'explode']
+            if seek:
+                seconds = Fraction(anchor[1]) * Fraction(session['time_base'])
+                command += ['-copyts', '-seek_timestamp', '1', '-ss', format(float(seconds), '.9f')]
+            command += ['-i', str(session['path']), '-map', '0:v:0', '-an']
+            filters = (f"trim=start_pts={anchor[1]}," if seek else '') + f'select=between(n\\,{first-offset}\\,{last-offset}),setpts=N/TB,format=rgb24'
+            command += ['-vf', filters, '-frames:v', str(last-first+1), '-fps_mode', 'passthrough', '-threads', '1',
+                '-start_number', str(first), str(session['directory'] / 'frame-%d.png')]
+            job['phase'] = '关键帧定位并逐张核对完整解码像素' if seek else '从起点解码并核对像素'
+            job['decode_mode'] = 'verified-keyframe' if seek else 'verified-prefix'
+            for name in names: (session['directory'] / name).unlink(missing_ok=True)
+            try:
+                self._process(job, session, command, limit=1024)
+                valid = True
+                for n, name in zip(range(first,last+1), names):
+                    self._check(job, session)
+                    path = session['directory'] / name
+                    if not path.is_file() or path.stat().st_size > MAX_CACHE:
+                        valid = False; break
+                    with Image.open(path) as picture:
+                        if picture.width * picture.height > MAX_PIXELS: raise UserError('静帧像素超限。', 413)
+                        if hashlib.sha256(picture.convert('RGB').tobytes()).hexdigest() != hashes[n]:
+                            valid = False; break
+                if valid: return names
+            except UserError as error:
+                # Only decode/alignment errors permit the slower fallback.
+                if not seek or error.status != 422: raise
+            if not seek: raise UserError('静帧与完整顺序解码不一致，拒绝展示。', 422)
+        raise UserError('无法核对目标静帧。', 422)
 
     def _extract(self, job, session):
         for tool in session['tools'].values():
@@ -327,31 +459,15 @@ class VideoFrames:
             row = connection.execute('SELECT pts,best_pts,duration,key_frame FROM frames WHERE ordinal=?', (ordinal,)).fetchone()
         key = (session['id'], ordinal)
         if key not in self.cache:
-            first, last = max(0, ordinal-1), min(count-1, ordinal+1)
-            # Prefix decode intentionally avoids keyframe seeking. One PNG at a time,
-            # with a bounded adjacent range produced in the same decoder invocation.
-            names = [f'frame-{n}.png' for n in range(first, last+1)]
-            job['created_frames'] = names
-            for name in names: self._own(session, name)
-            job['phase'] = '从起点解码目标及邻帧（长片可能较慢）'
-            self._process(job, session, [session['tools']['ffmpeg']['path'], '-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror', '-y',
-                '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi', '-err_detect', 'explode', '-i', str(session['path']),
-                # PNG muxing needs monotonic output timestamps even when source
-                # PTS repeat. Rebase *after selection* only; index PTS stay intact.
-                '-map', '0:v:0', '-an', '-vf', f'select=between(n\\,{first}\\,{last}),setpts=N/TB,format=rgb24',
-                '-frames:v', str(last-first+1), '-fps_mode', 'passthrough', '-threads', '1', '-start_number', str(first),
-                str(session['directory'] / 'frame-%d.png')], limit=1024)
+            # Bound prefetch by raw pixel memory as well as compressed LRU size.
+            pixels = session['stream']['width'] * session['stream']['height']
+            ahead = max(1, min(PREFETCH_FRAMES, MAX_CACHE // max(1, pixels*3) // 2))
+            first, last = max(0, ordinal-1), min(count-1, ordinal+ahead)
+            names = self._decode_window(job, session, first, last)
             self._hash(job, session)
-            from PIL import Image
             with self.lock:
                 for n, name in zip(range(first, last+1), names):
-                    path = session['directory'] / name
-                    if not path.is_file() or path.stat().st_size > MAX_CACHE:
-                        raise UserError('没有获得符合容量限制的静帧。', 422)
-                    with Image.open(path) as picture:
-                        if picture.width * picture.height > MAX_PIXELS: raise UserError('静帧像素超限。', 413)
-                        picture.verify()
-                    self.cache[(session['id'], n)] = path.stat().st_size
+                    self.cache[(session['id'], n)] = (session['directory'] / name).stat().st_size
                 self.cache.move_to_end(key)
                 while sum(self.cache.values()) > MAX_CACHE or len(self.cache) > MAX_CACHE_ENTRIES:
                     (sid, n), _ = self.cache.popitem(last=False)
@@ -364,8 +480,89 @@ class VideoFrames:
         job['result'] = {'ordinal': ordinal, 'count': count, 'pts': str(row[0]) if row[0] is not None else None,
             'best_effort_pts': str(row[1]) if row[1] is not None else None, 'time_base': session['time_base'],
             'duration': str(row[2]) if row[2] is not None else None, 'key_frame': bool(row[3]),
+            'decode_mode': job.get('decode_mode', 'verified-cache'),
             'source_sha256': session['sha256'], 'image_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'resume_seconds_approximate': relative, 'image_url': '/api/video/frames/jobs/' + job['id'] + '/image'}
+
+    def _export(self, job, session):
+        """Inclusive ordinal selection; validate all pixels and rational PTS."""
+        self._hash(job, session)
+        for tool in session['tools'].values():
+            if fingerprint(Path(tool['path'])) != tool['fingerprint']:
+                raise UserError('解码工具已变化，请重新建立帧索引。', 409)
+        first, last = job['first'], job['last']
+        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+            rows = db.execute('SELECT ordinal,pts,duration,rgb_sha256 FROM frames WHERE ordinal BETWEEN ? AND ? ORDER BY ordinal', (first,last)).fetchall()
+        if any(row[1] is None for row in rows): raise UserError('范围含缺失 PTS，不能严格导出。', 422)
+        times = [(row[1]-rows[0][1])*Fraction(session['time_base']) for row in rows]
+        if any(b<a for a,b in zip(times,times[1:])): raise UserError('范围 PTS 倒退，不能严格导出。', 422)
+        # MKV preserves repeated PTS but normally quantizes timestamps to ms.
+        # NUT preserves other rational timelines, but rejects repeated PTS.
+        container = 'mkv' if all((t*1000).denominator == 1 for t in times) else 'nut'
+        if container == 'nut' and len(set(times)) != len(times):
+            raise UserError('重复 PTS 不能在此时间基的严格容器中保留，拒绝改写时间戳。', 422)
+        review = self.app.video_review
+        with review.lock:
+            if len(review.jobs) >= 100:
+                raise UserError('导出历史已满，请先整理已有导出。', 409)
+            directory = review._folder() / job['id']; directory.mkdir()
+            job.update({'directory': directory, 'partial': directory / ('partial.'+container),
+                'output': directory / ('clip.'+container), 'mode': 'frames', 'format': container,
+                'start': float(times[0]), 'end': float(times[-1]), 'source_key': review.source_key(session['path'])})
+            review.jobs[job['id']] = job
+        published = False
+        try:
+            job['phase'] = '按源展示帧范围无损编码（不含音频）'
+            self._process(job, session, [session['tools']['ffmpeg']['path'], '-nostdin', '-v', 'error', '-xerror', '-n', '-copyts',
+                '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi', '-err_detect', 'explode',
+                '-i', str(session['path']), '-map', '0:v:0', '-an', '-vf',
+                f'select=between(n\\,{first}\\,{last}),setpts=PTS-STARTPTS,format=bgr0',
+                '-frames:v', str(len(rows)), '-c:v', 'ffv1', '-level', '3', '-threads', '1',
+                '-fps_mode', 'passthrough', '-enc_time_base', 'filter', str(job['partial'])], limit=1024)
+            job['phase'] = '复验导出每帧像素与有理 PTS'
+            metadata = json.loads(self._process(job, session, [session['tools']['ffprobe']['path'], '-v', 'error',
+                '-select_streams', 'v:0', '-show_entries', 'stream=time_base:frame=pts', '-of', 'json', str(job['partial'])], limit=8*1024**2))
+            output_tb = Fraction(metadata['streams'][0]['time_base'])
+            actual_times = [int(frame['pts'])*output_tb for frame in metadata['frames']]
+            if actual_times != times: raise UserError('输出时间戳与源帧不一致，已拒绝此导出。', 422)
+            hashes = []
+            def consume(reader, final):
+                while True:
+                    self._check(job, session)
+                    at=reader.tell(); line=reader.readline(4097)
+                    if not line: break
+                    if len(line)>4096: raise UserError('导出校验行超限。', 413)
+                    if not line.endswith(b'\n') and not final: reader.seek(at); break
+                    text=line.decode('ascii').strip()
+                    if text and not text.startswith('#'): hashes.append(text.split(',')[-1].strip())
+                    if len(hashes)>len(rows): raise UserError('导出帧数不一致。', 422)
+            self._process(job, session, [session['tools']['ffmpeg']['path'], '-nostdin', '-v', 'error', '-xerror',
+                '-i', str(job['partial']), '-map', '0:v:0', '-an', '-vf', 'format=rgb24,setpts=N',
+                '-fps_mode', 'passthrough', '-c:v', 'rawvideo', '-threads', '1', '-f', 'framehash', '-hash', 'sha256', 'pipe:1'], consume=consume)
+            if hashes != [row[3] for row in rows]: raise UserError('输出像素或帧数与源范围不一致，已拒绝此导出。', 422)
+            self._hash(job, session); self._check(job, session)
+            manifest = {'schema': 'yingxu-source-frames-v1', 'first_inclusive': first, 'last_inclusive': last,
+                'count': len(rows), 'source_sha256': session['sha256'], 'source_time_base': session['time_base'],
+                'output_time_base': str(output_tb), 'container': container, 'codec': 'ffv1', 'pixel_format': 'bgr0',
+                'audio': 'none', 'display_rotation_applied': True, 'timeline': 'source PTS minus first selected PTS; exact rational equality verified',
+                'last_frame_duration': 'container default; source duration recorded per frame, not an exact end-time promise',
+                'frames': [{'ordinal': row[0], 'source_pts': str(row[1]), 'source_duration': None if row[2] is None else str(row[2]),
+                    'rgb_sha256': row[3], 'output_pts': str(metadata['frames'][i]['pts'])} for i,row in enumerate(rows)]}
+            with self.lock, review.lock:
+                self._check(job, session)
+                (directory / 'frames.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
+                receipt = {key: job[key] for key in ('id', 'source_key', 'created', 'start', 'end', 'mode', 'format')}
+                (directory / 'export.json').write_text(json.dumps(receipt), encoding='utf-8')
+                os.replace(job['partial'], job['output'])
+                job['result'] = {'first': first, 'last': last, 'count': len(rows), 'audio': 'none', 'format': container,
+                    'download_url': '/api/video/exports/'+job['id']+'/file',
+                    'manifest_url': '/api/video/frames/jobs/'+job['id']+'/manifest'}
+                published = True
+        finally:
+            job['partial'].unlink(missing_ok=True)
+            if not published:
+                for name in ('frames.json', 'export.json'): (directory / name).unlink(missing_ok=True)
+                directory.rmdir()
 
     def _run(self, job, session):
         try:
@@ -374,15 +571,17 @@ class VideoFrames:
                 stack.enter_context(self.app.migration_jobs.mutation('POST', '/api/video/frames'))
                 self._check(job, session); job['state'] = 'running'; job['started'] = time.monotonic()
                 if job['kind'] == 'index': self._index(job, session)
+                elif job['kind'] == 'export': self._export(job, session)
                 else: self._extract(job, session)
-                self._check(job, session)
-                job['state'] = 'ready' if job['kind'] == 'index' else 'done'; job['phase'] = '完成'
+                if job['kind'] != 'export': self._check(job, session)
+                terminal = 'ready' if job['kind'] == 'index' else 'done'; job['phase'] = '完成'
         except Cancelled:
-            job['state'] = 'cancelled'; job['phase'] = '已取消'
+            terminal = 'cancelled'; job['phase'] = '已取消'
         except Exception as error:
-            job['state'] = 'error'; job['error'] = str(error) if isinstance(error, UserError) else '帧检查失败，请重新打开；原片不变。'
+            terminal = 'error'; job['error'] = str(error) if isinstance(error, UserError) else '帧检查失败，请重新打开；原片不变。'
         finally:
             with self.lock:
+                job['state'] = terminal
                 if job['kind'] == 'frame' and job['state'] != 'done':
                     for name in job.get('created_frames', []):
                         self.cache.pop((session['id'], int(name[6:-4])), None)

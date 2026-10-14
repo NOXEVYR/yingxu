@@ -2,7 +2,7 @@
   'use strict';
   function mount(player,{tab,api,container,onEnter}) {
     const panel=document.createElement('section');panel.className='video-frame-inspector';
-    panel.innerHTML=`<strong>暂停帧检查</strong><div class="frame-actions"><button data-frame="start">建立真实帧索引</button><button data-frame="previous" disabled>上一帧 ,</button><button data-frame="next" disabled>下一帧 .</button><input type="number" min="0" step="1" value="0" aria-label="展示帧序号（从0开始）" disabled><button data-frame="locate" disabled>按帧号定位</button><button data-frame="cancel" hidden>取消检查</button><button data-frame="resume" hidden>继续播放（近似定位）</button></div><p class="frame-status" role="status">检查工具能力…</p><p>帧号从 0 开始；静帧来自顺序解码，不用平均帧率推算。首次索引需读取全片，可取消。返回视频只做浏览器近似时间定位；本检查尚不提供按帧号导出。</p>`;
+    panel.innerHTML=`<strong>暂停帧检查</strong><div class="frame-actions"><button data-frame="start">建立真实帧索引</button><button data-frame="previous" disabled>上一帧 ,</button><button data-frame="next" disabled>下一帧 .</button><input type="number" min="0" step="1" value="0" aria-label="展示帧序号（从0开始）" disabled><button data-frame="locate" disabled>按帧号定位</button><button data-frame="cancel" hidden>取消检查</button><button data-frame="resume" hidden>继续播放（近似定位）</button></div><p class="frame-status" role="status">检查工具能力…</p><p>帧号从 0 开始；静帧逐张核对完整顺序解码像素，不用平均帧率推算。首次索引需全片解码两遍，可取消；此后关键帧定位与邻帧缓存加速，校验失败回退起点。返回视频只做浏览器近似定位。</p><div class="frame-export"><strong>严格源帧范围导出</strong><div class="frame-actions"><button data-frame="set-first" disabled>当前帧设为首帧</button><button data-frame="set-last" disabled>当前帧设为尾帧</button><span class="frame-range">尚未设定范围</span><button data-frame="export" disabled>FFV1 无损导出 · 不含音频</button></div><p>首尾两帧均包含，单次最多 10000 帧。按源展示顺序选择，保留每帧相对 PTS 与重复 PTS，逐帧复验像素。自动输出 MKV 或 NUT（时间基无法精确保留则拒绝）；仅供支持 FFV1 的编辑工具，快速播放器不保证可播。不含音频、字幕或附件；需要声音请用上方按时间裁切。末帧持续时长由容器处理，不承诺精确结束时刻。</p><div class="frame-export-result" role="status"></div></div>`;
     container.append(panel);
     const $=q=>panel.querySelector(q),controller=new AbortController();
     const overlay=document.createElement('div');overlay.className='frame-overlay';overlay.hidden=true;
@@ -10,7 +10,7 @@
     const label=document.createElement('div');label.className='frame-overlay-label';
     const exit=document.createElement('button');exit.textContent='回到视频（近似定位）';exit.type='button';
     overlay.append(image,label,exit);player.screen.append(overlay);
-    let disposed=false,session=null,job=null,count=0,current=null,generation=0,url=null,watch=0,available=false,busy=false;
+    let disposed=false,session=null,job=null,count=0,current=null,generation=0,url=null,watch=0,available=false,busy=false,first=null,last=null;
     const status=text=>{$('.frame-status').textContent=text;};
     function controls(){
       $('[data-frame=start]').disabled=!available||!!session||busy;
@@ -20,6 +20,9 @@
       $('[data-frame=next]').disabled ||= current?.ordinal===count-1;
       $('[data-frame=cancel]').hidden=!session&&!busy;
       $('[data-frame=resume]').hidden=!current;
+      for(const action of ['set-first','set-last'])$(`[data-frame=${action}]`).disabled=busy||!current;
+      $('[data-frame=export]').disabled=busy||!session||first===null||last===null||first>last;
+      $('.frame-range').textContent=first===null&&last===null?'尚未设定范围':`[${first??'—'}, ${last??'—'}] · 两端包含${first!==null&&last!==null&&last>=first?' · '+(last-first+1)+' 帧':''}`;
     }
     async function poll(id,token){
       while(!disposed&&token===generation){
@@ -36,7 +39,7 @@
     }
     function clearPicture(){overlay.hidden=true;image.removeAttribute('src');player.screen.classList.remove('frame-inspecting');if(url){URL.revokeObjectURL(url);url=null;}current=null;}
     async function cancel({keepMessage=false}={}){
-      const token=++generation;clearTimeout(watch);const index=session,active=job;session=null;job=null;count=0;busy=false;
+      const token=++generation;clearTimeout(watch);const index=session,active=job;session=null;job=null;count=0;busy=false;first=null;last=null;
       clearPicture();controls();
       if(!keepMessage)status('帧检查已关闭；视频保持暂停。');
       let failure=null;
@@ -70,7 +73,7 @@
         if(url)URL.revokeObjectURL(url);url=nextUrl;image.src=url;current=result;overlay.hidden=false;
         player.screen.classList.add('frame-inspecting');$('input').value=String(ordinal);
         label.textContent=`解码静帧 ${ordinal} / ${count-1} · ${result.pts===null?'推算 PTS '+(result.best_effort_pts??'未知'):'原始 PTS '+result.pts} × ${result.time_base} · 源 ${result.source_sha256.slice(0,12)}`;
-        status(label.textContent+'；这是静帧检查，视频仍暂停。');watchSource(token);
+        status(label.textContent+'；'+({'verified-keyframe':'关键帧定位 · 像素核验通过','verified-prefix':'起点解码 · 像素核验通过','verified-cache':'邻帧缓存 · 已核验像素'}[result.decode_mode]||'像素已核验')+'；视频仍暂停。');watchSource(token);
       }catch(error){if(!disposed&&token===generation){status(error.message);await cancel({keepMessage:true});}}
       finally{if(token===generation){busy=false;job=null;controls();}}
     }
@@ -86,6 +89,23 @@
       }catch(error){if(!disposed&&token===generation){status(error.message);await cancel({keepMessage:true});}}
       finally{if(token===generation){busy=false;controls();}}
     }
+    async function exportRange(){
+      if(busy||!session||first===null||last===null||first>last)return;
+      busy=true;const token=++generation;clearTimeout(watch);controls();
+      const output=$('.frame-export-result');output.replaceChildren();
+      try{
+        const request=await api(`/api/video/frames/index/${session}/export`,{method:'POST',body:{first,last,audio:'none'}});
+        if(disposed||token!==generation){await api(`/api/video/frames/jobs/${request.id}/cancel`,{method:'POST',body:{}}).catch(()=>{});return;}
+        job=request.id;const result=await poll(job,token);
+        if(!result||result.state!=='done')return;
+        output.textContent=`已核验 ${result.count} 帧 · [${result.first}, ${result.last}] 两端包含 · FFV1 ${result.format.toUpperCase()} · 不含音频。 `;
+        for(const [text,href,name] of [['下载视频',result.download_url,'clip.'+result.format],['下载源帧清单',result.manifest_url,'frames.json']]){
+          const link=document.createElement('a');link.textContent=text;link.href=href;link.download=name;output.append(link,document.createTextNode(' '));
+        }
+        status('严格源帧视频已生成；原片保留。关闭检查后仍可从审片导出历史下载视频。');
+      }catch(error){if(!disposed&&token===generation)status(error.message);}
+      finally{if(token===generation){busy=false;job=null;controls();watchSource(token);}}
+    }
     function resume(play){
       const time=current?.resume_seconds_approximate;
       cancel({keepMessage:true});
@@ -95,7 +115,8 @@
     }
     panel.addEventListener('click',event=>{
       const action=event.target.closest('[data-frame]')?.dataset.frame;
-      if(action==='start')start();else if(action==='cancel')cancel();else if(action==='resume')resume(true);
+      if(action==='set-first'){first=current?.ordinal??null;controls();}else if(action==='set-last'){last=current?.ordinal??null;controls();}else if(action==='export')exportRange();
+      else if(action==='start')start();else if(action==='cancel')cancel();else if(action==='resume')resume(true);
       else if(action==='previous')locate((current?.ordinal??0)-1);else if(action==='next')locate((current?.ordinal??-1)+1);
       else if(action==='locate')locate(Number($('input').value));
     },{signal:controller.signal});

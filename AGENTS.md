@@ -1,3 +1,9 @@
+# 本阶段暂停帧与严格导出候选
+
+- 0.4.34/frames.2：索引增加完整顺序 RGB SHA-256，关键帧 seek 后所有图片必须逐张匹配，否则回退起点；重复/缺失/倒退 PTS 仍按 ordinal 起点解码。Linux 以 inode/size/mtime/ctime 复用源摘要，源签名变化立即使缓存失效，不能将该元数据检查写成每次全文件 SHA。
+- 严格导出 [first,last] 两端包含，FFV1 无声 MKV/NUT，完整复验像素/帧数/有理 PTS 后才发布；末帧时长不承诺，音频严格裁切未实现，UI 必须明示不含音频和 FFV1/NUT 兼容性。保留现有带音频按时间导出，快速窗口不加入重型帧功能。
+- 定向检查 test_video_frames.py、test_video_review.py、tools/video_frames_smoke.py 与 tools/video_frames_benchmark.py；长片速度只能来自真实合成素材，人工闸门不能充当性能证据。Windows/Mac 未核验 ffprobe，能力保持关闭；不得换源下载、复制系统运行时、安装/发布或操作个人素材。
+
 # 当前交付源码范围
 
 - 0.4.31/xmind.3 将左键空白拖动改为框选，中键平移；选择集、相机与历史仅为标签状态。Delete 一次删除选中子树并可整批撤销；复杂关联的批量预检必须原子拒绝。标注使用 labels、markers[].markerId、notes.plain.content、href，保留未知对象。映序文件链接为 yingxu://item/<登记 ID>，沿用跨项目搜索导航与草稿保护，不提供任意路径执行。补充 frontend_xmind_links.cjs、批量选择和原生可信框选/Delete 回归。

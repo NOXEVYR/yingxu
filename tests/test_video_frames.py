@@ -121,11 +121,12 @@ class VideoFrameTests(unittest.TestCase):
         path=self.root/'mutable.mp4';shutil.copyfile(self.media/'cfr.mp4',path)
         iid=self.app.external.open({'paths':[str(path)]})['entries'][0]['id']
         sid=self.wait(self.service.start({'source':'external','id':iid})['id'],'ready')['id']
-        self.frame(sid,1)
+        cached=self.frame(sid,1)
         stat=path.stat();data=bytearray(path.read_bytes());data[-1]^=1;path.write_bytes(data)
         os.utime(path,ns=(stat.st_atime_ns,stat.st_mtime_ns))
-        result=self.wait(self.service.frame(sid,{'ordinal':1})['id'],'error')
-        self.assertIn('内容已改变',result['error']);self.assertNotIn(sid,self.service.sessions)
+        with self.assertRaises(UserError): self.service.image(cached['id'])
+        with self.assertRaises(UserError): self.service.frame(sid,{'ordinal':1})
+        self.assertNotIn(sid,self.service.sessions)
         self.assertEqual(path.read_bytes(),data)
 
     def test_cancel_running_child_cleans_session_and_keeps_unknown_file(self):
@@ -189,6 +190,113 @@ class VideoFrameTests(unittest.TestCase):
         with patch('yingxu.video_frames.sys.platform','win32'):self.assertFalse(self.service.capability()['available'])
         with patch('yingxu.video_frames.ffprobe_path',return_value=None):self.assertFalse(self.service.capability()['available'])
 
+    def test_keyframe_seek_verified_and_mismatch_falls_back(self):
+        sid=self.index()['id']
+        result=self.frame(sid,145)
+        self.assertEqual(result['decode_mode'],'verified-keyframe')
+        original=self.service._process
+        def wrong_seek(job,session,command,**kwargs):
+            if '-ss' in command:
+                command=list(command);at=command.index('-vf')+1
+                command[at]=command[at].replace('select=between(n\\,1\\,14)', 'select=between(n\\,2\\,15)')
+                # Force a mismatched sequence regardless of prefetch bounds.
+                command[at]=command[at].replace('trim=start_pts=', 'trim=start_pts=1+')
+            return original(job,session,command,**kwargs)
+        with patch.object(self.service,'_process',side_effect=wrong_seek):
+            result=self.frame(sid,97)
+        self.assertEqual(result['decode_mode'],'verified-prefix')
+        self.assertEqual(self.service.jobs[result['id']]['state'],'done')
+
+    def test_strict_video_export_all_frames_pts_pixels_and_persistent_history(self):
+        from fractions import Fraction
+        for name,first,last,container in [('cfr.mp4',5,31,'nut'),('vfr.mp4',93,102,'nut'),
+                ('offset.mp4',5,31,'nut'),('rotated.mp4',5,31,'nut'),('duplicate-pts.mkv',2,9,'mkv'),('cfr.mp4',0,0,'mkv')]:
+            with self.subTest(name=name,first=first,last=last):
+                sid=self.index(name)['id']
+                task=self.service.export(sid,{'first':first,'last':last,'audio':'none'})
+                result=self.wait(task['id'],'done')
+                self.assertEqual(result['format'],container)
+                output=self.app.video_review.output(task['id'])
+                manifest=json.loads(self.service.export_manifest(task['id']).read_text())
+                self.assertEqual((manifest['first_inclusive'],manifest['last_inclusive'],manifest['count']),(first,last,last-first+1))
+                raw_source=subprocess.check_output(['ffmpeg','-v','error','-i',str(self.media/name),'-map','0:v:0','-an',
+                    '-vf',f'select=between(n\\,{first}\\,{last}),setpts=N,format=rgb24','-fps_mode','passthrough','-f','rawvideo','-threads','1','pipe:1'])
+                raw_output=subprocess.check_output(['ffmpeg','-v','error','-i',str(output),'-map','0:v:0','-an','-vf','setpts=N,format=rgb24',
+                    '-fps_mode','passthrough','-f','rawvideo','-threads','1','pipe:1'])
+                self.assertEqual(raw_output,raw_source)
+                self.assertEqual(manifest['audio'],'none')
+                origin=int(manifest['frames'][0]['source_pts'])
+                for frame in manifest['frames']:
+                    self.assertEqual((int(frame['source_pts'])-origin)*Fraction(manifest['source_time_base']),int(frame['output_pts'])*Fraction(manifest['output_time_base']))
+                self.service.cancel(sid)
+                self.assertTrue(output.is_file())
+                self.assertTrue(self.service.export_manifest(task['id']).is_file())
+                self.assertEqual(self.service.status(task['id'])['state'],'done')
+        from yingxu.video_review import VideoReview
+        restored=VideoReview(self.app)
+        try:
+            self.assertEqual(restored.status(task['id'])['mode'],'frames')
+            self.assertEqual(restored.output(task['id']),output)
+        finally:restored.close()
+
+    def test_strict_export_validation_and_cancel_cleanup(self):
+        sid=self.index()['id']
+        for data in ({'first':0,'last':1,'audio':'copy'},{'first':True,'last':1,'audio':'none'},
+                {'first':2,'last':1,'audio':'none'},{'first':0,'last':192,'audio':'none'}):
+            with self.assertRaises(UserError):self.service.export(sid,data)
+        entered=threading.Event();release=threading.Event();original=self.service._process
+        def held(job,session,command,**kwargs):
+            if job['kind']=='export' and '-c:v' in command and 'ffv1' in command:
+                entered.set();release.wait(5)
+            return original(job,session,command,**kwargs)
+        with patch.object(self.service,'_process',side_effect=held):
+            task=self.service.export(sid,{'first':1,'last':80,'audio':'none'})
+            self.assertTrue(entered.wait(5));self.service.cancel(task['id']);release.set()
+            self.wait(task['id'],'cancelled')
+        self.assertFalse((self.app.video_review.root/task['id']).exists())
+        self.frame(sid,1)
+
+    def test_export_rejects_changed_output_pts_and_pixel_hashes(self):
+        sid=self.index()['id'];original=self.service._process
+        for mismatch in ('pts','pixels'):
+            if mismatch=='pixels':
+                with sqlite3.connect(self.service.sessions[sid]['directory']/'index.sqlite') as db:
+                    db.execute('UPDATE frames SET rgb_sha256=? WHERE ordinal=5',('0'*64,))
+            def corrupted(job,session,command,**kwargs):
+                value=original(job,session,command,**kwargs)
+                if job['kind']=='export' and '-show_entries' in command and mismatch=='pts':
+                    data=json.loads(value);data['frames'][-1]['pts']+=1
+                    return json.dumps(data).encode()
+                return value
+            with patch.object(self.service,'_process',side_effect=corrupted):
+                task=self.service.export(sid,{'first':5,'last':8,'audio':'none'})
+                self.wait(task['id'],'error')
+            self.assertFalse((self.app.video_review.root/task['id']).exists())
+            with self.assertRaises(UserError):self.app.video_review.output(task['id'])
+
+    def test_source_change_stops_inflight_process_and_deleted_source_invalidates(self):
+        import sys
+        path=self.root/'mutable.mp4';shutil.copyfile(self.media/'cfr.mp4',path)
+        iid=self.app.external.open({'paths':[str(path)]})['entries'][0]['id']
+        sid=self.wait(self.service.start({'source':'external','id':iid})['id'],'ready')['id']
+        entered=threading.Event()
+        def running(job,session):
+            entered.set()
+            self.service._process(job,session,[sys.executable,'-c','import time; time.sleep(30)'])
+        with patch.object(self.service,'_extract',side_effect=running):
+            task=self.service.frame(sid,{'ordinal':30});self.assertTrue(entered.wait(5))
+            with path.open('ab') as handle:handle.write(b'changed synthetic copy')
+            started=time.monotonic();result=self.wait(task['id'],'error')
+            self.assertLess(time.monotonic()-started,3)
+            self.assertIn('已改变',result['error'])
+        self.assertNotIn(sid,self.service.sessions)
+        path2=self.root/'removed.mp4';shutil.copyfile(self.media/'cfr.mp4',path2)
+        iid=self.app.external.open({'paths':[str(path2)]})['entries'][0]['id']
+        sid=self.wait(self.service.start({'source':'external','id':iid})['id'],'ready')['id']
+        cached=self.frame(sid,1);path2.unlink()
+        with self.assertRaises(UserError):self.service.image(cached['id'])
+        self.assertNotIn(sid,self.service.sessions)
+
     def test_http_auth_id_only_and_png(self):
         server=Server(('127.0.0.1',0),self.app);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         def request(method,path,data=None,headers=None):
@@ -205,6 +313,15 @@ class VideoFrameTests(unittest.TestCase):
             status,body,headers=request('GET','/api/video/frames/jobs/'+jid+'/image')
             self.assertEqual(status,200);self.assertTrue(body.startswith(b'\x89PNG'));self.assertIn('image/png',headers['Content-Type'])
             self.assertEqual(request('GET','/api/video/frames/jobs/'+jid+'/image',headers={'Origin':'https://evil.invalid'})[0],403)
+            export_route=route+'/'+sid+'/export';selection={'first':3,'last':7,'audio':'none'}
+            self.assertEqual(request('POST',export_route,selection,{'Origin':'https://evil.invalid'})[0],403)
+            status,body,_=request('POST',export_route,selection);self.assertEqual(status,202)
+            eid=json.loads(body)['id'];self.wait(eid,'done')
+            manifest_route='/api/video/frames/jobs/'+eid+'/manifest'
+            self.assertEqual(request('GET',manifest_route,headers={'Origin':'https://evil.invalid'})[0],403)
+            status,body,headers=request('GET',manifest_route)
+            self.assertEqual(status,200);self.assertEqual(json.loads(body)['count'],5)
+            self.assertIn('attachment',headers['Content-Disposition'])
             self.assertEqual(request('POST',route+'/'+sid+'/cancel',{})[0],200)
         finally:server.shutdown();server.server_close();thread.join()
 

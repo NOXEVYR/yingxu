@@ -55,10 +55,11 @@ class VideoReview:
                         directory=clean_path(Path(entry.path));receipt=clean_path(directory/'export.json')
                         if receipt.stat().st_size>4096:continue
                         saved=json.loads(receipt.read_text())
-                        if saved['id']!=entry.name or saved['mode'] not in ('copy','encode') or not re.fullmatch('[a-f0-9]{64}',saved['source_key']):continue
+                        if saved['id']!=entry.name or saved['mode'] not in ('copy','encode','frames') or not re.fullmatch('[a-f0-9]{64}',saved['source_key']):continue
                         number(saved['start']);number(saved['end'])
                         if type(saved['created']) not in (int,float) or not math.isfinite(saved['created']):continue
-                        output=clean_path(directory/('clip.mkv' if saved['mode']=='copy' else 'clip.mp4'))
+                        if saved['mode']=='frames' and saved.get('format') not in ('mkv','nut'):continue
+                        output=clean_path(directory/('clip.'+saved['format'] if saved['mode']=='frames' else 'clip.mkv' if saved['mode']=='copy' else 'clip.mp4'))
                         if not output.is_file():continue
                         self.jobs[entry.name]={**saved,'state':'done','error':None,'directory':directory,'output':output,'cancel':threading.Event()}
                     except (OSError,ValueError,KeyError,TypeError,UserError):continue
@@ -198,7 +199,7 @@ class VideoReview:
             if not job:
                 raise UserError('未找到此导出任务。', 404)
             return {'id': jid, 'state': job['state'], 'error': job['error'], 'mode': job['mode'],
-                    'start': job['start'], 'end': job['end'],
+                    'start': job['start'], 'end': job['end'], 'format': job.get('format'),
                     'download_url': '/api/video/exports/' + jid + '/file' if job['state'] == 'done' else None}
 
     def cancel(self, jid):

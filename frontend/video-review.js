@@ -42,7 +42,7 @@
         if(job.error)node.textContent+=' · '+job.error;
         const busy=['queued','running','cancelling'].includes(job.state);$('[data-review="cancel"]').hidden=!busy;$('[data-review="export"]').disabled=busy;
         if(job.download_url && (window.yingxuNativeStartup||window.yingxuMac)){const reveal=document.createElement('button');reveal.textContent='在文件夹中查看片段';reveal.onclick=()=>api(`/api/video/exports/${job.id}/reveal`,{method:'POST',body:{}}).catch(error=>status(error.message));node.append(reveal);}
-        else if(job.download_url){const link=document.createElement('a');link.href=job.download_url;link.download=job.mode==='copy'?'clip.mkv':'clip.mp4';link.textContent=' 下载片段';node.append(link);}
+        else if(job.download_url){const link=document.createElement('a');link.href=job.download_url;link.download=job.mode==='frames'?'clip.'+job.format:job.mode==='copy'?'clip.mkv':'clip.mp4';link.textContent=' 下载片段';node.append(link);}
         if(busy)pollTimer=setTimeout(poll,700);
       }catch(error){if(destroyed)return;$('.video-job').textContent='暂时无法读取任务状态；导出可能仍在运行。'+error.message;pollTimer=setTimeout(poll,2000);}
     }

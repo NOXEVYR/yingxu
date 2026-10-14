@@ -749,9 +749,10 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/video/frames/capability':
                     if query:raise UserError('帧能力查询不接受参数。')
                     return self.json(self.app.video_frames.capability())
-                frame_job=re.fullmatch(r'/api/video/frames/jobs/([a-f0-9]{32})(/image)?',path)
+                frame_job=re.fullmatch(r'/api/video/frames/jobs/([a-f0-9]{32})(/image|/manifest)?',path)
                 if frame_job:
                     if query:raise UserError('帧任务查询不接受参数。')
+                    if frame_job[2]=='/manifest':return self.file(self.app.video_frames.export_manifest(frame_job[1]),attachment=True)
                     if frame_job[2]:return self.file(self.app.video_frames.image(frame_job[1]),media=True)
                     return self.json(self.app.video_frames.status(frame_job[1]))
                 review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
@@ -993,13 +994,14 @@ class Handler(BaseHTTPRequestHandler):
                 if path=='/api/video/frames/index':
                     if query:raise UserError('帧索引不接受查询参数。')
                     return self.json(self.app.video_frames.start(data),202)
-                frame_action=re.fullmatch(r'/api/video/frames/(index|jobs)/([a-f0-9]{32})/(frame|cancel)',path)
+                frame_action=re.fullmatch(r'/api/video/frames/(index|jobs)/([a-f0-9]{32})/(frame|export|cancel)',path)
                 if frame_action:
                     if query:raise UserError('帧操作不接受查询参数。')
                     if frame_action[3]=='cancel':
                         if data:raise UserError('取消帧任务不接受额外参数。')
                         return self.json(self.app.video_frames.cancel(frame_action[2]))
                     if frame_action[1]!='index':raise UserError('请指定帧索引会话。')
+                    if frame_action[3]=='export':return self.json(self.app.video_frames.export(frame_action[2],data),202)
                     return self.json(self.app.video_frames.frame(frame_action[2],data),202)
                 review=re.fullmatch(r'/api/video/review/(file|external)/([a-f0-9]{32})',path)
                 if review:
