@@ -10,12 +10,125 @@ import subprocess
 import tempfile
 import threading
 import time
+from contextlib import closing
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from server import Application, Server
 from yingxu.store import UserError
 from yingxu.video_frames import VideoFrames
+
+
+class WindowsFrameSignatureTests(unittest.TestCase):
+    def _assert_change_time_readability_transition_during_hash(self, before, after):
+        with tempfile.TemporaryDirectory(prefix='yingxu-win-change-time-transition-') as temporary:
+            path=Path(temporary)/'源片 中文.mp4';path.write_bytes(b'unchanged bytes')
+            digest=hashlib.sha256(b'unchanged bytes').hexdigest()
+            service=VideoFrames.__new__(VideoFrames)
+            service.closed=False
+            service._source=lambda session:path
+            service._check=lambda job,session: None
+            # Force a digest read so both metadata snapshots bracket the hash.
+            session={'path':path,'sha256':digest,'hash_signature':None,'invalid':False}
+            job={'started':time.monotonic(),'kind':'index','bytes':0}
+            with patch('yingxu.video_frames.sys.platform','win32'), \
+                    patch.object(service,'_hash_signature',side_effect=[(before, before[-1] is not None),
+                                                                        (after, after[-1] is not None)]):
+                self.assertEqual(service._hash(job,session),digest)
+            self.assertFalse(session['invalid'])
+            self.assertIsNone(session['hash_signature'])
+
+    def test_readable_change_time_may_become_unavailable_during_hash(self):
+        self._assert_change_time_readability_transition_during_hash(
+            [1,2,5,3,77,123],[1,2,5,3,77,None])
+
+    def test_unavailable_change_time_may_become_readable_during_hash(self):
+        self._assert_change_time_readability_transition_during_hash(
+            [1,2,5,3,77,None],[1,2,5,3,77,123])
+
+    def test_unavailable_change_time_rehashes_and_restores_cache_safely(self):
+        with tempfile.TemporaryDirectory(prefix='yingxu-win-change-time-fallback-') as temporary:
+            path=Path(temporary)/'源片 中文.mp4';path.write_bytes(b'first')
+            token={'value':123}
+            class Review:
+                def source(self, source, item): return path
+            service=VideoFrames.__new__(VideoFrames)
+            service.app=SimpleNamespace(video_review=Review());service.closed=False
+            service._check=lambda job,session: None
+            session={'path':path,'source':'external','item':'fixture','fingerprint':[1,2,5,3],
+                     'cancel':threading.Event(),'invalid':False}
+            job={'started':time.monotonic(),'kind':'index','bytes':0}
+            stable_stat=SimpleNamespace(st_ctime_ns=77)
+            with patch('yingxu.video_frames.sys.platform','win32'), \
+                    patch('yingxu.video_frames.fingerprint',return_value=[1,2,5,3]), \
+                    patch('yingxu.video_frames.windows_change_time',side_effect=lambda _:token['value']), \
+                    patch.object(Path,'stat',return_value=stable_stat):
+                digest=service._hash(job,session)
+                session['sha256']=digest
+                self.assertEqual(session['hash_signature'][-1],123)
+
+                token['value']=None
+                self.assertIs(service._source(session),path)
+                self.assertFalse(session['invalid'])
+                self.assertEqual(service._hash(job,session),digest)
+                self.assertIsNone(session['hash_signature'])
+
+                token['value']=123
+                self.assertEqual(service._hash(job,session),digest)
+                self.assertEqual(session['hash_signature'][-1],123)
+
+                token['value']=None
+                path.write_bytes(b'other')
+                with self.assertRaisesRegex(UserError,'内容已改变'):
+                    service._hash(job,session)
+            self.assertTrue(session['invalid'])
+
+    def test_change_time_invalidates_hash_when_creation_time_and_mtime_are_stable(self):
+        with tempfile.TemporaryDirectory(prefix='yingxu-win-change-time-') as temporary:
+            path=Path(temporary)/'源片 中文.mp4';path.write_bytes(b'first')
+            token={'value':101}
+            class Review:
+                def source(self, source, item): return path
+            service=VideoFrames.__new__(VideoFrames)
+            service.app=SimpleNamespace(video_review=Review());service.closed=False
+            service._check=lambda job,session: None
+            session={'path':path,'source':'external','item':'fixture','fingerprint':[1,2,5,3],
+                     'cancel':threading.Event(),'invalid':False}
+            job={'started':time.monotonic(),'kind':'index','bytes':0}
+            stable_stat=SimpleNamespace(st_ctime_ns=77)
+            with patch('yingxu.video_frames.sys.platform','win32'), \
+                    patch('yingxu.video_frames.fingerprint',return_value=[1,2,5,3]), \
+                    patch('yingxu.video_frames.windows_change_time',side_effect=lambda _:token['value']), \
+                    patch.object(Path,'stat',return_value=stable_stat):
+                first=service._hash(job,session)
+                self.assertEqual(first,hashlib.sha256(b'first').hexdigest())
+                path.write_bytes(b'other')
+                token['value']=102
+                with self.assertRaisesRegex(UserError,'已改变'):
+                    service._hash(job,session)
+            self.assertTrue(session['invalid'])
+
+    def test_windows_process_uses_unicode_bundle_path_and_releases_owned_files(self):
+        with tempfile.TemporaryDirectory(prefix='yingxu-win-process-') as temporary:
+            root=Path(temporary).resolve();directory=root/'缓存 中文';directory.mkdir()
+            executable=directory/'运行库 bin'/'ffmpeg.exe';executable.parent.mkdir()
+            service=VideoFrames.__new__(VideoFrames)
+            service.lock=threading.RLock();service.root=root;service.sessions={}
+            service._check=lambda job,session: None
+            session={'id':'a'*32,'directory':directory,'owned':set(),
+                     'tools':{'ffmpeg':{'path':str(executable.resolve())}}}
+            job={'id':'b'*32,'cancel':threading.Event()}
+            process=SimpleNamespace(returncode=0,poll=lambda:0)
+            with patch('yingxu.video_frames.sys.platform','win32'), \
+                    patch('yingxu.video_frames.subprocess.Popen',return_value=process) as popen:
+                service._process(job,session,[str(executable),'-version'])
+            environment=popen.call_args.kwargs['env']
+            search=environment['PATH'].split(';')
+            self.assertEqual(search[0],str(executable.parent))
+            self.assertNotIn(os.environ.get('PATH',''),search)
+            self.assertEqual({path.name for path in directory.iterdir() if path.is_file()},{'owner.json'})
+            self.assertFalse(session['owned'])
 from tools.make_video_fixtures import generate
 
 
@@ -76,7 +189,7 @@ class VideoFrameTests(unittest.TestCase):
                 index = self.index(name); sid = index['id']
                 self.assertEqual(index['count'], count)
                 probe = json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_frames','-show_entries','frame=pts,best_effort_timestamp','-of','json',str(self.media/name)]))['frames']
-                with sqlite3.connect(self.service.sessions[sid]['directory']/'index.sqlite') as db:
+                with closing(sqlite3.connect(self.service.sessions[sid]['directory']/'index.sqlite')) as db, db:
                     rows = db.execute('SELECT ordinal,pts FROM frames ORDER BY ordinal').fetchall()
                 self.assertEqual(rows, [(n, row.get('pts')) for n,row in enumerate(probe)])
                 if name=='vfr.mp4': self.assertGreater(len({rows[n+1][1]-rows[n][1] for n in range(count-1)}),1)
@@ -189,8 +302,45 @@ class VideoFrameTests(unittest.TestCase):
         try:self.assertEqual([p.name for p in folder.iterdir()],['unknown.txt'])
         finally:restored.close()
         with patch('yingxu.video_frames.sys.platform','darwin'):self.assertFalse(self.service.capability()['available'])
-        with patch('yingxu.video_frames.sys.platform','win32'):self.assertFalse(self.service.capability()['available'])
-        with patch('yingxu.video_frames.ffprobe_path',return_value=None):self.assertFalse(self.service.capability()['available'])
+        with patch('yingxu.video_frames.sys.platform','win32'), patch('yingxu.video_frames.frame_tool_paths',return_value=(None,None)):
+            self.assertFalse(self.service.capability()['available'])
+        with patch('yingxu.video_frames.frame_tool_paths',return_value=('locked-ffmpeg',None)):
+            self.assertFalse(self.service.capability()['available'])
+
+    def test_unicode_source_path_is_decoded_and_exported(self):
+        source_dir=self.root/'素材 中文';source_dir.mkdir()
+        source=source_dir/'镜头 测试.mp4';shutil.copyfile(self.media/'cfr.mp4',source)
+        iid=self.app.external.open({'paths':[str(source)]})['entries'][0]['id']
+        index=self.wait(self.service.start({'source':'external','id':iid})['id'],'ready')
+        frame=self.frame(index['id'],7)
+        self.assertEqual(frame['ordinal'],7)
+        task=self.service.export(index['id'],{'first':4,'last':6,'audio':'none'})
+        result=self.wait(task['id'],'done')
+        self.assertEqual(result['count'],3)
+        self.assertTrue(self.app.video_review.output(task['id']).is_file())
+
+    @unittest.skipUnless(os.name=='nt','Windows source-handle behavior')
+    def test_windows_cancel_releases_handle_for_unicode_source(self):
+        source_dir=self.root/'源片 中文';source_dir.mkdir()
+        source=source_dir/'取消时仍在解码.mp4';shutil.copyfile(self.media/'cfr.mp4',source)
+        self.originals[source]=hashlib.sha256(source.read_bytes()).hexdigest()
+        iid=self.app.external.open({'paths':[str(source)]})['entries'][0]['id']
+        sid=self.wait(self.service.start({'source':'external','id':iid})['id'],'ready')['id']
+        entered=threading.Event();original_popen=subprocess.Popen
+        def tracked_popen(*args,**kwargs):
+            process=original_popen(*args,**kwargs);entered.set();return process
+        def hold_source(job,session):
+            self.service._process(job,session,[session['tools']['ffmpeg']['path'],'-re','-nostdin','-hide_banner',
+                '-loglevel','error','-i',str(session['path']),'-map','0:v:0','-an','-f','null','-'])
+        with patch.object(self.service,'_extract',side_effect=hold_source), \
+                patch('yingxu.video_frames.subprocess.Popen',side_effect=tracked_popen):
+            task=self.service.frame(sid,{'ordinal':10})
+            self.assertTrue(entered.wait(5))
+            self.service.cancel(task['id'])
+            self.wait(task['id'],'cancelled')
+        moved=source.with_name('取消后可重命名.mp4')
+        os.replace(source,moved);os.replace(moved,source)
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),self.originals[source])
 
     def test_keyframe_seek_verified_and_mismatch_falls_back(self):
         sid=self.index()['id']
@@ -262,7 +412,7 @@ class VideoFrameTests(unittest.TestCase):
         sid=self.index()['id'];original=self.service._process
         for mismatch in ('pts','pixels'):
             if mismatch=='pixels':
-                with sqlite3.connect(self.service.sessions[sid]['directory']/'index.sqlite') as db:
+                with closing(sqlite3.connect(self.service.sessions[sid]['directory']/'index.sqlite')) as db, db:
                     db.execute('UPDATE frames SET rgb_sha256=? WHERE ordinal=5',('0'*64,))
             def corrupted(job,session,command,**kwargs):
                 value=original(job,session,command,**kwargs)

@@ -1,10 +1,12 @@
 # 本阶段暂停帧与严格导出候选
 
+- 0.4.36/frames.4 增加 Windows 本地交付：运行库必须来自锁定档案并同时保留 FFmpeg / ffprobe，逐帧入口验证两者的清单、大小、摘要与版本，不接受 Windows PATH 回退。Windows 源文件摘要复用须检查文件 ChangeTime，不能把创建时间当修改签名；元数据不可读时重新校验。取消或失败先结束子进程、关闭所有 SQLite/输出句柄，再清理本任务缓存。最终包需通过 `tools/verify_release.py` 的真实帧索引、PNG、严格导出像素/PTS 和取消回归。macOS 逐帧能力仍关闭，Windows 验收不能充当 Mac 验收。
+
 - 0.4.35/frames.3：后台建索引不得暂停/阻断常规播放、AB、seek 或审片操作，完成不抢占画面；显式进入静帧才暂停。返回播放保留就绪索引，关闭/取消/源失效清理；异步晚到回调需隔离。FFmpeg/ffprobe 输入解码与输出编码、滤镜分别1线程，保留单worker预算，不等于进程只有1线程。新增真实长片 tools/video_frames_background_smoke.py 覆盖媒体时钟、Range、UI事件循环与生命周期；不得用人工闸门作性能证据。严格音频因末帧边界复验不足仍不接入，保留醒目“仅视频 FFV1 · 不含音频”。
 
 - 0.4.34/frames.2：索引增加完整顺序 RGB SHA-256，关键帧 seek 后所有图片必须逐张匹配，否则回退起点；重复/缺失/倒退 PTS 仍按 ordinal 起点解码。Linux 以 inode/size/mtime/ctime 复用源摘要，源签名变化立即使缓存失效，不能将该元数据检查写成每次全文件 SHA。
 - 严格导出 [first,last] 两端包含，FFV1 无声 MKV/NUT，完整复验像素/帧数/有理 PTS 后才发布；末帧时长不承诺，音频严格裁切未实现，UI 必须明示不含音频和 FFV1/NUT 兼容性。保留现有带音频按时间导出，快速窗口不加入重型帧功能。
-- 定向检查 test_video_frames.py、test_video_review.py、tools/video_frames_smoke.py 与 tools/video_frames_benchmark.py；长片速度只能来自真实合成素材，人工闸门不能充当性能证据。Windows/Mac 未核验 ffprobe，能力保持关闭；不得换源下载、复制系统运行时、安装/发布或操作个人素材。
+- 定向检查 test_video_frames.py、test_video_review.py、tools/video_frames_smoke.py 与 tools/video_frames_benchmark.py；长片速度只能来自真实合成素材，人工闸门不能充当性能证据。0.4.35 云端候选的 Windows/Mac ffprobe 未验收；后续 Windows 交付按上方 0.4.36 要求推进，不得复制系统运行时或操作个人素材。安装与发布范围以用户当次授权为准。
 
 # 当前交付源码范围
 

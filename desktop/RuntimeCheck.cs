@@ -31,8 +31,8 @@ namespace YingXu.Desktop
                     timeout.Start();
                     try
                     {
-                        string folder = Hub.BundledBrowserFolder();
-                        if (folder == null) throw new Exception("Bundled browser missing");
+                        string folder = args.Length > 1 ? Path.GetFullPath(args[1]) : Hub.BundledBrowserFolder();
+                        if (folder == null || !File.Exists(Path.Combine(folder, "msedgewebview2.exe"))) throw new Exception("Bundled browser missing");
                         Hub.PrepareBrowserFolder(folder);
                         var environment = await CoreWebView2Environment.CreateAsync(folder, temporary);
                         await web.EnsureCoreWebView2Async(environment);

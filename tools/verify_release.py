@@ -2,6 +2,7 @@
 import argparse
 import base64
 import hashlib
+from fractions import Fraction
 import http.client
 import json
 import os
@@ -410,6 +411,92 @@ def check_media(port, root, base, interpreter, environment):
             'project PNG upload and Markdown link/image routes preserve exact image bytes and original note']
 
 
+def check_video_frames(port, root, base, data, environment):
+    """Exercise the extracted bundle's real tools and HTTP frame/export routes."""
+    tools = root / 'runtime/ffmpeg/bin'
+    ffmpeg, ffprobe = tools / 'ffmpeg.exe', tools / 'ffprobe.exe'
+    assert ffmpeg.is_file() and ffprobe.is_file()
+    source = base / '逐帧 中文 空间.mp4'
+    subprocess.run([str(ffmpeg), '-nostdin', '-v', 'error', '-f', 'lavfi', '-i',
+                    'testsrc2=size=160x90:rate=24:duration=2', '-c:v', 'libx264',
+                    '-threads', '1', '-pix_fmt', 'yuv420p', str(source)],
+                   env=environment, check=True, capture_output=True, timeout=30)
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    token = request(port, 'GET', '/api/bootstrap')['token']
+    capability = request(port, 'GET', '/api/video/frames/capability')
+    assert capability['available'], capability
+    item = request(port, 'POST', '/api/external-open', {'paths': [str(source)]}, token)['entries'][0]
+    prefix = '/api/video/frames/'
+
+    def wait(job_id, terminal):
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            state = request(port, 'GET', prefix + 'jobs/' + job_id)
+            if state['state'] not in ('queued', 'running', 'cancelling'):
+                assert state['state'] == terminal, state
+                return state
+            time.sleep(.05)
+        raise AssertionError('Packaged frame operation timed out')
+
+    def binary(route):
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
+        try:
+            connection.request('GET', route)
+            response = connection.getresponse()
+            assert response.status == 200, (route, response.status)
+            raw = response.read(64 * 1024 * 1024)
+            assert not response.read(1), 'Oversized synthetic frame response'
+            return raw
+        finally:
+            connection.close()
+
+    start = {'source': 'external', 'id': item['id']}
+    sid = request(port, 'POST', prefix + 'index', start, token)['id']
+    index = wait(sid, 'ready')
+    assert index['count'] == index['verified_frames'] == 48, index
+    for ordinal in (0, 24, 25, 47):
+        jid = request(port, 'POST', prefix + 'index/' + sid + '/frame', {'ordinal': ordinal}, token)['id']
+        frame = wait(jid, 'done')
+        assert frame['ordinal'] == ordinal and frame['source_sha256'] == source_hash
+        assert binary(frame['image_url']).startswith(b'\x89PNG\r\n\x1a\n')
+    eid = request(port, 'POST', prefix + 'index/' + sid + '/export',
+                  {'first': 3, 'last': 7, 'audio': 'none'}, token)['id']
+    exported = wait(eid, 'done')
+    manifest = json.loads(binary(exported['manifest_url']))
+    assert manifest['count'] == exported['count'] == 5
+    assert manifest['audio'] == 'none'
+    output = base / ('严格源帧.' + exported['format'])
+    output.write_bytes(binary(exported['download_url']))
+    probe = json.loads(subprocess.check_output([str(ffprobe), '-v', 'error', '-show_streams',
+                       '-show_frames', '-of', 'json', str(output)], env=environment, timeout=30))
+    assert len(probe['streams']) == 1 and probe['streams'][0]['codec_name'] == 'ffv1'
+    tb = Fraction(probe['streams'][0]['time_base'])
+    assert [int(frame['pts']) * tb for frame in probe['frames']] == [Fraction(n, 24) for n in range(5)]
+
+    def pixels(path):
+        return subprocess.check_output([str(ffmpeg), '-v', 'error', '-i', str(path), '-map', '0:v:0',
+            '-an', '-vf', 'format=rgb24', '-fps_mode', 'passthrough', '-f', 'rawvideo', '-threads', '1', 'pipe:1'],
+            env=environment, timeout=30)
+
+    frame_bytes = 160 * 90 * 3
+    assert pixels(output) == pixels(source)[3 * frame_bytes:8 * frame_bytes]
+    request(port, 'POST', prefix + 'index/' + sid + '/cancel', {}, token)
+    wait(sid, 'cancelled')
+    assert not (data / 'video-frames' / sid).exists()
+    sid = request(port, 'POST', prefix + 'index', start, token)['id']
+    request(port, 'POST', prefix + 'index/' + sid + '/cancel', {}, token)
+    wait(sid, 'cancelled')
+    assert not (data / 'video-frames' / sid).exists()
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
+    moved = source.with_suffix('.released.mp4')
+    source.rename(moved)
+    moved.rename(source)
+    return ['packaged locked FFmpeg/ffprobe frame capability without PATH',
+            'real 48-frame index, first/middle/adjacent/last PNG extraction using Chinese paths',
+            'inclusive five-frame FFV1 export independently matches source RGB pixels and rational PTS',
+            'ready-index and immediate new-index cancellation release cache and source file handles']
+
+
 def check_static_formats(port, base):
     token = request(port, 'GET', '/api/bootstrap')['token']
     samples = {
@@ -552,6 +639,7 @@ def main():
             pid = pid_record['pid']
             checked += check_server(port, data, projects, expected_identity=identity, expected_program_root=root)
             checked += check_media(port, root, base, interpreter, environment)
+            checked += check_video_frames(port, root, base, data, environment)
             checked += check_static_formats(port, base)
             second = subprocess.run([interpreter, '-B', str(root / 'launcher.pyw'), '--no-browser', '--no-dialog', '--port', str(port)],
                                     cwd=root, env=environment, capture_output=True, timeout=10)

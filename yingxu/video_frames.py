@@ -3,7 +3,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from pathlib import Path
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 import hashlib
 import json
 import os
@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from .runtime import ffmpeg_path, ffprobe_path, image_support
+from .runtime import frame_tool_paths, frame_tool_version, image_support, windows_change_time
 from .store import UserError, clean_path, uid
 from .video_review import fingerprint
 
@@ -46,9 +46,10 @@ class VideoFrames:
     def capability(self):
         if sys.platform == 'darwin':
             return {'available': False, 'reason': 'Mac 暂未验收受控帧索引工具，暂停帧检查尚未开放。'}
-        if sys.platform == 'win32':
-            return {'available': False, 'reason': 'Windows 暂停帧检查尚未开放：本候选未能验收锁定档案中的 ffprobe，不能使用任意本机工具替代。'}
-        available = bool(ffmpeg_path() and ffprobe_path() and image_support())
+        ffmpeg, ffprobe = frame_tool_paths()
+        available = bool(ffmpeg and ffprobe and image_support())
+        if sys.platform == 'win32' and not (ffmpeg and ffprobe):
+            return {'available': False, 'reason': 'Windows 帧检查需要同一锁定运行库清单中的 FFmpeg 与 ffprobe；不会改用系统 PATH 工具。'}
         return {'available': available, 'reason': '' if available else '缺少经支持的 FFmpeg / ffprobe；Windows 需含已核验工具的运行时包。'}
 
     def _recover_owned(self):
@@ -110,8 +111,15 @@ class VideoFrames:
     def _source(self, session):
         try:
             path = self.app.video_review.source(session['source'], session['item'])
-            changed = (path != session['path'] or fingerprint(path) != session['fingerprint'] or
-                (session.get('hash_signature') and path.stat().st_ctime_ns != session['hash_signature'][-1]))
+            changed = path != session['path'] or fingerprint(path) != session['fingerprint']
+            previous_signature = session.get('hash_signature')
+            if not changed and previous_signature is not None:
+                current_signature, cacheable = self._hash_signature(path)
+                # FILE_BASIC_INFO can be temporarily unavailable on Windows.
+                # A missing change-time cannot prove mutation: force _hash to
+                # read the bytes again and compare against the indexed digest.
+                if cacheable and current_signature != previous_signature:
+                    changed = True
         except (OSError, UserError):
             session['invalid'] = True
             raise UserError('源视频已移除或不可访问，帧检查已失效。', 409) from None
@@ -120,12 +128,22 @@ class VideoFrames:
             raise UserError('源视频已改变，旧帧索引已失效，请重新建立索引。', 409)
         return path
 
+    @staticmethod
+    def _hash_signature(path):
+        stat = path.stat()
+        signature = fingerprint(path) + [stat.st_ctime_ns]
+        if sys.platform == 'win32':
+            change_time = windows_change_time(path)
+            signature.append(change_time)
+            return signature, change_time is not None
+        return signature, True
+
     def _hash(self, job, session):
         path = self._source(session)
-        # Linux ctime cannot be restored with utime. Reuse a hash only while the
-        # inode, size, mtime AND ctime remain unchanged; platform gate is explicit.
-        signature = fingerprint(path) + [path.stat().st_ctime_ns]
-        if session.get('hash_signature') == signature:
+        # Windows st_ctime is creation time, so use FILE_BASIC_INFO.ChangeTime.
+        # Linux ctime and the full file identity remain suitable hash-cache keys.
+        signature, cacheable = self._hash_signature(path)
+        if cacheable and session.get('hash_signature') == signature:
             self._check(job, session)
             return session['sha256']
         digest = hashlib.sha256()
@@ -134,14 +152,22 @@ class VideoFrames:
             while block := stream.read(1024 * 1024):
                 self._check(job, session); digest.update(block); job['bytes'] += len(block)
         self._source(session)
-        if fingerprint(path) + [path.stat().st_ctime_ns] != signature:
+        after, after_cacheable = self._hash_signature(path)
+        # A Windows change-time read may fail transiently between the two
+        # metadata snapshots. In that case compare the stable file identity,
+        # size and mtime, then rely on the full digest below; never cache a
+        # signature unless both change-time reads were available.
+        metadata_changed = after[:4] != signature[:4]
+        if cacheable and after_cacheable:
+            metadata_changed = metadata_changed or after != signature
+        if metadata_changed:
             session['invalid'] = True
             raise UserError('源视频在校验中改变，请重新建立索引。', 409)
         value = digest.hexdigest()
         if session.get('sha256') and session['sha256'] != value:
             session['invalid'] = True
             raise UserError('源视频内容已改变，旧帧索引已失效。', 409)
-        session['hash_signature'] = signature
+        session['hash_signature'] = signature if cacheable and after_cacheable else None
         return value
 
     def _process(self, job, session, command, *, limit=MAX_INDEX, consume=None):
@@ -161,8 +187,16 @@ class VideoFrames:
         process = None
         try:
             with out.open('wb') as stdout, log.open('wb') as stderr:
+                process_env = None
+                if sys.platform == 'win32' and executable in {tool.get('path') for tool in tools.values()}:
+                    process_env = os.environ.copy()
+                    search = [str(Path(executable).parent)]
+                    system_root = process_env.get('SystemRoot')
+                    if system_root:
+                        search.append(str(Path(system_root) / 'System32'))
+                    process_env['PATH'] = ';'.join(search)
                 process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
-                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env=process_env)
                 with out.open('rb') as reader:
                     while True:
                         self._check(job, session)
@@ -317,14 +351,19 @@ class VideoFrames:
 
     def _index(self, job, session):
         session['sha256'] = self._hash(job, session)
-        probe = ffprobe_path()
+        ffmpeg, probe = frame_tool_paths()
+        if not ffmpeg or not probe:
+            raise UserError(self.capability()['reason'] or '缺少受支持的 FFmpeg 与 ffprobe。', 503)
         session['tools'] = {}
         versions = []
-        for name, executable in [('ffmpeg', ffmpeg_path()), ('ffprobe', probe)]:
+        for name, executable in [('ffmpeg', ffmpeg), ('ffprobe', probe)]:
             session['tools'][name] = {'path': str(Path(executable).resolve()), 'fingerprint': fingerprint(Path(executable))}
             version = self._process(job, session, [executable, '-version'], limit=65536).decode('utf-8').splitlines()[0]
             versions.append(version.split('version ', 1)[1].split(' ', 1)[0])
-        if versions[0] != versions[1]: raise UserError('FFmpeg 和 ffprobe 版本不一致，不能建立可靠索引。', 503)
+        expected = frame_tool_version() if sys.platform == 'win32' else None
+        if (versions[0] != versions[1] or
+                (sys.platform == 'win32' and (not expected or not versions[0].startswith(expected)))):
+            raise UserError('FFmpeg 与 ffprobe 不符合锁定运行库版本。', 503)
         session['tool_version'] = versions[0]
         options = [probe, '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm,avi']
         job['phase'] = '读取流信息'
@@ -344,7 +383,7 @@ class VideoFrames:
         if tb <= 0: raise UserError('无效时间基。')
         session['stream'] = stream; session['time_base'] = str(tb)
         db = self._own(session, 'index.sqlite')
-        with sqlite3.connect(db) as connection:
+        with closing(sqlite3.connect(db)) as connection, connection:
             connection.execute('PRAGMA journal_mode=OFF')
             connection.execute('CREATE TABLE frames(ordinal INTEGER PRIMARY KEY, pts INTEGER, best_pts INTEGER, duration INTEGER, key_frame INTEGER)')
             def consume(reader, final):
@@ -383,7 +422,7 @@ class VideoFrames:
     def _pixel_index(self, job, session):
         """A whole-stream RGB oracle allows seek optimization to fail closed."""
         job['phase'] = '顺序解码校验像素（供后续快速定位核对）'
-        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+        with closing(sqlite3.connect(session['directory'] / 'index.sqlite')) as db, db:
             db.execute('ALTER TABLE frames ADD COLUMN rgb_sha256 TEXT')
             number = 0
             def consume(reader, final):
@@ -423,7 +462,7 @@ class VideoFrames:
         names = [f'frame-{n}.png' for n in range(first, last+1)]
         job['created_frames'] = names
         for name in names: self._own(session, name)
-        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+        with closing(sqlite3.connect(session['directory'] / 'index.sqlite')) as db, db:
             hashes = dict(db.execute('SELECT ordinal,rgb_sha256 FROM frames WHERE ordinal BETWEEN ? AND ?', (first,last)))
             anchor = db.execute('SELECT ordinal,pts FROM frames WHERE key_frame=1 AND ordinal<=? ORDER BY ordinal DESC LIMIT 1', (first,)).fetchone()
         accelerated = bool(session['seek_safe'] and anchor and anchor[0] > 0)
@@ -468,7 +507,7 @@ class VideoFrames:
                 raise UserError('解码工具已变化，请重新建立帧索引。', 409)
         self._hash(job, session)
         ordinal = job['ordinal']; count = session['count']
-        with sqlite3.connect(session['directory'] / 'index.sqlite') as connection:
+        with closing(sqlite3.connect(session['directory'] / 'index.sqlite')) as connection, connection:
             row = connection.execute('SELECT pts,best_pts,duration,key_frame FROM frames WHERE ordinal=?', (ordinal,)).fetchone()
         key = (session['id'], ordinal)
         if key not in self.cache:
@@ -504,7 +543,7 @@ class VideoFrames:
             if fingerprint(Path(tool['path'])) != tool['fingerprint']:
                 raise UserError('解码工具已变化，请重新建立帧索引。', 409)
         first, last = job['first'], job['last']
-        with sqlite3.connect(session['directory'] / 'index.sqlite') as db:
+        with closing(sqlite3.connect(session['directory'] / 'index.sqlite')) as db, db:
             rows = db.execute('SELECT ordinal,pts,duration,rgb_sha256 FROM frames WHERE ordinal BETWEEN ? AND ? ORDER BY ordinal', (first,last)).fetchall()
         if any(row[1] is None for row in rows): raise UserError('范围含缺失 PTS，不能严格导出。', 422)
         times = [(row[1]-rows[0][1])*Fraction(session['time_base']) for row in rows]
@@ -599,7 +638,7 @@ class VideoFrames:
                     for name in job.get('created_frames', []):
                         self.cache.pop((session['id'], int(name[6:-4])), None)
                         try: self._unlink(session, name)
-                        except OSError: job['error'] = '部分本任务帧缓存清理未完成。'
+                        except OSError: self._note_cleanup_error(job, '部分本任务帧缓存清理未完成。')
                 if job['kind'] == 'index' and job['state'] != 'ready': session['cancel'].set()
                 if session['invalid']: session['cancel'].set()
                 if session['cancel'].is_set() and not any(j['session'] == session['id'] and j['state'] in ACTIVE for j in self.jobs.values()):
@@ -613,8 +652,13 @@ class VideoFrames:
             (session['directory'] / 'owner.json').unlink(missing_ok=True)
             session['directory'].rmdir()
         except OSError:
-            self.jobs[session['id']]['error'] = '部分帧缓存清理未完成，未删除任何未知文件。'
+            self._note_cleanup_error(self.jobs[session['id']], '部分帧缓存清理未完成，未删除任何未知文件。')
         self.sessions.pop(session['id'], None)
+
+    @staticmethod
+    def _note_cleanup_error(job, message):
+        original = job.get('error')
+        job['error'] = f'{original}（{message}）' if original else message
 
     def close(self):
         with self.lock:

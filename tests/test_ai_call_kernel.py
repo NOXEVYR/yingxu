@@ -152,7 +152,9 @@ class AICallKernelTests(unittest.TestCase):
         self.assertEqual(self.mock.counts['cancel'], 1)
         self.mock.query_state = 'cancelled'
         self.calls.query(self.task['id'], self.run['id'], attempt['id'])
-        self.assertEqual(self.wait(attempt)['state'], 'cancelled')
+        # A preceding cancel result is already terminal for the generic wait.
+        # Observe this query's result before asserting its confirmed state.
+        self.assertEqual(self.wait(attempt, lambda x: x['last_action'] == 'query')['state'], 'cancelled')
 
     def test_unsupported_cancel_and_lookup_are_honest(self):
         self.mock.capabilities['operations'][0]['supports'].update(cancel=False, lookup=False)
