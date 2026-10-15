@@ -1,7 +1,7 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 function fixture(){
- const nodes=new Map(),calls=[],layouts=[],doc={documentElement:{dataset:{}},querySelector:key=>{if(!nodes.has(key))nodes.set(key,{classList:{toggle:(name,value)=>layouts.push([name,value])},focus(){},value:''});return nodes.get(key);}};
+ const nodes=new Map(),calls=[],layouts=[],doc={documentElement:{dataset:{}},querySelectorAll:()=>[],querySelector:key=>{if(!nodes.has(key))nodes.set(key,{classList:{toggle:(name,value)=>layouts.push([name,value])},setAttribute(){},focus(){},value:''});return nodes.get(key);}};
  const context=vm.createContext({window:{},document:doc,localStorage:{getItem:()=>null},setTimeout,clearTimeout,URLSearchParams,calls});
  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').replace(/boot\(\);\s*$/,'');
  vm.runInContext(source+`;api=async(url,options)=>{calls.push({url,options});return {...state.bootstrap.settings,...options.body};};toast=()=>{};renderNavigation=()=>calls.push('navigation');renderSkills=()=>calls.push('skills');renderWorkspace=()=>{throw Error('Mode switch must not render editor');};globalThis.fixture={state,setWorkspaceLayout,applyWorkbenchLayout,focusWorkbench,skillNavigationHtml,preference};`,context);
@@ -25,4 +25,23 @@ test('failure and duplicate clicks cannot claim saved mode or make extra writes'
 test('skills sidebar escapes metadata and bounds visible tags; resource navigation is a reachable action',()=>{
  const s=fixture(),nav={selected:{view:'all',folder:'*',tag:''},organizationEnabled:true,scopes:[{id:'all',label:'全部技能',count:30}],folders:[{id:'f',name:'<script>',label:'<script>',count:2}],tags:Array.from({length:80},(_,i)=>({id:'t'+i,label:'tag'+i,count:1}))};
  const html=s.skillNavigationHtml(nav);assert.match(html,/data-action="return-workspace"/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);assert.equal((html.match(/data-skill-tag=/g)||[]).length,17);assert.match(html,/查看全部 80 个标签/);
+});
+
+test('video modes retain the mounted session and review draft while changing visible shell panels',async()=>{
+ const s=fixture(),session={id:'index-kept'},draft={in:3,out:8,markers:[{time:4,note:'keep'}]};
+ const tab={key:'external:video',source:'external',item:{kind:'video'},videoReviewDirty:true,videoReviewDraft:draft,session};
+ Object.assign(s.state,{tabs:[tab],activeKey:tab.key});
+ const last=name=>s.layouts.filter(x=>x[0]===name).at(-1)?.[1];
+ s.applyWorkbenchLayout();assert.equal(last('video-workspace'),true);assert.equal(last('video-library-visible'),false);
+ await s.setWorkspaceLayout('classic');assert.equal(last('video-library-visible'),true);
+ await s.setWorkspaceLayout('focus');assert.equal(last('video-library-visible'),false);
+ assert.equal(s.state.tabs[0],tab);assert.equal(tab.videoReviewDraft,draft);assert.equal(tab.session,session);assert.equal(tab.videoReviewDirty,true);
+ s.state.activeKey=null;s.applyWorkbenchLayout();assert.equal(last('video-workspace'),false);assert.equal(last('video-workspace-active'),false);
+});
+
+test('saveCurrent reaches the active video review draft without treating it as document content',async()=>{
+ const s=fixture();let saved=0;
+ const tab={key:'external:video',source:'external',item:{kind:'video'},videoReviewDirty:true,saveVideoReview:async()=>{saved++;tab.videoReviewDirty=false;return true;}};
+ Object.assign(s.state,{tabs:[tab],activeKey:tab.key});await vm.runInContext('saveCurrent()',s.context);
+ assert.equal(saved,1);assert.equal(tab.videoReviewDirty,false);
 });

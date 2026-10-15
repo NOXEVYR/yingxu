@@ -1,0 +1,34 @@
+/* Video modes change the shell; the player, timeline and tools stay mounted. */
+.workspace.editing.video-workspace{position:relative;grid-template-columns:minmax(0,1fr) 320px}
+.workspace.editing.video-workspace>#library,.workspace.editing.video-workspace>#editorDivider{display:none}
+.workspace.editing.video-workspace>#editor{grid-column:1;min-width:0}
+.workspace.editing.video-workspace>#inspector{display:block;position:static;grid-column:2;width:auto;min-width:0;overflow:hidden;scrollbar-gutter:auto;box-shadow:none;z-index:auto}
+.workspace.editing.video-workspace.video-library-visible{grid-template-columns:clamp(210px,var(--browser-width,22%),320px) 5px minmax(0,1fr) 320px}
+.workspace.editing.video-workspace.video-library-visible>#library,.workspace.editing.video-workspace.video-library-visible>#editorDivider{display:flex}
+.workspace.editing.video-workspace.video-library-visible>#editor{grid-column:3}
+.workspace.editing.video-workspace.video-library-visible>#inspector{grid-column:4}
+.app-shell.focus-workbench.video-workspace-active>.sidebar{display:none}
+.video-workspace .editor-toolbar{min-height:44px;padding:6px 12px}
+.video-workspace .editor-toolbar .inspector-toggle{display:none}
+.video-workspace .editor-tool-actions{min-width:0;flex-wrap:wrap;justify-content:flex-end}
+.video-workspace .editor-status{flex:none}
+.video-workspace .video-player{min-height:0}
+.video-workspace .video-screen{min-height:150px}
+.video-mode-switch{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.video-mode-switch button{font:500 11px var(--ui-font);background:var(--bg);color:var(--muted);padding:6px 10px;border:0;cursor:pointer}
+.video-mode-switch button.active{background:var(--text);color:var(--bg)}
+.video-mode-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#videoToolsToggle,.video-workspace [data-action="toggle-video-tools"]{display:none}
+@media(max-width:1450px){
+  .workspace.editing.video-workspace{grid-template-columns:minmax(0,1fr) 300px}
+  .workspace.editing.video-workspace.video-library-visible{grid-template-columns:210px 5px minmax(0,1fr) 300px}
+}
+@media(max-width:1150px){
+  .workspace.editing.video-workspace.video-library-visible{grid-template-columns:200px 5px minmax(0,1fr)}
+  .workspace.editing.video-workspace{grid-template-columns:minmax(0,1fr)}
+  .workspace.editing.video-workspace>#inspector,
+  .workspace.editing.video-workspace.video-library-visible>#inspector{display:none;position:absolute;grid-column:auto;grid-row:auto;right:0;top:0;bottom:0;width:min(330px,90%);z-index:25;box-shadow:-8px 0 30px #0002;background:var(--panel)}
+  .workspace.editing.video-workspace.video-tools-open>#inspector{display:block}
+  .video-workspace #videoToolsToggle,.video-workspace [data-action="toggle-video-tools"]{display:inline-flex}
+}
+@media(max-height:600px){.video-workspace .video-screen{min-height:120px}.video-workspace .editor-status{display:none}}

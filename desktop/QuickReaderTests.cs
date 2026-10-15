@@ -109,6 +109,23 @@ namespace YingXu.Desktop
             await web.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mousePressed",x=x,y=y,button="left",buttons=1,clickCount=1}));
             await web.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",serializer.Serialize(new{type="mouseReleased",x=x,y=y,button="left",buttons=0,clickCount=1}));
         }
+        private static async Task<double[]> BoundsAsync(CoreWebView2 web,string selector)
+        {
+            var serializer=new JavaScriptSerializer();
+            string raw=await web.ExecuteScriptAsync("JSON.stringify((()=>{const n=document.querySelector("+Json(selector)+");if(!n)throw Error('missing '+"+Json(selector)+");const r=n.getBoundingClientRect();return [r.left,r.top,r.width,r.height]})())");
+            return serializer.Deserialize<double[]>(serializer.Deserialize<string>(raw));
+        }
+        private static async Task MouseAsync(CoreWebView2 web,string type,double x,double y,string button,int buttons)
+        {
+            await web.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+                new JavaScriptSerializer().Serialize(new{type=type,x=x,y=y,button=button,buttons=buttons,clickCount=1}));
+        }
+        private static async Task KeyTrusted(CoreWebView2 web,string key,string code,int virtualKey)
+        {
+            var serializer=new JavaScriptSerializer();
+            await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",serializer.Serialize(new{type="keyDown",key=key,code=code,windowsVirtualKeyCode=virtualKey,nativeVirtualKeyCode=virtualKey}));
+            await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",serializer.Serialize(new{type="keyUp",key=key,code=code,windowsVirtualKeyCode=virtualKey,nativeVirtualKeyCode=virtualKey}));
+        }
         private static void RejectOpenedPath(string path,string name)
         {
             bool rejected=false;
@@ -230,10 +247,65 @@ namespace YingXu.Desktop
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=2.2");
                 await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return !v.seeking&&Math.abs(v.currentTime-2.2)<.2})()","native media seek across the local range route");
                 Check(rangeRequests>0,"native WebView media seek requests byte ranges");
+
+                // Exercise the controls as a desktop user does. A native CDP
+                // pointer traverses the real WebView hit area; no DOM event is
+                // dispatched from script to fake a hover or slider gesture.
+                var screen=await BoundsAsync(web.CoreWebView2,".video-screen");
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.video-screen').classList.contains('controls-hidden')","playing quick reader auto-hides its controls",10);
+                await MouseAsync(web.CoreWebView2,"mouseMoved",screen[0]+screen[2]*.5,screen[1]+screen[3]*.22,"none",0);
+                await MouseAsync(web.CoreWebView2,"mouseMoved",screen[0]+screen[2]*.5,screen[1]+screen[3]*.96,"none",0);
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const s=document.querySelector('.video-screen'),c=document.querySelector('.video-controls');return !s.classList.contains('controls-hidden')&&Number(getComputedStyle(c).opacity)>.95})()","moving the real pointer down reveals the quick-player seek controls",5);
+                Check(await ScriptAsync(web.CoreWebView2,"(()=>{const s=document.querySelector('.video-screen').getBoundingClientRect(),c=document.querySelector('.video-seek').getBoundingClientRect();return c.width>100&&c.top>=s.top&&c.bottom<=s.bottom})()")=="true","revealed progress slider remains visible inside the quick-player viewport");
+
+                // Drag the actual range input with mousePressed/mouseMoved/
+                // mouseReleased and verify the media clock follows the drag.
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=.2");
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return !v.seeking&&!v.paused&&Math.abs(v.currentTime-.2)<.08})()","reset the quick-player clock before the drag",5);
+                var seek=await BoundsAsync(web.CoreWebView2,".video-seek");
+                double seekY=seek[1]+seek[3]/2;
+                await MouseAsync(web.CoreWebView2,"mouseMoved",seek[0]+seek[2]*.34,seekY,"none",0);
+                await MouseAsync(web.CoreWebView2,"mousePressed",seek[0]+seek[2]*.34,seekY,"left",1);
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('video').paused","native seek drag temporarily pauses playback",2);
+                await MouseAsync(web.CoreWebView2,"mouseMoved",seek[0]+seek[2]*.72,seekY,"left",1);
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video'),s=document.querySelector('.video-seek');return v.paused&&Math.abs(Number(s.value)-v.duration*.72)<.35})()","real pointer drag moves the quick-player seek thumb while playback is held",3);
+                await MouseAsync(web.CoreWebView2,"mouseReleased",seek[0]+seek[2]*.72,seekY,"left",0);
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return !v.seeking&&!v.paused&&Math.abs(v.currentTime-v.duration*.72)<.35})()","real range drag scrubs to its thumb and resumes playback",3);
+                Check(await ScriptAsync(web.CoreWebView2,"!document.querySelector('video').paused")=="true","quick-player drag scrub resumes its prior playing state");
+
+                // Focus the player and send a trusted keyboard seek after the
+                // controls have auto-hidden again. The paused state must keep
+                // the controls available without another pointer gesture.
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=.4;document.activeElement.blur()");
+                await MouseAsync(web.CoreWebView2,"mouseMoved",screen[0]+screen[2]*.5,screen[1]+screen[3]*.22,"none",0);
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.video-screen').classList.contains('controls-hidden')","playing controls hide before the focus test",10);
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('.video-screen').focus({preventScroll:true})");
+                await WaitForScriptAsync(web.CoreWebView2,"!document.querySelector('.video-screen').classList.contains('controls-hidden')","keyboard focus reveals quick-player controls",5);
+                await KeyTrusted(web.CoreWebView2,"ArrowLeft","ArrowLeft",37);
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return v.currentTime<.2})()","focused quick player responds to a trusted left-arrow seek",5);
+                Check(await ScriptAsync(web.CoreWebView2,"document.activeElement===document.querySelector('.video-screen')&&!document.querySelector('video').paused")=="true","focused keyboard seek preserves the playing state");
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=.5");
+                await ClickTrusted(web.CoreWebView2,"[data-command=play]");
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('video').paused","quick-player pause button pauses playback",5);
+                await Task.Delay(2400);
+                Check(await ScriptAsync(web.CoreWebView2,"(()=>{const s=document.querySelector('.video-screen'),c=document.querySelector('.video-controls');return !s.classList.contains('controls-hidden')&&Number(getComputedStyle(c).opacity)>.95})()") == "true","paused quick-player controls stay visible after the hide interval");
+
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=.5");
+                await ClickTrusted(web.CoreWebView2,"[data-command=play]");
+                await WaitForScriptAsync(web.CoreWebView2,"!document.querySelector('video').paused","quick-player resumes before the End-key boundary test",5);
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('.video-seek').focus({preventScroll:true})");
+                await KeyTrusted(web.CoreWebView2,"End","End",35);
+                await Task.Delay(250);
+                Check(await ScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return v.currentTime>=v.duration-.08&&v.paused})()") == "true","End on a playing quick video stops at the end without restarting from zero");
+
                 await ClickTrusted(web.CoreWebView2,"[data-command=fullscreen]");
                 await WaitForConditionAsync(()=>window.FormBorderStyle==FormBorderStyle.None&&!window.StudioButton.Parent.Visible,"real video fullscreen changes the native reader frame");
+                Check(await ScriptAsync(web.CoreWebView2,"document.fullscreenElement===document.querySelector('.video-screen')")=="true","quick-player button enters actual WebView fullscreen");
                 await ClickTrusted(web.CoreWebView2,"[data-command=fullscreen]");
                 await WaitForConditionAsync(()=>window.FormBorderStyle==FormBorderStyle.Sizable&&window.StudioButton.Parent.Visible,"real video fullscreen restores native reader chrome");
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime=1.3");
+                await ClickTrusted(web.CoreWebView2,"[data-command=play]");
+                await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return !v.paused&&v.currentTime>1.4})()","resume at a mid-clip point before the workspace handoff");
                 double before=Convert.ToDouble(await ScriptAsync(web.CoreWebView2,"document.querySelector('video').currentTime"));
                 window.StudioButton.PerformClick();
                 await WaitForConditionAsync(()=>handed!=null&&handedPaths!=null,"video workspace handoff");
@@ -290,6 +362,8 @@ namespace YingXu.Desktop
                 if(!await navigation.Task)throw new InvalidOperationException("Native review fixture navigation failed.");
                 await WaitForScriptAsync(web.CoreWebView2,"(()=>{const v=document.querySelector('video');return !!v&&v.readyState>=2&&!v.paused&&v.currentTime>.2})()","native review fixture media playback",25);
                 await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.review-status').textContent.includes('审片记录已载入')","real WebView loads the review controls");
+                await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-review-tab=markers]').click()");
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('[data-review-tab=markers]').getAttribute('aria-selected')==='true'","review fixture opens the visible marker and A/B tools");
                 await ScriptAsync(web.CoreWebView2,"window.nativeVideoReviewPlayer.seek(.45)");
                 await WaitForScriptAsync(web.CoreWebView2,"Math.abs(window.nativeVideoReviewPlayer.video.currentTime-.45)<.08","review fixture A point seek");
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-review=a]').click()");
@@ -304,14 +378,14 @@ namespace YingXu.Desktop
                 double before=Convert.ToDouble(await ScriptAsync(web.CoreWebView2,"window.nativeVideoReviewPlayer.video.currentTime"));
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-frame=start]').click()");
                 await WaitForScriptAsync(web.CoreWebView2,"window.nativeFixture.indexEnded>window.nativeFixture.indexStarted+.2","frame indexing request leaves native video playback running",10);
-                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.frame-status').textContent.includes('后台索引已就绪')","strict frame index becomes ready",10);
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.frame-status').textContent.includes('索引已就绪')","strict frame index becomes ready",10);
                 double after=Convert.ToDouble(await ScriptAsync(web.CoreWebView2,"window.nativeVideoReviewPlayer.video.currentTime"));
                 Check(await ScriptAsync(web.CoreWebView2,"!window.nativeVideoReviewPlayer.video.paused") == "true"&&after>before+.2,"background index readiness does not pause or reset playback");
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-frame=enter]').click()");
                 await WaitForScriptAsync(web.CoreWebView2,"!document.querySelector('.frame-overlay').hidden","explicit frame inspection displays the decoded still",10);
                 Check(await ScriptAsync(web.CoreWebView2,"window.nativeVideoReviewPlayer.video.paused") == "true","entering strict frame inspection pauses the native video");
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-frame=next]').click()");
-                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.frame-overlay-label').textContent.includes('解码静帧 1 / 19')","strict next-frame button advances by displayed ordinal",10);
+                await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.frame-overlay-label').textContent.includes('第 1 帧 ·')","strict next-frame button advances by displayed ordinal",10);
                 Check(await ScriptAsync(web.CoreWebView2,"window.nativeVideoReviewPlayer.video.paused") == "true","strict adjacent frame remains a still while inspection is active");
                 await ScriptAsync(web.CoreWebView2,"document.querySelector('[data-frame=resume]').click()");
                 await WaitForScriptAsync(web.CoreWebView2,"document.querySelector('.frame-overlay').hidden&&!window.nativeVideoReviewPlayer.video.paused","return-to-video resumes at the approximate seek",10);

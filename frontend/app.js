@@ -52,9 +52,34 @@ function applyWorkbenchLayout() {
   $('#workspace')?.classList?.toggle('skill-focus-view',focusWorkbench() && state.section === 'skills' && !activeTab());
   $('#workspace')?.classList?.toggle('skill-library-view',state.section === 'skills' && !activeTab());
   $('#workspace')?.classList?.toggle('collaboration-workspace-view',state.section === 'context' && !activeTab());
+  applyVideoWorkspaceLayout();
+}
+function videoLibraryVisible(tab = activeTab()) {
+  return tab?.videoLibraryViews?.[preference('workspace_layout')] ?? !focusWorkbench();
+}
+function applyVideoWorkspaceLayout() {
+  const tab=activeTab(),video=tab?.item?.kind==='video' && !tab.loading && !tab.error;
+  $('.app-shell')?.classList?.toggle('video-workspace-active',!!video);
+  $('#workspace')?.classList?.toggle('video-workspace',!!video);
+  $('#workspace')?.classList?.toggle('video-library-visible',!!video && videoLibraryVisible(tab));
+  $('#workspace')?.classList?.toggle('video-tools-open',!!video && !!tab.videoToolsOpen);
+  if (!video) return;
+  const library=$('[data-action="toggle-video-library"]');
+  if(library){library.setAttribute('aria-expanded',String(videoLibraryVisible(tab)));library.title=videoLibraryVisible(tab)?'收起素材列表':'显示素材列表';}
+  const tools=$('#videoToolsToggle');
+  if(tools)tools.setAttribute('aria-expanded',String(!!tab.videoToolsOpen));
+  for(const button of $$('[data-video-mode]')){
+    const selected=button.dataset.videoMode===preference('workspace_layout');
+    button.setAttribute('aria-pressed',String(selected));button.classList.toggle('active',selected);
+  }
+}
+function videoWorkspaceToolbar(tab) {
+  if(tab.item.kind!=='video')return '';
+  return `<div class="video-mode-switch" role="group" aria-label="视频工作台布局"><button type="button" data-workspace-layout="classic" data-video-mode="classic" title="原工作台：浏览素材并审片">浏览</button><button type="button" data-workspace-layout="focus" data-video-mode="focus" title="聚焦工作台：扩大画面与剪辑时间轴">聚焦</button></div><button type="button" class="button button-ghost button-small" data-action="toggle-video-library" aria-controls="library" aria-expanded="${videoLibraryVisible(tab)}">${icon('list')}素材</button><button id="videoToolsToggle" type="button" class="button button-ghost button-small" data-action="toggle-video-tools" aria-controls="inspector" aria-expanded="${!!tab.videoToolsOpen}">${icon('panel')}工具</button>`;
 }
 async function setWorkspaceLayout(value) {
   if (!['classic','focus'].includes(value) || value === preference('workspace_layout') || state.layoutSaving) return;
+  const previousFocus=document.activeElement;
   state.layoutSaving = true; renderNavigation();
   try {
     const saved = await api('/api/settings',{method:'PATCH',body:{workspace_layout:value}});
@@ -63,7 +88,8 @@ async function setWorkspaceLayout(value) {
     applyWorkbenchLayout(); renderNavigation();
     if (state.section === 'skills') renderSkills();
     const tools = $('#workspaceTools'); if (tools) tools.open = false;
-    $('#workspaceToolsSummary')?.focus();
+    if(previousFocus?.isConnected && previousFocus.matches?.('[data-video-mode]'))previousFocus.focus();
+    else $('#workspaceToolsSummary')?.focus();
     toast(value === 'focus' ? '已切换到聚焦工作台。' : '已切换到原工作台。');
   } finally { state.layoutSaving = false; renderNavigation(); }
 }
@@ -1379,6 +1405,10 @@ function renderEditorToolbar(tab) {
   const htmlModes = tab.item.kind === 'html' ? `<div class="editor-mode-switch" role="group" aria-label="HTML 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">静态预览</button><button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">查看源码</button></div>` : '';
   const wordModes = tab.item.kind === 'docx' ? `<div class="editor-mode-switch" role="group" aria-label="Word 视图"><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">文档预览</button>${editable ? `<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">编辑文字</button>` : ''}</div>` : '';
   $('#editorToolbar').innerHTML = `${htmlModes}${wordModes}${text ? `<div class="editor-mode-switch" role="group" aria-label="文档视图">${canUseMarkdownEditor(tab) ? `<button data-editor-mode="live" class="${tab.mode === 'live' ? 'active' : ''}">实时预览</button>` : ''}<button data-editor-mode="edit" class="${tab.mode === 'edit' ? 'active' : ''}">${editableMarkdown(tab) ? '源码' : '编辑'}</button><button data-editor-mode="split" class="${tab.mode === 'split' ? 'active' : ''}">双栏</button><button data-editor-mode="preview" class="${tab.mode === 'preview' ? 'active' : ''}">预览</button></div>${markdownToolbarHtml(tab)}` : `<span class="editor-type-label">${icon(kindIcons[tab.item.kind])}${kindLabels[tab.item.kind] || '资源预览'}</span>`}<div class="editor-tool-actions">${tab.source==='file' && tab.item.kind==='markdown' && editable && tab.mode!=='preview' ? `<button type="button" class="button button-ghost button-small" data-action="insert-note-image" title="选择图片插入笔记，也可拖入或粘贴图片">${icon('image')}插入图片</button>` : ''}${readingDocument(tab)?`<button type="button" class="button button-ghost button-small" data-action="toggle-reading-library" aria-controls="library" aria-expanded="${!!tab.showLibrary}" title="${tab.showLibrary ? '收起文件列表，扩大阅读区域' : '显示文件列表，浏览其他文件'}">${icon('list')}${tab.showLibrary ? '专注阅读' : '显示列表'}</button>`:''}${documentSearchable(tab)?`<button type="button" class="icon-button" data-action="find-document" title="查找当前正文 · Ctrl+F" aria-label="查找正文">${icon('search')}</button>`:''}<button type="button" class="icon-button" data-action="capture-screen" title="截图到当前项目并复制图片" aria-label="截图">${icon('image')}</button>${['image','svg'].includes(tab.item.kind) ? `<button class="icon-button" data-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button class="button button-ghost button-small" data-action="zoom-fit">适应</button><span id="imageZoomPercent" class="image-zoom-percent" aria-live="polite" title="图片相对于原始尺寸的比例">图片 —</span><button class="icon-button" data-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button>` : ''}${editable && !tab.loading ? `<button class="button button-primary button-small" id="saveContentButton" data-action="save-content" ${!tab.dirty || tab.saving ? 'disabled' : ''}>${icon('save')}${tab.saving ? '保存中' : '保存'}</button>` : ''}${tab.source === 'file' ? `<button class="icon-button" data-action="open-native" title="用本机应用打开" aria-label="用本机应用打开">${icon('open')}</button>` : ''}<button class="icon-button inspector-toggle" data-action="toggle-inspector" title="显示资源信息与关联" aria-label="显示资源信息与关联">${icon('panel')}</button></div>`;
+  if(tab.item.kind==='video'){
+    $('.editor-tool-actions',$('#editorToolbar')).insertAdjacentHTML('afterbegin',videoWorkspaceToolbar(tab));
+    applyVideoWorkspaceLayout();
+  }
 }
 function renderEditorBody(tab) {
   if (tab.textComposing || tab.markdownEditor?.isComposing() || activeDocxEditorTab?.docxEditor?.isComposing() || [...canvasTabs].some(value=>value.canvasEditor?.isComposing())) return;
@@ -1442,7 +1472,7 @@ function renderEditorBody(tab) {
     if (!window.YingXuVideo) { root.textContent='视频组件未载入，请重新打开。'; return; }
     workspaceVideo=window.YingXuVideo.mount(root,{name:item.name,src:item.media_url || `/api/media/${encodeURIComponent(item.id)}`,autoplay:preference('autoplay_media')});
     workspaceVideo.video.dataset.tabKey=tab.key;workspaceVideo.video.dataset.mediaPath=String(item.path || '');workspaceVideo.video.dataset.mediaUrl=String(item.media_url || `/api/media/${encodeURIComponent(item.id)}`);
-    workspaceVideoReview=window.YingXuVideoReview?.mount(workspaceVideo,{tab,api,onDirty:()=>{renderTabs();}});
+    workspaceVideoReview=window.YingXuVideoReview?.mount(workspaceVideo,{tab,api,inspector:$('#inspector'),onDirty:()=>{renderTabs();if(activeTab()===tab)renderEditorStatus(tab);}});
   }
   else if (item.kind === 'audio') { renderAudioPlayer(tab,root); const audio = $('audio',root); audio.dataset.mediaPath = String(item.path || ''); audio.dataset.queue = JSON.stringify(tab.audioQueue); }
   else if (item.kind === 'pdf') root.innerHTML = `<div class="media-stage pdf-stage"><iframe title="${escapeHtml(item.name)} PDF 预览" src="${escapeHtml(item.media_url || `/api/media/${encodeURIComponent(item.id)}`)}"></iframe></div>`;
@@ -1451,7 +1481,7 @@ function renderEditorBody(tab) {
   if (['image','svg'].includes(item.kind)) trackImageZoom(tab,$('#mainImage',root));
 }
 function markDirty(tab) { documentSearchUI?.refresh();tab.dirty = true; tab.saved = false; tab.draftStorage = 'pending'; renderTabs(); renderEditorToolbar(tab); renderEditorStatus(tab); persistDrafts(); }
-function renderEditorStatus(tab) { const dirty = tab.dirty || tab.propertiesDirty; $('#editorStatus').innerHTML = `<span class="${dirty ? 'unsaved-state' : 'saved-state'}">${dirty ? (tab.conflict ? '检测到外部更改 · 草稿已保留' : tab.propertiesDirty ? '制作信息未保存' : draftStateLabel(tab)) : `${icon('check')}${tab.saved ? '已保存 · 原版本已备份' : tab.content?.editable ? '文件已载入' : '预览模式'}`}</span><span>${tab.content ? `${(tab.item.kind === 'docx' ? tab.paragraphs?.map(value => value.text).join('') || '' : tab.draft || '').length.toLocaleString()} 字符` : formatSize(tab.item.size)}${tab.content?.editable || tab.propertiesDirty ? ' · Ctrl S 保存' : ''}</span>`; }
+function renderEditorStatus(tab) { const dirty = tab.dirty || tab.propertiesDirty || tab.videoReviewDirty; $('#editorStatus').innerHTML = `<span class="${dirty ? 'unsaved-state' : 'saved-state'}">${dirty ? (tab.conflict ? '检测到外部更改 · 草稿已保留' : tab.propertiesDirty ? '制作信息未保存' : tab.videoReviewDirty ? '审片记录未保存' : draftStateLabel(tab)) : `${icon('check')}${tab.saved ? '已保存 · 原版本已备份' : tab.content?.editable ? '文件已载入' : '预览模式'}`}</span><span>${tab.content ? `${(tab.item.kind === 'docx' ? tab.paragraphs?.map(value => value.text).join('') || '' : tab.draft || '').length.toLocaleString()} 字符` : formatSize(tab.item.size)}${tab.content?.editable || tab.propertiesDirty || tab.videoReviewDirty ? ' · Ctrl S 保存' : ''}</span>`; }
 let previewTimer;
 function updatePreview(tab) { clearTimeout(previewTimer); previewTimer = setTimeout(() => { if ($('#markdownPreview') && state.activeKey === tab.key) $('#markdownPreview').innerHTML = markdown(tab.draft,tab); },120); }
 function inlineMarkdown(text,imageResolver = () => null,linkResolver = () => null) {
@@ -1483,6 +1513,11 @@ async function saveTab(tab = activeTab()) {
 }
 
 function renderInspector() {
+  renderInspectorContent();
+  const tab=activeTab();
+  if(tab?.item?.kind==='video' && !tab.loading && !tab.error && workspaceVideoReview?.tabKey===tab.key)workspaceVideoReview.attachInspector($('#inspector'));
+}
+function renderInspectorContent() {
   const tab = activeTab(); const root = $('#inspector');
   if (!tab) { root.innerHTML = projectInspectorHtml(); return; }
   if (tab.error) { root.innerHTML = `<div class="inspector-heading"><span>资源信息尚未载入</span>${icon('alert')}</div><div class="project-panel"><p>完整制作信息未能读取，暂时不能修改属性。</p><p style="margin:12px 0 20px">${escapeHtml(tab.error)}</p><button class="button button-secondary" data-action="retry-detail">${icon('refresh')}重新载入</button></div>`; return; }
@@ -1545,6 +1580,7 @@ async function saveCurrent() {
   const tab = activeTab(); if (!tab) return;
   if (tab.dirty && !await saveTab(tab)) return;
   if (tab.propertiesDirty) await saveProperties(tab);
+  if (tab.videoReviewDirty) await tab.saveVideoReview?.();
 }
 
 function showDialog({title,subtitle='',body='',submit='确定',wide=false,onSubmit,actions}) {
@@ -1963,6 +1999,16 @@ async function handleAction(action,target) {
     if (action === 'demo') { target.disabled = true; const project = await api('/api/demo',{method:'POST',body:{}}); await refreshProjects(); await selectProject(project.id); toast('已打开示例项目，所有示例文件都可以放心体验。'); return; }
     if (action === 'clear-search' || action === 'clear-filters') { state.q = ''; $('#searchInput').value = ''; if (action === 'clear-filters') { state.status = ''; state.kind = ''; $('#statusFilter').value = ''; $('#kindFilter').value = ''; } state.offset = 0; return loadSection(); }
     if (action === 'toggle-reading-library') return toggleReadingLibrary();
+    if (action === 'toggle-video-library') {
+      const tab=activeTab();if(tab?.item?.kind!=='video')return;
+      const visible=videoLibraryVisible(tab);tab.videoLibraryViews??={};tab.videoLibraryViews[preference('workspace_layout')]=!visible;
+      applyVideoWorkspaceLayout();return;
+    }
+    if (action === 'toggle-video-tools') {
+      const tab=activeTab();if(tab?.item?.kind!=='video')return;
+      tab.videoToolsOpen=!tab.videoToolsOpen;applyVideoWorkspaceLayout();
+      if(!tab.videoToolsOpen)$('#videoToolsToggle')?.focus();return;
+    }
     if (action === 'toggle-document-window') return toggleDocumentWindow();
     if (action === 'toggle-inspector') { $('#workspace').classList.toggle('show-inspector'); return; }
     if (action === 'open-native') return runNative('open'); if (action === 'reveal') return runNative('reveal');
@@ -2071,6 +2117,7 @@ function wireEvents() {
   document.addEventListener('keydown',event => {
     const tools = $('#workspaceTools'); if (event.key === 'Escape' && tools?.open) { tools.open = false; $('#workspaceToolsSummary')?.focus(); event.preventDefault(); return; }
     if (event.isComposing || activeTab()?.markdownEditor?.isComposing() || activeTab()?.docxEditor?.isComposing()) { if ((event.ctrlKey || event.metaKey) && ['s','f','k'].includes(event.key.toLowerCase())) { event.preventDefault(); markdownInputReady(); } return; }
+    if(event.key==='Escape' && !event.defaultPrevented && !document.fullscreenElement && !$('#appDialog').open && activeTab()?.item?.kind==='video' && activeTab().videoToolsOpen && window.matchMedia('(max-width:1150px)').matches){activeTab().videoToolsOpen=false;applyVideoWorkspaceLayout();$('#videoToolsToggle')?.focus();event.preventDefault();return;}
     if (searchShortcut(event) || globalSearchIsOpen() || groupsIsOpen()) return;
     if (deleteSelectionShortcut(event)) return;
     if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && !$('#appDialog').open) { const target = contextMenuTarget(event.target); if (target) { event.preventDefault(); showMenu(target.anchor,target.kind,target.id); return; } }
@@ -2889,7 +2936,7 @@ async function settingsDialog() {
   const toggle = (key,title,description) => `<label class="setting-row"><span><strong>${title}</strong><small>${description}</small></span><input type="checkbox" name="${key}" ${settings[key] ? 'checked' : ''}></label>`;
   const mac = Boolean(window.yingxuMac);
   const desktop = !mac && Boolean(window.chrome?.webview?.postMessage);
-  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.36-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.36 · ${escapeHtml(state.bootstrap?.version === '0.4.36' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
+  showDialog({title:'设置',subtitle:'按自己的习惯使用映序。设置保存在本机，重开后仍有效。',wide:true,submit:'保存设置',body:`<div class="settings-section"><h3>关于映序</h3><p id="applicationVersion">版本 ${escapeHtml(state.bootstrap?.version || '未知')}${state.bootstrap?.build_revision ? ' · ' + escapeHtml(state.bootstrap.build_revision) : ''} · ${mac ? 'macOS 试用版 0.4.37-mac.1' : 'Windows 版'}</p><p class="field-hint">界面版本 0.4.37 · ${escapeHtml(state.bootstrap?.version === '0.4.37' ? '界面与后台版本一致' : '后台版本与界面不同，请完整退出后重新打开')}</p>${updateSettingsHtml()}</div>${state.bootstrap?.capabilities?.project_storage ? projectStorageSettingsHtml() : ''}${state.bootstrap?.capabilities?.maintenance ? maintenanceSettingsHtml() : ''}<div class="settings-section"><h3>删除与恢复</h3>${toggle('confirm_delete','移入映序回收站前确认','项目、文件、文件夹和 SKILL 的删除提示。')}${toggle('confirm_trash_delete','清理回收站前确认',`关闭后点击删除会直接移入 ${systemTrashName()}；遇到无法处理的条目仍会说明原因。`)}</div><div class="settings-section"><h3>窗口与播放</h3>${mac ? '<p class="field-hint">关闭窗口会检查未保存文稿并退出映序。</p>' : toggle('close_to_tray','关闭窗口时保留在托盘','双击任务栏右下角的映序图标重新打开；右键菜单可退出。')}${toggle('autoplay_media','打开音视频时自动播放','默认关闭；部分媒体仍可能需要点击播放。')}</div><div class="settings-section"><h3>外观</h3><div class="field"><label for="settingAppearance">界面配色</label><select id="settingAppearance" name="appearance_theme">${optionHtml([{key:'swiss',label:'黑白（默认）'},{key:'graphite',label:'石墨银灰'},{key:'paper',label:'暖纸书卷'},{key:'pine',label:'雾白松绿'},{key:'ocean',label:'雾蓝海盐'},{key:'plum',label:'浅灰梅紫'}],settings.appearance_theme || 'swiss')}</select><p class="field-hint">使用系统已有字体。工具区与正文分别排版，文稿原有内容和格式保持不变。</p></div></div><div class="settings-section"><h3>工作台</h3><div class="field"><label for="settingWorkspaceLayout">映序模式</label><select id="settingWorkspaceLayout" name="workspace_layout">${optionHtml([{key:'focus',label:'聚焦工作台（随页面切换导航）'},{key:'classic',label:'原工作台（固定创作资源导航）'}],settings.workspace_layout || 'focus')}</select><p class="field-hint">右上角工作空间菜单也可切换；已打开的文稿和草稿保持。</p></div><div class="fields-two"><div class="field"><label for="settingView">启动时的视图</label><select id="settingView" name="default_view">${optionHtml([{key:'grid',label:'画廊'},{key:'list',label:'列表'},{key:'board',label:'分镜看板'}],settings.default_view)}</select></div><div class="field"><label for="settingSort">启动时的排序</label><select id="settingSort" name="default_sort">${optionHtml([{key:'updated',label:'最近更新'},{key:'name',label:'文件名称'},{key:'order',label:'分镜顺序'}],settings.default_sort)}</select></div></div><p class="field-hint">${mac ? '⌘' : 'Ctrl+'}F：在文档中查找正文，在资源区查找当前范围。${mac ? '⌘' : 'Ctrl+'}K：全局搜索。${mac ? '⌘' : 'Ctrl+'}S：保存。</p></div>${mac ? '<p class="field-hint">截图、菜单栏常驻和系统打开方式关联暂未提供；可使用左侧“打开本地文件”。</p>' : `<div class="settings-section"><h3>截图</h3>${toggle('capture_enabled','后台截图快捷键','映序留在托盘时也可使用；只在按下快捷键时截取鼠标所在屏幕。')}<div class="field"><label for="captureMode">截图方式</label><select id="captureMode" name="capture_mode">${optionHtml([{key:'annotate',label:'标注后确认（默认）'},{key:'quick',label:'快速完成'}],settings.capture_mode || 'annotate')}</select><p class="field-hint">标注模式在选区后停留，可使用画笔、箭头、矩形和撤销，确认才复制与保存；快速模式在框选松开后立即完成。Esc 取消。</p></div><div class="field"><label for="captureHotkeyButton">截图快捷键</label><input type="hidden" id="captureHotkey" name="capture_hotkey" value="${escapeHtml(settings.capture_hotkey || defaultSettings.capture_hotkey)}"><button type="button" id="captureHotkeyButton" class="button button-secondary hotkey-recorder" aria-pressed="false" aria-describedby="captureHotkeyStatus captureHotkeyHint">${escapeHtml((settings.capture_hotkey || defaultSettings.capture_hotkey).replace(/\+/g," + "))}</button><p id="captureHotkeyStatus" class="field-hint hotkey-status" role="status" aria-live="polite">点击上方按钮，再按新的快捷键组合。</p><p id="captureHotkeyHint" class="field-hint">点击录入，Esc 取消；修改后请点击“保存设置”。默认 Ctrl+Alt+Shift+S。使用至少两个 Ctrl/Alt/Shift，加大写字母、数字或 F1–F24（F12 除外）；占用时会提示。截图保存到项目“记录”分类，并插入当前可编辑 Markdown 草稿；同时复制图片到剪贴板。</p></div></div><div class="settings-section"><h3>Windows 打开方式</h3><p class="field-hint">把映序添加到文件的“打开方式”候选。支持文稿原路径编辑保存，图片、音频与视频按类型预览。</p><div class="settings-buttons"><button type="button" class="button button-secondary" data-action="register-open-with" ${desktop ? '' : 'disabled'}>添加映序到打开方式</button><button type="button" class="button button-ghost" data-action="unregister-open-with" ${desktop ? '' : 'disabled'}>移除候选</button></div>${desktop ? '' : '<p class="field-hint">此项及托盘功能请在映序桌面窗口中使用。</p>'}</div>`}`,onSubmit:async form => {
     if (captureHotkeyUI?.isRecording()) throw new Error('请先完成快捷键录入，或按 Esc 取消录入。');
     const values = new FormData(form); const patch = {};
     for (const key of (mac ? ['confirm_delete','confirm_trash_delete','autoplay_media'] : ['confirm_delete','confirm_trash_delete','close_to_tray','autoplay_media','capture_enabled'])) patch[key] = values.has(key);

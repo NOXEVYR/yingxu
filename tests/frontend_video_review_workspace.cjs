@@ -1,0 +1,255 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),vm=require('node:vm');
+const {test}=require('node:test'),{execFile}=require('node:child_process'),{promisify}=require('node:util'),{pathToFileURL}=require('node:url');
+
+test('video review workspace preserves drafts and blocks time edits during decoded-frame inspection in Chromium',async t=>{
+  const browser=[process.env.YINGXU_TEST_BROWSER,'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(file=>file&&fs.existsSync(file));
+  if(!browser){t.skip('Existing Chromium required');return;}
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'yingxu-video-review-workspace-'));
+  t.after(()=>{const resolved=path.resolve(temp),root=path.resolve(os.tmpdir())+path.sep;assert.ok(resolved.startsWith(root)&&path.basename(resolved).startsWith('yingxu-video-review-workspace-'));fs.rmSync(resolved,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  for(const file of ['video-review.js','video-review.css','video-frames.js'])fs.copyFileSync(path.join(__dirname,'../frontend',file),path.join(temp,file));
+  fs.writeFileSync(path.join(temp,'runner.js'),String.raw`(async()=>{
+    const checks=[];
+    const check=(condition,message)=>{if(!condition)throw new Error(message);checks.push(message);};
+    const waitFor=async(fn,message)=>{for(let i=0;i<160;i++){if(fn())return;await new Promise(resolve=>setTimeout(resolve,5));}throw new Error('Timed out: '+message);};
+    const fire=(node,type)=>node.dispatchEvent(new Event(type,{bubbles:true,cancelable:true}));
+    const click=node=>{if(!node)throw new Error('Missing button');node.click();};
+    let reviewGets=0,capabilityGets=0,capabilityFailuresRemaining=100,savePosts=0,exportPosts=0,exportStatusRequests=0,exportHistoryReads=0,exportState='running',export2State='running',export3State='running',exportBody=null,exportRelease=null,exportPostFailureRelease=null,holdExportStatus=false,failNextExportPost=false,deferNextExportPostFailure=false,exportHistoryJobs=[];
+    let serverRevision='rev-1',serverReview={markers:[],in:null,out:null,a:null,b:null},reviewGetRelease=null,holdReviewGet=false,historyRelease=null,holdHistory=false;
+    const saveBodies=[],saveReleases=[],exportStatusReleases=[];
+    let frameImageUrl='blob:synthetic-frame';
+    window.fetch=async()=>({ok:true,blob:async()=>new Blob(['frame'])});
+    URL.createObjectURL=()=>frameImageUrl;URL.revokeObjectURL=()=>{};
+    if(HTMLImageElement.prototype.decode)HTMLImageElement.prototype.decode=async function(){};
+    else Object.defineProperty(HTMLImageElement.prototype,'decode',{configurable:true,value:async function(){}});
+    const api=async(path,options={})=>{
+      if(path==='/api/video/review/file/clip-id'&&!options.method){reviewGets++;if(reviewGets===1)throw new Error('合成的载入失败');const response={revision:serverRevision,review:JSON.parse(JSON.stringify(serverReview))};if(holdReviewGet){holdReviewGet=false;return new Promise(resolve=>{reviewGetRelease=()=>resolve(response);});}return response;}
+      if(path==='/api/video/review/file/clip-id'&&options.method==='POST'){savePosts++;const number=savePosts,body=JSON.parse(JSON.stringify(options.body));saveBodies.push(body);return new Promise(resolve=>{saveReleases[number-1]=()=>{serverRevision='rev-save-'+number;serverReview=body.review;resolve({revision:serverRevision});};});}
+      if(path.startsWith('/api/video/exports?')){exportHistoryReads++;if(holdHistory){holdHistory=false;return new Promise((resolve,reject)=>{historyRelease=()=>reject(new Error('合成的历史查询失败'));});}return {jobs:JSON.parse(JSON.stringify(exportHistoryJobs))};}
+      if(path==='/api/video/exports'&&options.method==='POST'){exportPosts++;exportBody=options.body;if(failNextExportPost){failNextExportPost=false;throw new Error('合成的提交响应丢失');}if(deferNextExportPostFailure){deferNextExportPostFailure=false;return new Promise((resolve,reject)=>{exportPostFailureRelease=()=>reject(new Error('合成的延迟提交失败'));});}exportState='running';return new Promise(resolve=>{exportRelease=()=>resolve({id:'export-1'});});}
+      if(path==='/api/video/exports/export-1'){exportStatusRequests++;if(holdExportStatus)return new Promise((resolve,reject)=>{exportStatusReleases.push({resolve:()=>resolve({id:'export-1',state:exportState,mode:exportBody?.mode}),reject:()=>reject(new Error('合成的状态查询失败'))});});return {id:'export-1',state:exportState,mode:exportBody?.mode};}
+      if(path==='/api/video/exports/export-1/cancel'){exportState='cancelled';return {state:'cancelling'};}
+      if(path==='/api/video/exports/export-2')return {id:'export-2',state:export2State,mode:'encode'};
+      if(path==='/api/video/exports/export-3')return {id:'export-3',state:export3State,mode:'encode'};
+      if(path==='/api/video/frames/capability'){capabilityGets++;if(capabilityFailuresRemaining>0){capabilityFailuresRemaining--;throw new Error('合成的能力查询失败');}return {available:true};}
+      if(path==='/api/video/frames/index'&&options.method==='POST')return {id:'index-1'};
+      if(path==='/api/video/frames/jobs/index-1')return {id:'index-1',state:'ready',count:3};
+      if(path==='/api/video/frames/index/index-1/frame'&&options.method==='POST')return {id:'frame-job-1'};
+      if(path==='/api/video/frames/jobs/frame-job-1')return {id:'frame-job-1',state:'done',ordinal:0,pts:0,time_base:'1/24',decode_mode:'verified-prefix',image_url:'/synthetic-frame',resume_seconds_approximate:12};
+      if(path==='/api/video/frames/jobs/frame-job-1/cancel'||path==='/api/video/frames/index/index-1/cancel')return {state:'cancelled'};
+      throw new Error('Unexpected API call: '+path+' '+(options.method||'GET'));
+    };
+    const shell=document.createElement('section'),screen=document.createElement('div'),video=document.createElement('video'),loopButton=document.createElement('button');
+    loopButton.type='button';loopButton.dataset.command='loop';loopButton.setAttribute('aria-pressed','false');shell.append(loopButton);
+    screen.className='video-screen';screen.tabIndex=0;screen.append(video);shell.append(screen);document.body.append(shell);
+    let now=8,paused=true,seekCalls=0;
+    Object.defineProperties(video,{duration:{configurable:true,get:()=>100},currentTime:{configurable:true,get:()=>now,set:value=>{now=Number(value);seekCalls++;video.dispatchEvent(new Event('seeking'));video.dispatchEvent(new Event('seeked'));}},paused:{configurable:true,get:()=>paused}});
+    video.pause=()=>{paused=true;video.dispatchEvent(new Event('pause'));};
+    video.play=async()=>{paused=false;video.dispatchEvent(new Event('play'));video.dispatchEvent(new Event('playing'));};
+    const time=value=>{if(!Number.isFinite(value))return '—';const ms=Math.max(0,Math.round(value*1000));return String(Math.floor(ms/3600000)).padStart(2,'0')+':'+String(Math.floor(ms/60000)%60).padStart(2,'0')+':'+String(Math.floor(ms/1000)%60).padStart(2,'0')+'.'+String(ms%1000).padStart(3,'0');};
+    let activeAB=null;
+    // Install before the review listeners, matching the real player's timeupdate ordering.
+    video.addEventListener('timeupdate',()=>{if(activeAB&&!video.paused&&video.currentTime>=activeAB[1])video.currentTime=activeAB[0];});
+    const player={shell,screen,video,time,seek:value=>{video.currentTime=Math.max(0,Math.min(100,value));},play:()=>video.play(),pause:()=>video.pause(),setAB(a,b){activeAB=Number.isFinite(a)&&Number.isFinite(b)&&b>a?[a,b]:null;if(activeAB)video.loop=false;}};
+    const inspector=document.createElement('aside');inspector.id='inspector';
+    const firstForm=document.createElement('form'),firstInput=document.createElement('input');firstInput.name='propertyName';firstForm.append(firstInput);let firstFormEdits=0;firstForm.addEventListener('input',()=>firstFormEdits++);inspector.append(firstForm);document.body.append(inspector);
+    const tab={key:'file:clip-id',id:'clip-id',source:'file',item:{kind:'video'}};
+    let review=window.YingXuVideoReview.mount(player,{tab,api,inspector});
+    let workspace=inspector.querySelector('.video-review');
+    check(!!workspace,'review mounts in the existing inspector');
+    check(review.tabKey===tab.key,'mount returns the owning tab key');
+    check(inspector.querySelector('[data-review-tab="trim"]').getAttribute('aria-selected')==='true','剪辑 tab opens by default');
+    check(tab.videoReviewOpen===true,'review record loads immediately with tools open');
+    let timeline=shell.querySelector('.video-trim-timeline');
+    await waitFor(()=>timeline.querySelector('.trim-handle-out').max==='100','video duration enables a full-width trim track');
+    check(timeline.querySelector('.trim-handle-in').value==='0'&&timeline.querySelector('.trim-handle-out').value==='100'&&!tab.videoReviewDirty,'empty timeline shows clear start/end handles without creating a draft');
+    await waitFor(()=>reviewGets===1&&!inspector.querySelector('[data-review="retry-load"]').hidden,'failed record load presents a retry');
+    holdHistory=true;click(inspector.querySelector('[data-review="retry-load"]'));
+    await waitFor(()=>tab.videoReviewRevision==='rev-1'&&!!historyRelease,'retry recovers the record while export history remains in flight');
+    check(timeline.querySelector('.trim-handle-in').disabled&&inspector.querySelector('[data-review="export"]').disabled,'unknown export history locks range mutations and submission');
+    historyRelease();await waitFor(()=>!!inspector.querySelector('[data-review="retry-export-status"]'),'history failure keeps tools locked and offers a status retry');
+    check(timeline.querySelector('.trim-handle-in').disabled&&inspector.querySelector('[data-review="export"]').disabled,'failed history confirmation cannot release the export safety lock');
+    click(inspector.querySelector('[data-review="retry-export-status"]'));
+    await waitFor(()=>tab.videoExportHistoryChecked&&timeline.querySelector('.trim-handle-in').disabled===false,'confirmed empty history releases the export safety lock');
+
+    firstInput.value='kept';fire(firstInput,'input');
+    check(firstFormEdits===1,'the original inspector form handler survives docking in 文件');
+    let note=inspector.querySelector('.video-marker-note');note.value='rough note survives reattach';
+    inspector.innerHTML='<form id="new-properties"><input name="status" value="待开始"></form>';
+    let rebuiltFormEdits=0;inspector.querySelector('form').addEventListener('input',()=>rebuiltFormEdits++);
+    review.attachInspector(inspector);
+    fire(inspector.querySelector('input[name="status"]'),'input');
+    check(rebuiltFormEdits===1,'rebuilt inspector form handler survives reattach');
+    check(inspector.querySelector('.video-review')===workspace,'reattach preserves the same tool DOM');
+    check(inspector.querySelector('.video-marker-note')===note&&note.value==='rough note survives reattach','reattach preserves in-progress marker note state');
+    check(inspector.querySelector('.video-review-file-content form#new-properties'),'rebuilt generic inspector is wrapped by 文件 tab');
+
+    const outHandle=timeline.querySelector('.trim-handle-out');outHandle.value='30';fire(outHandle,'input');
+    check(tab.videoReviewDraft.in===0&&tab.videoReviewDraft.out===30,'dragging the first boundary creates a natural range from the video start');
+    click(timeline.querySelector('[data-review="clear-range"]'));
+    video.currentTime=10;click(timeline.querySelector('[data-review="in"]'));
+    video.currentTime=20;click(timeline.querySelector('[data-review="out"]'));
+    check(tab.videoReviewDraft.in===10&&tab.videoReviewDraft.out===20,'current-time buttons set a valid range');
+    let outField=timeline.querySelector('[data-timecode="out"]');
+    outField.value='00:99:00.000';fire(outField,'change');
+    check(outField.getAttribute('aria-invalid')==='true'&&tab.videoReviewDraft.out===20,'invalid timecode is rejected without changing the range');
+    outField.value='00:00:22.250';fire(outField,'change');
+    check(tab.videoReviewDraft.out===22.25&&outField.getAttribute('aria-invalid')===null,'valid millisecond timecode updates the range');
+    click(inspector.querySelector('[data-review-tab="markers"]'));
+    video.currentTime=12;click(inspector.querySelector('[data-review="a"]'));
+    video.currentTime=15;click(inspector.querySelector('[data-review="b"]'));
+    click(inspector.querySelector('[data-review="ab"]'));
+    check(activeAB?.[0]===12&&activeAB?.[1]===15&&inspector.querySelector('[data-review="ab"]').getAttribute('aria-pressed')==='true','A–B loop is active before selected-range preview');
+    video.loop=true;loopButton.setAttribute('aria-pressed','true');
+    click(inspector.querySelector('[data-review-tab="trim"]'));
+    click(timeline.querySelector('[data-review="preview-range"]'));
+    check(video.currentTime===10&&!video.paused,'range preview seeks to the in point and starts playback');
+    check(activeAB===null&&!video.loop&&loopButton.getAttribute('aria-pressed')==='false'&&inspector.querySelector('[data-review="ab"]').getAttribute('aria-pressed')==='false','range preview explicitly disables A–B and whole-video looping in the model and controls');
+    now=15;video.dispatchEvent(new Event('timeupdate'));
+    check(video.currentTime===15&&!video.paused,'range preview passes the former A–B loop endpoint without wrapping');
+    now=22.5;video.dispatchEvent(new Event('timeupdate'));
+    check(video.paused&&Math.abs(video.currentTime-22.25)<0.0001,'range preview pauses at the selected out point after passing the former A–B loop endpoint');
+
+    click(inspector.querySelector('[data-review-tab="markers"]'));
+    video.currentTime=17;note.value='夜景 <img src=x onerror=window.pwned=true>';
+    click(inspector.querySelector('[data-review="mark"]'));
+    check(tab.videoReviewDraft.markers.length===1,'marker note is added to the draft');
+    check(!inspector.querySelector('.video-markers img')&&inspector.querySelector('.video-marker-jump').textContent.includes('<img src=x'),'marker notes render as text');
+    click(inspector.querySelector('[data-review="save"]'));
+    await waitFor(()=>tab.videoReviewSaving&&savePosts===1,'save enters busy state');
+    note.value='added while saving';click(inspector.querySelector('[data-review="mark"]'));
+    saveReleases[0]();await waitFor(()=>!tab.videoReviewSaving,'save request finishes');
+    check(tab.videoReviewDirty&&tab.videoReviewDraft.markers.length===2,'edits made while saving remain dirty and survive');
+    check(saveBodies[0].revision==='rev-1'&&tab.videoReviewRevision==='rev-save-1','successful save advances the tab revision');
+
+    click(inspector.querySelector('[data-review-tab="trim"]'));
+    inspector.querySelector('.review-export-mode').value='copy';
+    let exportButton=inspector.querySelector('[data-review="export"]');click(exportButton);
+    check(exportPosts===1&&exportButton.disabled&&timeline.querySelector('[data-timecode="out"]').disabled&&inspector.querySelector('[data-review="cancel"]').hidden,'pending export submission immediately locks edits and cannot yet be cancelled');
+    outField.value='00:00:23.000';fire(outField,'change');
+    exportButton.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    check(exportPosts===1&&tab.videoReviewDraft.out===22.25,'time edits and a duplicate click cannot replace or duplicate the pending export');
+    holdExportStatus=true;
+    exportRelease();
+    await waitFor(()=>!!exportBody&&tab.videoExportId==='export-1'&&exportStatusRequests===1,'accepted export starts an unresolved job-status check');
+    check(exportBody.mode==='copy'&&exportBody.start===10&&exportBody.end===22.25,'existing audible copy-export API receives the selected range and mode');
+    check(inspector.querySelector('.review-export-mode').disabled&&timeline.querySelector('.trim-handle-in').disabled,'range controls disable while the accepted job status is unresolved');
+    review.destroy();
+    review=window.YingXuVideoReview.mount(player,{tab,api,inspector});
+    workspace=inspector.querySelector('.video-review');timeline=shell.querySelector('.video-trim-timeline');
+    outField=timeline.querySelector('[data-timecode="out"]');exportButton=inspector.querySelector('[data-review="export"]');
+    await waitFor(()=>reviewGets===3&&exportStatusRequests===2,'accepted active job is checked again after remount');
+    check(tab.videoExportId==='export-1'&&exportButton.disabled&&inspector.querySelector('.review-export-mode').disabled,'known running job keeps the remounted exporter locked before delayed status returns');
+    exportButton.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    check(exportPosts===1,'clicking during a remounted running job cannot submit a second export');
+    holdExportStatus=false;exportStatusReleases[0].resolve();exportStatusReleases[1].reject();
+    await waitFor(()=>!!inspector.querySelector('[data-review="retry-export-status"]'),'failed job status remains uncertain and offers retry');
+    check(tab.videoExportStatusUnknown&&exportButton.disabled&&tab.videoExportId==='export-1','failed status confirmation cannot unlock an accepted job');
+    click(inspector.querySelector('[data-review="retry-export-status"]'));
+    await waitFor(()=>tab.videoExportState==='running'&&exportButton.disabled&&!inspector.querySelector('[data-review="retry-export-status"]'),'retry confirms the still-running job and keeps export locked');
+    click(inspector.querySelector('[data-review="cancel"]'));
+    await waitFor(()=>!inspector.querySelector('[data-review="cancel"]').hidden,'export cancel remains available until the job reaches a terminal state');
+    await waitFor(()=>inspector.querySelector('[data-review="cancel"]').hidden===true,'export cancellation settles');
+
+    click(inspector.querySelector('[data-review-tab="trim"]'));
+    check(tab.videoExportId==='export-1'&&tab.videoExportState==='cancelled'&&!exportButton.disabled,'a confirmed cancelled job allows a later export');
+    const historyBeforeAmbiguousPost=exportHistoryReads;
+    failNextExportPost=true;click(inspector.querySelector('[data-review="export"]'));
+    await waitFor(()=>!!inspector.querySelector('[data-review="retry-export-status"]'),'a failed POST exposes history reconciliation');
+    check(tab.videoExportReconcileRequired&&tab.videoExportReconcileBaseline==='export-1'&&exportButton.disabled&&inspector.querySelector('[data-review="cancel"]').hidden,'ambiguous new submission stays locked against the previous terminal id');
+    exportHistoryJobs=[{id:'export-2',state:'running',mode:'encode'},{id:'export-1',state:'cancelled',mode:'copy'}];
+    click(inspector.querySelector('[data-review="retry-export-status"]'));
+    await waitFor(()=>exportHistoryReads>historyBeforeAmbiguousPost&&tab.videoExportId==='export-2'&&tab.videoExportState==='running','retry queries source history and selects the new running job');
+    check(!tab.videoExportReconcileRequired&&tab.videoExportReconcileBaseline===null&&exportButton.disabled,'the new accepted job, not the old cancelled job, keeps export locked');
+    export2State='cancelled';await waitFor(()=>tab.videoExportState==='cancelled'&&!exportButton.disabled,'confirmed terminal status releases the reconciled export lock');
+
+    exportHistoryJobs=[{id:'export-2',state:'cancelled',mode:'encode'},{id:'export-1',state:'done',mode:'copy'}];
+    failNextExportPost=true;click(inspector.querySelector('[data-review="export"]'));
+    await waitFor(()=>!!inspector.querySelector('[data-review="retry-export-status"]')&&tab.videoExportReconcileRequired,'a second ambiguous submission records its previous id');
+    click(inspector.querySelector('[data-review="retry-export-status"]'));
+    await waitFor(()=>!tab.videoExportReconcileRequired&&tab.videoExportId==='export-2'&&tab.videoExportState==='cancelled','history with baseline first and older completed job confirms there is no new export');
+    await waitFor(()=>!inspector.querySelector('.video-job a'),'an older completed history entry is not presented as the ambiguous submission result');
+    check(!exportButton.disabled&&tab.videoExportReconcileBaseline===null,'confirmed no-new history releases the lock while retaining the baseline terminal job');
+
+    deferNextExportPostFailure=true;click(inspector.querySelector('[data-review="export"]'));
+    await waitFor(()=>!!exportPostFailureRelease&&tab.videoExportSubmitting,'the next export POST remains pending across panel disposal');
+    review.destroy();review=window.YingXuVideoReview.mount(player,{tab,api,inspector});
+    workspace=inspector.querySelector('.video-review');timeline=shell.querySelector('.video-trim-timeline');outField=timeline.querySelector('[data-timecode="out"]');exportButton=inspector.querySelector('[data-review="export"]');
+    await waitFor(()=>reviewGets===4&&tab.videoExportSubmitting&&exportButton.disabled,'the remounted workspace observes the old pending submission');
+    exportHistoryJobs=[{id:'export-3',state:'running',mode:'encode'},{id:'export-2',state:'cancelled',mode:'encode'},{id:'export-1',state:'done',mode:'copy'}];
+    exportPostFailureRelease();
+    await waitFor(()=>!!inspector.querySelector('[data-review="retry-export-status"]')&&tab.videoExportReconcileRequired,'the current remount exposes history retry when the detached POST fails');
+    check(exportButton.disabled&&inspector.querySelector('[data-review="cancel"]').hidden,'the remount stays locked and cannot cancel the old terminal job');
+    click(inspector.querySelector('[data-review="retry-export-status"]'));
+    await waitFor(()=>tab.videoExportId==='export-3'&&tab.videoExportState==='running'&&!tab.videoExportReconcileRequired,'the remounted workspace reconciles and adopts the newly accepted job');
+    export3State='cancelled';await waitFor(()=>tab.videoExportState==='cancelled'&&!exportButton.disabled,'confirmed terminal state releases the remounted export lock');
+
+    click(inspector.querySelector('[data-review-tab="frames"]'));
+    await waitFor(()=>!inspector.querySelector('[data-frame="retry-capability"]').hidden,'capability failure offers retry');
+    const capabilityAttempts=capabilityGets;capabilityFailuresRemaining=0;
+    click(inspector.querySelector('[data-frame="retry-capability"]'));
+    await waitFor(()=>capabilityGets>capabilityAttempts&&!inspector.querySelector('[data-frame="start"]').hidden,'capability retry enables indexing');
+    click(inspector.querySelector('[data-frame="start"]'));
+    await waitFor(()=>inspector.querySelector('.frame-locate-row input').max==='2','index becomes ready and offers frame navigation');
+    click(inspector.querySelector('[data-frame="enter"]'));
+    await waitFor(()=>review&&inspector.querySelector('.frame-current-actions').hidden===false&&!shell.querySelector('.frame-overlay').hidden,'decoded frame inspection becomes active');
+    check(timeline.querySelector('.trim-handle-in').disabled&&timeline.querySelector('[data-timecode="out"]').disabled,'time range controls lock during decoded-frame inspection');
+    const oldOut=tab.videoReviewDraft.out,oldMarkers=tab.videoReviewDraft.markers.length;
+    video.currentTime=40;
+    const outButton=timeline.querySelector('[data-review="out"]');outButton.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    outField.value='00:00:40.000';fire(outField,'change');
+    screen.dispatchEvent(new KeyboardEvent('keydown',{key:'o',bubbles:true,cancelable:true}));
+    check(tab.videoReviewDraft.out===oldOut&&tab.videoReviewDraft.markers.length===oldMarkers,'click, timecode and keyboard edits cannot mutate review times while inspecting a decoded frame');
+    check(inspector.querySelector('.frame-locate-row').hidden===false,'arbitrary frame locating stays available during inspection');
+    shell.querySelector('.frame-overlay button').click();
+    await waitFor(()=>!review.isInspecting()&&inspector.querySelector('.frame-current-actions').hidden===true&&!inspector.querySelector('[data-frame="enter"]').hidden,'returning to video retains the indexed frame session');
+    check(!shell.classList.contains('frame-inspecting')&&video.paused,'return from frame inspection leaves playback paused');
+
+    click(inspector.querySelector('[data-review="save"]'));
+    await waitFor(()=>tab.videoReviewSaving&&savePosts===2,'a dirty draft can be saved again');
+    const detachedWorkspace=inspector.querySelector('.video-review');
+    review.destroy();
+    check(!detachedWorkspace.isConnected,'disposing the panel does not cancel a tab-owned save request');
+    holdReviewGet=true;
+    review=window.YingXuVideoReview.mount(player,{tab,api,inspector});
+    await waitFor(()=>reviewGets===5&&!!reviewGetRelease,'review remounts while the prior save and a stale record GET are pending');
+    check(tab.videoReviewSaving&&inspector.querySelector('[data-review="save"]').disabled,'a remount retains pending-save busy state');
+    check(await tab.saveVideoReview()===false,'a remounted panel cannot submit a duplicate save');
+    saveReleases[1]();
+    await waitFor(()=>!tab.videoReviewSaving&&tab.videoReviewRevision==='rev-save-2','successful save after disposal advances shared tab revision');
+    reviewGetRelease();
+    await waitFor(()=>inspector.querySelector('.review-status').textContent.includes('审片记录已载入'),'stale GET returns after the save response');
+    check(tab.videoReviewRevision==='rev-save-2'&&!tab.videoReviewDirty&&tab.videoReviewDraft.markers.length===2,'a stale GET cannot overwrite the newer revision or saved draft');
+    check(!tab.videoReviewDirty&&tab.videoReviewSaved.markers.length===2,'successful detached save clears dirty state and stores its snapshot');
+    note=inspector.querySelector('.video-marker-note');note.value='after detached save';click(inspector.querySelector('[data-review="mark"]'));
+    click(inspector.querySelector('[data-review="save"]'));
+    await waitFor(()=>savePosts===3,'remounted review starts a later save');
+    check(saveBodies[2].revision==='rev-save-2','save after pending-remount uses the latest server revision');
+    saveReleases[2]();await waitFor(()=>!tab.videoReviewSaving&&tab.videoReviewRevision==='rev-save-3','later save commits after pending-remount');
+
+    review.destroy();
+    review=window.YingXuVideoReview.mount(player,{tab,api,inspector});
+    await waitFor(()=>reviewGets===6&&tab.videoReviewRevision==='rev-save-3','review remounted after a completed save reads the latest revision');
+    check(!tab.videoReviewDirty&&tab.videoReviewSaved.markers.length===3,'post-response remount restores the last saved marker snapshot');
+    note=inspector.querySelector('.video-marker-note');note.value='after response remount';click(inspector.querySelector('[data-review="mark"]'));
+    click(inspector.querySelector('[data-review="save"]'));
+    await waitFor(()=>savePosts===4,'review can save after a post-response remount');
+    check(saveBodies[3].revision==='rev-save-3','save after post-response remount uses the committed revision');
+    saveReleases[3]();await waitFor(()=>!tab.videoReviewSaving&&tab.videoReviewRevision==='rev-save-4','post-response remount save commits cleanly');
+
+    const timelineNode=shell.querySelector('.video-trim-timeline'),workspaceNode=inspector.querySelector('.video-review');
+    review.destroy();
+    check(!timelineNode.isConnected&&!workspaceNode.isConnected,'dispose removes timeline and tool workspace');
+    check(!shell.querySelector('.frame-overlay'),'dispose releases the decoded-frame overlay');
+    document.querySelector('#result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({checks,ok:true}))));
+  })().catch(error=>{document.querySelector('#result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({ok:false,error:String(error),stack:error.stack}))));});
+`);
+  fs.writeFileSync(path.join(temp,'fixture.html'),`<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="video-review.css"><style>body{margin:0}#inspector{width:340px;height:800px}#mount{height:400px}</style><div id="mount"></div><pre id="result">running</pre><script src="video-frames.js"></script><script src="video-review.js"></script><script src="runner.js"></script>`);
+  const {stdout}=await promisify(execFile)(browser,['--headless','--disable-gpu','--no-first-run','--disable-background-networking','--allow-file-access-from-files',`--user-data-dir=${path.join(temp,'profile')}`,'--virtual-time-budget=20000','--dump-dom',pathToFileURL(path.join(temp,'fixture.html')).href],{windowsHide:true,timeout:45000,maxBuffer:4*1024*1024});
+  const match=stdout.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match,stdout.slice(-3000));
+  const result=JSON.parse(Buffer.from(match[1],'base64').toString('utf8'));
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.ok(result.checks.length>=18,JSON.stringify(result.checks));
+});

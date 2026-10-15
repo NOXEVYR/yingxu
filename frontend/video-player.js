@@ -10,9 +10,9 @@
   function mount(parent, options) {
     const controller=new AbortController(), signal=controller.signal;
     const shell=document.createElement('section'); shell.className='video-player';
-    shell.innerHTML=`<div class="video-screen" tabindex="0" aria-label="视频播放器"><video playsinline preload="auto"></video><div class="video-message" role="status"></div><div class="video-controls"><input class="video-seek" type="range" min="0" max="1" step="0.001" value="0" aria-label="播放位置"><div class="video-buttons"><button data-command="play" title="播放 / 暂停 · 空格">播放</button><button data-command="back" title="后退 5 秒 · ←">−5s</button><button data-command="forward" title="前进 5 秒 · →">+5s</button><output class="video-time">00:00:00.000 / —</output><span class="video-spacer"></span><button data-command="mute" title="静音 · M">声音</button><input class="video-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量"><select class="video-rate" aria-label="播放倍速">${[.25,.5,.75,1,1.25,1.5,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n}×</option>`).join('')}</select><button data-command="loop" aria-pressed="false" title="循环播放 · L">循环</button><button data-command="fullscreen" title="全屏 · F / 双击；Esc 退出">全屏</button></div></div></div>`;
+    shell.innerHTML=`<div class="video-screen" tabindex="0" aria-label="视频播放器"><video playsinline preload="auto"></video><div class="video-message" role="status"></div><div class="video-control-hit-area" aria-hidden="true"></div><div class="video-controls"><input class="video-seek" type="range" min="0" max="1" step="0.001" value="0" aria-label="播放位置（方向键跳转 5 秒，Shift 加方向键跳转 30 秒；Home 和 End 跳到开头或结尾）" aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight Home End PageUp PageDown"><div class="video-buttons"><div class="video-transport"><button type="button" data-command="play" title="播放 / 暂停 · 空格">播放</button><button type="button" data-command="back" title="后退 5 秒 · ←">−5s</button><button type="button" data-command="forward" title="前进 5 秒 · →">+5s</button><output class="video-time">00:00:00.000 / —</output></div><span class="video-spacer"></span><div class="video-utility"><button type="button" data-command="mute" title="静音 · M">声音</button><input class="video-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量"><select class="video-rate" aria-label="播放倍速">${[.25,.5,.75,1,1.25,1.5,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n}×</option>`).join('')}</select><button type="button" data-command="loop" aria-pressed="false" title="循环播放 · L">循环</button><button type="button" data-command="fullscreen" title="全屏 · F / 双击；Esc 退出">全屏</button></div></div></div></div>`;
     parent.replaceChildren(shell);
-    const $=q=>shell.querySelector(q), screen=$('.video-screen'),video=$('video'), controls=$('.video-controls'),message=$('.video-message'),seekbar=$('.video-seek');
+    const $=q=>shell.querySelector(q), screen=$('.video-screen'),video=$('video'), controls=$('.video-controls'),hitArea=$('.video-control-hit-area'),message=$('.video-message'),seekbar=$('.video-seek');
     video.setAttribute('aria-label',options.name||'视频');
     let destroyed=false, hideTimer=0, scrubbing=false, wasPlaying=false, started=false, frameCallback=0, ab=null, lastPTS=null;
     const on=(node,event,fn,extra={})=>node.addEventListener(event,fn,{signal,...extra});
@@ -27,7 +27,9 @@
       const duration=video.duration,available=Number.isFinite(duration)&&duration>0;
       seekbar.disabled=!available; seekbar.max=available?duration:1;
       if(!scrubbing)seekbar.value=Number.isFinite(video.currentTime)?video.currentTime:0;
-      $('.video-time').textContent=`${time(scrubbing?Number(seekbar.value):video.currentTime)} / ${time(duration)}`;
+      const position=scrubbing?Number(seekbar.value):video.currentTime;
+      $('.video-time').textContent=`${time(position)} / ${time(duration)}`;
+      seekbar.setAttribute('aria-valuetext',available?`播放位置 ${time(position)}，总时长 ${time(duration)}`:'视频时长未知');
       $('[data-command="play"]').textContent=video.paused?'播放':'暂停';
       $('[data-command="mute"]').textContent=video.muted||!video.volume?'静音':'声音';
       $('.video-volume').value=video.muted?0:video.volume;
@@ -44,13 +46,28 @@
       reveal();
     }
     const commands={play:toggle,back:()=>seek(video.currentTime-5),forward:()=>seek(video.currentTime+5),mute:()=>{video.muted=!video.muted;},loop:()=>{video.loop=!video.loop;update();},fullscreen};
-    on(controls,'click',event=>{const button=event.target.closest('[data-command]');if(button){commands[button.dataset.command]?.(); screen.focus({preventScroll:true});reveal();}});
+    on(hitArea,'pointerenter',reveal);on(hitArea,'pointermove',reveal);
+    on(controls,'pointerenter',reveal);
+    on(controls,'click',event=>{const button=event.target.closest('[data-command]');if(button){commands[button.dataset.command]?.();reveal();}});
     on(video,'click',toggle);on(video,'dblclick',event=>{event.preventDefault();fullscreen();});
     on(screen,'pointermove',reveal);on(screen,'pointerleave',reveal);on(screen,'focusin',reveal);on(screen,'focusout',reveal);
     function beginScrub(){if(scrubbing)return;wasPlaying=!video.paused;scrubbing=true;video.pause();reveal();}
     function finishScrub(cancel=false){if(!scrubbing)return; if(!cancel)seek(Number(seekbar.value));scrubbing=false;if(wasPlaying)play();reveal();}
     on(seekbar,'pointerdown',beginScrub);on(seekbar,'input',()=>{beginScrub();update();});on(seekbar,'change',()=>finishScrub());
     on(window,'pointerup',()=>finishScrub());on(window,'pointercancel',()=>finishScrub(true));on(seekbar,'blur',()=>finishScrub());
+    on(seekbar,'keydown',event=>{
+      if(event.defaultPrevented||event.isComposing||event.keyCode===229||event.ctrlKey||event.metaKey||event.altKey||seekbar.disabled)return;
+      let target=Number(seekbar.value),handled=true;
+      if(event.key==='ArrowLeft')target-=event.shiftKey?30:5;
+      else if(event.key==='ArrowRight')target+=event.shiftKey?30:5;
+      else if(event.key==='PageDown')target-=30;
+      else if(event.key==='PageUp')target+=30;
+      else if(event.key==='Home')target=0;
+      else if(event.key==='End')target=video.duration;
+      else handled=false;
+      if(!handled)return;
+      event.preventDefault();event.stopPropagation();seek(clamp(target,0,video.duration));update();
+    });
     on($('.video-volume'),'input',event=>{video.volume=Number(event.target.value);video.muted=false;});
     on($('.video-rate'),'change',event=>{video.playbackRate=Number(event.target.value);});
     on(screen,'keydown',event=>{
