@@ -25,7 +25,8 @@ class VideoReviewTests(unittest.TestCase):
             subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=s=320x180:r=24:d=3',
                             '-f','lavfi','-i','sine=frequency=880:duration=3','-c:v','libx264','-threads','1','-g','48','-c:a','aac',str(self.video)], check=True)
         else:
-            self.video.write_bytes(b'validation fixture only')
+            # Metadata/HTTP tests still need enough bytes for bounded Range requests.
+            self.video.write_bytes(bytes(range(256)) * 4)
         self.iid = self.app.external.open({'paths':[str(self.video)]})['entries'][0]['id']
         self.service = self.app.video_review
         self.original = hashlib.sha256(self.video.read_bytes()).hexdigest()
