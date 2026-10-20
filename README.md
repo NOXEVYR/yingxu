@@ -4,9 +4,9 @@ Windows 0.4.37 / review.1 已发布：视频工作区提供右侧剪辑、标记
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-**Windows 当前为 0.4.37 / review.1；macOS 当前为 0.4.31-mac.1 试用版。** 本次 Windows 包与已验收的本地交付包一致，包含真实解码逐帧检查及 FFV1 源帧范围导出（仅视频、不含音频）。0.4.37 尚未完成 Mac 原生验收。现有 Mac 包来自独立来源提交 [`a226144`](https://github.com/NOXEVYR/yingxu/tree/a2261448545b094dbe6af83debfbfdc9d097447b)，适用于 macOS 14+、Apple Silicon，采用临时 ad hoc 签名，未公证；其验收范围见 [0.4.31 双端交付说明](docs/release-0.4.31.md)。
+**Windows 当前为 0.4.37 / review.1；macOS 当前为 0.4.37-mac.1 试用版。** Windows 包与已验收的本地交付包一致，包含真实解码逐帧检查及 FFV1 源帧范围导出（仅视频、不含音频）。Mac 同步视频工作区、选段预览、按时间裁切及保留播放位置和草稿的布局切换；最终包和上传回读各通过 33 项整包、原生与 WKWebView 检查。Mac 包来自 [`125dcc8`](https://github.com/NOXEVYR/yingxu/tree/125dcc8a4d36306c7bbbc813bc12410859e14cdb)，适用于 macOS 14+、Apple Silicon，采用 ad hoc 签名，未公证；逐帧检查、严格 FFV1 导出和 Windows 独立快速播放器不在 Mac 功能范围内。[双端交付与验证说明](docs/release-0.4.37.md)。
 
-[下载 Windows 0.4.37 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.37/YingXu-v0.4.37-Windows-x64.zip) · [Windows 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37) · [下载 macOS 0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31-mac.1/YingXu-v0.4.31-mac.1-macOS-arm64.zip) · [macOS 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1)。
+[下载 Windows 0.4.37 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.37/YingXu-v0.4.37-Windows-x64.zip) · [Windows 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37) · [下载 macOS 0.4.37-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.37-mac.1/YingXu-v0.4.37-mac.1-macOS-arm64.zip) · [macOS 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37-mac.1)。
 
 [0.4.28 更新修补](docs/releases/0.4.28.md) · [0.4.27 工作台改进](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 当前试用版说明](macos/README.md)
 
@@ -48,7 +48,7 @@ Windows 0.4.37 / review.1 已发布：视频工作区提供右侧剪辑、标记
 
 Windows 完整包自带 Python、图片处理组件、FFmpeg 和 WebView2，完整解压后双击即可使用。
 
-macOS 0.4.31-mac.1 试用包适用于 macOS 14+、Apple Silicon（arm64），采用临时 ad hoc 签名，未进行 Apple Developer ID 签名或公证。中文输入法、不同显示缩放、系统权限提示与长期使用仍需真实 Mac 验收；来源、校验值与自动验收范围见[本轮交付与验证说明](docs/release-0.4.31.md)。
+macOS 0.4.37-mac.1 试用包适用于 macOS 14+、Apple Silicon（arm64），采用 ad hoc 签名，未进行 Apple Developer ID 签名或公证。中文输入法、不同显示缩放、系统权限提示与长期使用仍需人工验收；来源、校验值与自动验收范围见[本轮交付与验证说明](docs/release-0.4.37.md)。
 
 **0.4.17 已收录修复：磁盘目录同步与拖拽移动。** 项目内部文件按真实的分类目录和子文件夹显示，重新同步也会修正未变更文件的旧分类；磁盘新增的嵌套和空文件夹可被识别。打开项目、返回映序窗口时按需检查当前项目目录，无常驻磁盘轮询；刷新按钮仍可手动同步全部登记来源。从资源管理器拖入当前项目已有文件时移动原文件，落在原位置则保持不变；外部文件仍复制导入，导入对话框的复制功能不变。Windows 对已记录且可核对文件标识、创建时间的同一文件，支持在项目内外部移动后保留条目身份；无法确认身份时保留原记录，不按同名或相同内容猜测。
 

@@ -8,7 +8,9 @@ Mac 的逐帧检查和严格 FFV1 源帧导出尚未启用；普通时间定位�
 
 [macOS 0.4.37-mac.1 发布与校验附件](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37-mac.1) · [交付说明](../docs/release-0.4.37.md)
 
-完整包验证以发布附件中的 `verification.json` 和 `readback-verification.json` 为准：前者检查构建包，后者在 Mac 上重新下载并运行上传后的实际包。真实用户的中文输入法、权限提示、不同显示缩放与长期使用仍需实际反馈。
+2026-10-20 已公开。来源提交为 `125dcc8a4d36306c7bbbc813bc12410859e14cdb`，Bundle 版本 `0.4.37 / 43701`。ZIP 为 76997966 字节，SHA-256 为 `be8c86987ea5bfbb426bdd5a5ded14dd514113a3555b3f0b5d245eb0e17c6087`。
+
+最终 ZIP 与上传后从 GitHub 回读的原包均在 Mac 上通过 33 项包、原生与 WKWebView 检查，详见发布附件中的 `verification.json`、`readback-verification.json` 和 `regression-evidence.json`。真实用户的中文输入法、权限提示、不同显示缩放与长期使用仍需人工验收。
 
 ## 0.4.31-mac.1 历史发布说明
 
@@ -168,6 +170,6 @@ ZIP：76906033 字节；SHA-256：`0c05cbaa906d2d03db2eb7c0846d71c33ce9dbb331af2
 
 在 macOS 的独立 Python 3.13 环境从应用目录运行 `python -B macos/prepare_dependencies.py`，
 按 `macos/dependencies-lock.json` 下载并校验全部构建档案。然后运行 `python -B macos/build.py`，
-再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.31-mac.1-macOS-arm64.zip`
+再用 `python -B macos/verify_release.py releases/macos-preview/YingXu-v0.4.37-mac.1-macOS-arm64.zip`
 验证最终解压包、签名和 WKWebView。使用 `python macos_app.py` 进行源码运行。
 打包不读取个人项目、数据库、缓存、技能目录或本机配置。依赖版本记录随构建结果交付。

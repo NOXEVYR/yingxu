@@ -1,6 +1,6 @@
 # 映序 0.4.37 / review.1 · 视频工作区
 
-本版整理 Windows 视频工作台与快速播放器的操作方式。单段视频裁切沿用现有导出服务，不修改源视频。
+本版整理 Windows 与 macOS 视频工作台，并改进 Windows 独立快速播放器。单段视频裁切沿用现有导出服务，不修改源视频。
 
 ## 浏览与聚焦
 
@@ -17,7 +17,7 @@
 
 逐帧检查沿用 0.4.36 的 Windows 解码与像素核验。进入解码静帧时停用基于播放时间的粗剪控件，返回视频后恢复。严格源帧范围导出仍为 FFV1 MKV/NUT，仅视频、不含音频。
 
-## 快速播放
+## Windows 快速播放
 
 鼠标移向画面底部时唤出进度与控制条；暂停、操作滑条或键盘焦点在控制项时保持可见。方向键定位、倍速、音量和全屏沿用现有播放状态，不新增后台解码器。
 
@@ -25,9 +25,9 @@
 
 定向前端测试覆盖控制条状态、裁切范围、预览选段、审片保存、面板重新挂接和工作台模式；Windows 原生 WebView 测试覆盖真实鼠标命中、键盘、布局与实际视频/后端。最终完整包继续执行清单、运行库、真实帧和导出验证。实际运行结果和截图随本地交付记录保存，文档本身不代表测试已经执行。
 
-本次交付为 Windows。macOS 原生界面及逐帧能力不由本次 Windows 验证代替。
+Windows 与 macOS 使用各自的完整包验收；Mac 原生与 WKWebView 结果见下方，不由 Windows 验证代替。
 
-## 公开发行
+## Windows 公开发行
 
 2026-10-20 上传已完成本地交付的同一份 Windows 完整包，未重新构建。83 个前端回归脚本、Windows 原生 WebView 交互与最终包隔离验收已通过；发布时完整下载草稿附件并核对大小、SHA-256 和 ZIP 完整性后公开。
 
@@ -37,4 +37,14 @@
 - SHA-256：`872097483860f72e131cf8ed71d1ba2e5471a0ecf3b45877f6efa8173b39d5fd`
 - 内部清单 SHA-256：`a750c23fac6c68aabd93a9bf24f47ece86450fba12761eac51d0bd897ad007f2`
 
-macOS 继续提供已经独立验收的 [0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1)。Windows 0.4.37 的验证不代表 Mac 同版本已可用。
+## macOS 公开发行
+
+2026-10-20 发布 [0.4.37-mac.1 试用包与校验附件](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37-mac.1)，面向 macOS 14+、Apple Silicon。同步视频工作区、时间定位、选段预览与单片段导出；Mac 的受控逐帧检查和严格 FFV1 导出继续关闭。采用 ad hoc 签名，未进行 Apple 公证。
+
+- 来源提交：`125dcc8a4d36306c7bbbc813bc12410859e14cdb`；Bundle 版本 `0.4.37 / 43701`。
+- ZIP：`YingXu-v0.4.37-mac.1-macOS-arm64.zip`，76997966 字节，1051 个条目，单一 `YingXu/` 根目录。
+- SHA-256：`be8c86987ea5bfbb426bdd5a5ded14dd514113a3555b3f0b5d245eb0e17c6087`
+- [完整回归基线](https://github.com/NOXEVYR/yingxu/actions/runs/39384526059)：提交 `6f27a0739fb3e3dbec3fc28756e34c45934982e3` 的后端和前端步骤均通过，1157 项后端测试中 49 项按平台或依赖条件跳过，83 个前端脚本完成。后续只修正 Mac 原生验收探针与执行选项，产品功能代码不变；发布附件 `regression-evidence.json` 记录对应范围。
+- [最终 ZIP 验收](https://github.com/NOXEVYR/yingxu/actions/runs/39387534634)与[上传后 Mac 原包回读验收](https://github.com/NOXEVYR/yingxu/actions/runs/39388205144)各通过 33 项检查，包括实际 H.264 播放时钟、选段出点暂停、草稿保存回读、同一播放器及草稿的布局切换、900px 工具抽屉，以及导出 MP4 的完整解码和选段时长。
+
+所有写入检查使用临时合成项目，未使用真实用户数据。WebKit 合成点击与按键不代表原生鼠标键盘验收；中文输入法、系统权限提示、显示缩放和长期使用仍待人工验证。既有 Windows 0.4.37 公开包保持不变。
