@@ -2,6 +2,11 @@ name: YingXu Windows and macOS release candidates
 on:
   workflow_dispatch:
     inputs:
+      macos_package_only:
+        description: 'Mac package/native checks only; requires separately recorded regressions for unchanged product code'
+        type: boolean
+        default: false
+        required: false
       source_commit:
         description: 'Exact reviewed commit SHA of the selected ref; build and verify only'
         type: string
@@ -126,14 +131,25 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
       - name: Run backend regressions
+        if: ${{ !inputs.macos_package_only }}
         run: |
           python -B -m unittest discover -s tests -v
       - name: Run frontend regressions
+        if: ${{ !inputs.macos_package_only }}
         run: |
           node --check frontend/app.js
           node --check frontend/xmind-editor.js
           test -x "$YINGXU_TEST_BROWSER"
           for test in tests/frontend_*.cjs; do node "$test"; done
+      - name: Record Mac validation scope
+        env:
+          PACKAGE_ONLY: ${{ inputs.macos_package_only }}
+        run: |
+          if [[ "$PACKAGE_ONLY" == "true" ]]; then
+            echo 'Package/native/WKWebView checks only. Backend and browser regressions were not run by this job; use separately recorded results for unchanged product code.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Full backend, browser, package/native/WKWebView checks.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Build and verify final Apple Silicon ZIP
         run: |
           python -B macos_app.py --smoke-test
