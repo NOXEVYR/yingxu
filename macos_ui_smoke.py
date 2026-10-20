@@ -268,7 +268,9 @@ def run():
                 result['checks'].append('审片记录保存到隔离 sidecar，WKWebView API 与后端回读均匹配草稿')
 
                 window.run_js("document.querySelector('[data-review-tab=\"trim\"]').click();document.querySelector('[data-review=\"export\"]').click();true")
-                wait_video(lambda:window.run_js("activeTab().videoExportState==='done'&&Boolean(document.querySelector('.video-job a[href]'))"),25,'Trim export completion')
+                wait_video(lambda:window.run_js("['done','error','cancelled'].includes(activeTab().videoExportState)"),25,'Trim export completion')
+                exported=read_json("(()=>({state:activeTab().videoExportState,message:document.querySelector('.video-job').textContent,reveal:[...document.querySelectorAll('.video-job button')].some(button=>button.textContent==='在文件夹中查看片段'&&!button.disabled)}))()")
+                assert exported['state']=='done' and exported['reveal'],exported
                 export_id=window.run_js("activeTab().videoExportId")
                 output=app.video_review.output(export_id)
                 assert output.is_file() and output.stat().st_size>1000 and output.is_relative_to(root/'data'),str(output)
