@@ -26,3 +26,15 @@
 定向前端测试覆盖控制条状态、裁切范围、预览选段、审片保存、面板重新挂接和工作台模式；Windows 原生 WebView 测试覆盖真实鼠标命中、键盘、布局与实际视频/后端。最终完整包继续执行清单、运行库、真实帧和导出验证。实际运行结果和截图随本地交付记录保存，文档本身不代表测试已经执行。
 
 本次交付为 Windows。macOS 原生界面及逐帧能力不由本次 Windows 验证代替。
+
+## 公开发行
+
+2026-10-20 上传已完成本地交付的同一份 Windows 完整包，未重新构建。83 个前端回归脚本、Windows 原生 WebView 交互与最终包隔离验收已通过；发布时完整下载草稿附件并核对大小、SHA-256 和 ZIP 完整性后公开。
+
+- [Windows 发布页与校验附件](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37)
+- 来源提交：`8be81f60bd294b74083778e5b95b4184af09a33f`
+- ZIP：`YingXu-v0.4.37-Windows-x64.zip`，486313148 字节，1819 个条目，单一 `YingXu/` 根目录。
+- SHA-256：`872097483860f72e131cf8ed71d1ba2e5471a0ecf3b45877f6efa8173b39d5fd`
+- 内部清单 SHA-256：`a750c23fac6c68aabd93a9bf24f47ece86450fba12761eac51d0bd897ad007f2`
+
+macOS 继续提供已经独立验收的 [0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1)。Windows 0.4.37 的验证不代表 Mac 同版本已可用。

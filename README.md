@@ -1,12 +1,12 @@
 # 映序 · AI 资产与项目管理
 
-Windows 0.4.31 / xmind.3 已发布，完善 [XMind 思维导图工作区](docs/xmind.md)：左键框选、多选批量删除与撤销、标签和任务标记、批量备注与样式，以及跨项目文件、网址和主题链接。[本轮交付与验证说明](docs/release-0.4.31.md)。macOS 0.4.31-mac.1 也已通过云端原生与 WebKit 验收并提供下载，适用于 macOS 14+、Apple Silicon（arm64）；该试用包采用临时 ad hoc 签名，未公证。
+Windows 0.4.37 / review.1 已发布：视频工作区提供右侧剪辑、标记、逐帧和文件工具，以及可拖动入出点的单片段粗剪时间轴。浏览与聚焦模式保留播放位置和审片草稿；快速播放器在鼠标移向底部时显示控制条。[本轮交付与验证说明](docs/release-0.4.37.md)。保留 [XMind 思维导图工作区](docs/xmind.md) 的框选、批量标注和跨项目链接。
 
 以创作项目为中心的本地文稿与素材工作台：整理图片、视频、声音和制作进度，管理可选技能及 AI 协作交接。
 
-**Windows 0.4.31 / xmind.3 与 macOS 0.4.31-mac.1 均已发布。** Mac 包来自独立来源提交 [`a226144`](https://github.com/NOXEVYR/yingxu/tree/a2261448545b094dbe6af83debfbfdc9d097447b)，适用于 macOS 14+、Apple Silicon；采用临时 ad hoc 签名，未公证。双端来源、校验值与验收范围见[本轮交付与验证说明](docs/release-0.4.31.md)。
+**Windows 当前为 0.4.37 / review.1；macOS 当前为 0.4.31-mac.1 试用版。** 本次 Windows 包与已验收的本地交付包一致，包含真实解码逐帧检查及 FFV1 源帧范围导出（仅视频、不含音频）。0.4.37 尚未完成 Mac 原生验收。现有 Mac 包来自独立来源提交 [`a226144`](https://github.com/NOXEVYR/yingxu/tree/a2261448545b094dbe6af83debfbfdc9d097447b)，适用于 macOS 14+、Apple Silicon，采用临时 ad hoc 签名，未公证；其验收范围见 [0.4.31 双端交付说明](docs/release-0.4.31.md)。
 
-[下载 Windows 0.4.31 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31/YingXu-v0.4.31-Windows-x64.zip) · [Windows 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31) · [下载 macOS 0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31-mac.1/YingXu-v0.4.31-mac.1-macOS-arm64.zip) · [macOS 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1) · [双端交付验证详情](docs/release-0.4.31.md)。
+[下载 Windows 0.4.37 完整包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.37/YingXu-v0.4.37-Windows-x64.zip) · [Windows 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37) · [下载 macOS 0.4.31-mac.1 试用包](https://github.com/NOXEVYR/yingxu/releases/download/yingxu-v0.4.31-mac.1/YingXu-v0.4.31-mac.1-macOS-arm64.zip) · [macOS 发布与附件校验](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.31-mac.1)。
 
 [0.4.28 更新修补](docs/releases/0.4.28.md) · [0.4.27 工作台改进](docs/releases/0.4.27.md) · [Stage J 源码预览的历史验收边界](docs/source-preview-stage-j-20261002.md) · [Windows 程序发布页](https://github.com/NOXEVYR/yingxu/releases) · [macOS 当前试用版说明](macos/README.md)
 

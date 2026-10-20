@@ -77,8 +77,8 @@ python tools/verify_release.py releases/YingXu-v0.4.4-Windows-x64.zip
 
 构建下载是开发者明确执行的步骤，普通用户启动时不联网安装依赖。下载来源、许可证和固定运行时更新责任见 [第三方组件说明](THIRD_PARTY_NOTICES.md)。使用指南会显示图片、视频缩略图和桌面拖出能力是否可用。
 
-## 视频播放器源码候选（0.4.33 / frames.1）
+## 视频工作区与 Windows 逐帧（0.4.37 / review.1）
 
-新增 Windows 独立视频快速模式、共用标题栏入口、宿主全屏和工作台审片/非破坏单区间导出。该候选尚未生成或验收 Windows 原生安装包，不改变上述已发布下载。运行、构建与实际验证边界见 [视频播放器候选说明](docs/video-player-candidate.md)。
+Windows 完整包已包含独立视频快速模式、宿主全屏、右侧剪辑/标记/逐帧/文件工具，以及可拖动入出点的单区间导出。浏览与聚焦工作台保留同一播放器、审片草稿与帧索引；Ctrl+S 保存审片草稿。包与原生交互已完成隔离验收，详见 [0.4.37 交付说明](docs/release-0.4.37.md)。
 
-主工作台另提供可取消的暂停帧检查（源开发环境需已有同版本 FFmpeg、ffprobe 与 Pillow）。按真实展示序号解码静帧，保留整数 PTS 和时间基，普通浏览器 seek 仍是近似定位。Windows 锁定工具档案下载遭代理 403，未核验其中 ffprobe；Windows/Mac 此能力明确关闭。没有按帧范围导出，也未更换媒体引擎。
+主工作台提供可取消的暂停帧检查：Windows 完整包使用已验收的锁定 FFmpeg、ffprobe 与 Pillow，按真实展示序号解码静帧，保留整数 PTS 和时间基。普通浏览器 seek 仍是近似定位；严格源帧范围导出为 FFV1 MKV/NUT，仅视频、不含音频。本次未构建新的 Mac 包，macOS 逐帧能力仍关闭。早期候选的阶段限制保留在 [历史开发说明](docs/video-player-candidate.md) 中。
