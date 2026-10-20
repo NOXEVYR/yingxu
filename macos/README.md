@@ -1,4 +1,16 @@
-# 映序 macOS 0.4.31-mac.1
+# 映序 macOS 0.4.37-mac.1
+
+本版面向 macOS 14+、Apple Silicon（M 系列芯片），同步 0.4.37 的视频工作区：右侧剪辑、标记和文件工具，画面下方可拖动入点/出点的单片段粗剪时间轴，以及保留播放位置与审片草稿的浏览/聚焦布局。
+
+支持实际播放、时间码定位、选段预览、审片记录保存和单片段导出。MP4 重编码保留第一条音轨；快速复制使用 MKV，受关键帧限制。导出生成新文件，原视频保留。窄窗口通过“工具”打开右侧抽屉。保留 XMind 工作区、文稿编辑、素材整理及项目文件链接。
+
+Mac 的逐帧检查和严格 FFV1 源帧导出尚未启用；普通时间定位不是逐帧定位。Windows 独立快速播放器、全局截图和原生拖出也不属于本包的平台功能。当前仍为未公证的 Apple Silicon 试用版。
+
+[macOS 0.4.37-mac.1 发布与校验附件](https://github.com/NOXEVYR/yingxu/releases/tag/yingxu-v0.4.37-mac.1) · [交付说明](../docs/release-0.4.37.md)
+
+完整包验证以发布附件中的 `verification.json` 和 `readback-verification.json` 为准：前者检查构建包，后者在 Mac 上重新下载并运行上传后的实际包。真实用户的中文输入法、权限提示、不同显示缩放与长期使用仍需实际反馈。
+
+## 0.4.31-mac.1 历史发布说明
 
 本版面向 macOS 14+、Apple Silicon（M 系列芯片），同步 Windows 0.4.31 的 XMind 工作区：导入与新建、双击编辑、左键框选、多选批量标注、Delete 删除与撤销、中键平移、Command / Ctrl 滚轮缩放，以及分支中的网页、项目文件和导图主题链接。
 
@@ -16,11 +28,11 @@ ZIP：76906033 字节；SHA-256：`0c05cbaa906d2d03db2eb7c0846d71c33ce9dbb331af2
 
 ## 当前试用版安装与平台范围
 
-当前试用版为 **0.4.31-mac.1**，适用于 **macOS 14+、Apple Silicon（arm64）**；下载与校验入口见本页顶部。沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）。
+当前试用版为 **0.4.37-mac.1**，适用于 **macOS 14+、Apple Silicon（arm64）**；下载与校验入口见本页顶部。沿用 0.4.6 的四角取景框应用图标（`viewfinder-v1`）。
 
 ## 安装
 
-完整解压顶部所列的 `YingXu-v0.4.31-mac.1-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
+完整解压 `YingXu-v0.4.37-mac.1-macOS-arm64.zip`，将 `YingXu.app` 拖入“应用程序”，双击打开。
 自带 Python、Pillow、FFmpeg 和本地编辑器；窗口使用 macOS 系统 WebKit。
 正常使用无需安装 Python、Node.js 或 Homebrew，也不在启动时下载组件。
 
